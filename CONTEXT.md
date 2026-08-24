@@ -11,11 +11,15 @@ A design authored as code, with no pixel size of its own. It declares the data i
 _Avoid_: layout, design, banner, creative
 
 **Channel**:
-A place a Render is published, which fixes one output size — LinkedIn, Instagram, X, Facebook. A channel needing a second shape, such as an Instagram story, is its own Channel rather than a variant of an existing one.
-_Avoid_: platform, network, target, preset, size, placement
+A place a Render is published — LinkedIn, Instagram, X, Facebook. A Channel offers one or more Placements.
+_Avoid_: platform, network, target
+
+**Placement**:
+A way of posting within a Channel, which fixes one output size — a post, a story. Written as `<channel>/<placement>`, for example `instagram/story`.
+_Avoid_: preset, size, format, variant, aspect ratio
 
 **Render**:
-A stored image or PDF produced from one Template, one set of data and one Channel, reachable at a stable URL. The same three inputs always yield the same Render.
+A stored image or PDF produced from one Template, one set of data and one Placement, reachable at a stable URL. The same three inputs always yield the same Render.
 _Avoid_: output, generation, asset, artifact
 
 ### Carousels
