@@ -344,56 +344,65 @@ export const races: DemoRace[] = [
   {
     round: 1,
     circuit: "Franciacorta",
-    location: "Franciacorta, Italien",
+    location: "Castrezzato, Italien",
     date: "29. März 2026",
     season: "Schweizer Kart Meisterschaft 2026",
     category: "Super Mini / X30 / OK Junior / KZ2",
-    // Wikimedia Commons, motorsport at this circuit.
+    // Wikimedia Commons: circuit layout. The kart track adjoins this circuit.
     trackImage:
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Massimiliano_Clerici_Stilo_Corse_Franciacorta1.JPG/1920px-Massimiliano_Clerici_Stilo_Corse_Franciacorta1.JPG",
+      "https://upload.wikimedia.org/wikipedia/commons/3/38/Franciacorta_International_Circuit_layout.png",
   },
   {
     round: 2,
-    circuit: "7 Laghi",
+    circuit: "7 Laghi Kart",
     location: "Castelletto di Branduzzo, Italien",
     date: "19. April 2026",
     season: "Schweizer Kart Meisterschaft 2026",
     category: "Super Mini / X30 / OK Junior / KZ2",
+    // Track layout from the circuit's own site.
+    trackImage: "https://7laghikartitalia.it/images/circuito.png",
   },
   {
     round: 3,
-    circuit: "Levier",
-    location: "Levier, Frankreich",
+    circuit: "Circuit de l'Enclos",
+    location: "Septfontaines / Levier, Frankreich",
     date: "31. Mai 2026",
     season: "Schweizer Kart Meisterschaft 2026",
     category: "Super Mini / X30 / OK Junior / KZ2",
+    // Aerial photo of both tracks, from the circuit's own site.
+    trackImage: "https://circuitdelenclos.com/upload/contenu/Plan-Aerien-Piste-2018.jpg",
   },
   {
     round: 4,
-    circuit: "7 Laghi",
+    circuit: "7 Laghi Kart",
     location: "Castelletto di Branduzzo, Italien",
     date: "12. Juli 2026",
     season: "Schweizer Kart Meisterschaft 2026",
     category: "Super Mini / X30 / OK Junior / KZ2",
+    trackImage: "https://7laghikartitalia.it/images/circuito.png",
   },
   {
     round: 5,
-    circuit: "Cremona",
-    location: "Cremona, Italien",
+    circuit: "Cremona Circuit",
+    location: "San Martino del Lago, Italien",
     date: "23. August 2026",
     season: "Schweizer Kart Meisterschaft 2026",
     category: "Super Mini / X30 / OK Junior / KZ2",
-    // Wikimedia Commons, the circuit's own finish line.
+    // Wikimedia Commons photo of the circuit's finish line. Commons also has a
+    // layout diagram, but only as SVG, which the renderer does not decode.
     trackImage:
       "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Cremona_Circuit_finish_line.jpg/1920px-Cremona_Circuit_finish_line.jpg",
   },
   {
     round: 6,
-    circuit: "Wohlen",
-    location: "Wohlen, Schweiz",
+    circuit: "Kart-Bahn Wohlen",
+    location: "Waltenschwil, Schweiz",
     date: "10. Oktober 2026",
     season: "Schweizer Kart Meisterschaft 2026",
-    category: "Super Mini / X30 / OK Junior / KZ2",
+    category: "Super Mini / X30 / OK Junior / KZ2 — Finale",
+    // Facility photo from the track's own site.
+    trackImage:
+      "https://www.kartbahnwohlen.ch/wp-content/uploads/2022/10/kartbahn-img1.jpg",
   },
 ];
 
@@ -413,7 +422,12 @@ export const products = [
     productImage: `${SHOP_IMG}/6813_kl.jpg`,
     category: "Karts & Chassis / Racing",
     badge: "Ready to drive",
-    specs: ["Motor: BMB L-X", "Reifen: LeCont LMK", "Komplett, fahrbereit", "Klasse: Mini"],
+    specs: [
+      "Motor: BMB L-X",
+      "Reifen: LeCont LMK",
+      "Komplett, fahrbereit",
+      "Artikel-Nr. 104500",
+    ],
   },
   {
     name: "Kid's Kart Delfino",
@@ -425,41 +439,43 @@ export const products = [
       "Motor: Honda GX 35, 35 ccm 4-Takt",
       "Leistung: 1.3 PS bei 7'000 U/Min",
       "Chassis: Delfino, 25 mm Rahmen",
-      "Radstand: 800 mm",
-      "Reifen: Bridgestone",
+      "Radstand: 800 mm, Achse 30 mm",
+      "Reifen: Bridgestone, Alufelgen",
     ],
   },
   {
-    name: "Kart Performance Shifter KZ 2025",
-    price: "CHF 5'890.00",
-    productImage: `${SHOP_IMG}/6814_kl.jpg`,
+    name: "Kart Niktec TAG / OK",
+    price: "CHF 4'750.00",
+    productImage: `${SHOP_IMG}/5853_kl.jpg`,
     category: "Karts & Chassis / Racing",
-    badge: "Schaltkart",
-    specs: ["Klasse: KZ Shifter", "Modelljahr 2025", "Ohne Reifen"],
-  },
-  {
-    name: "Kart Mini 950 Red",
-    price: "CHF 2'890.00",
-    productImage: `${SHOP_IMG}/5210_kl.jpg`,
-    category: "Karts & Chassis / Racing",
-    badge: "Rolling chassis",
+    badge: "Ohne Reifen",
     specs: [
-      "Chassis: Mini",
-      "Rahmen: 28 mm",
-      "Radstand: 950 mm / 1010 mm",
-      "Hinterachse: 25 mm / 30 mm",
-      "Karosserie: Panda",
+      "Felgen Douglas 132/212 mm",
+      "Radnaben vorne und hinten in Magnesium",
+      "Rahmen in Rot oder Schwarz",
+      "Verschalung KG 506",
+      "Ohne Kühlsystem",
     ],
   },
   {
-    // No price: the shop does not publish one on any page reachable without a
-    // login, so the field is left off rather than filled with a guess. The
-    // template renders fine without it.
-    name: "Frontspoiler 506",
-    productImage:
-      "https://shop.swisshutless.com/shop/ProdukteDetails/108506%20FRONTSPOILER%20506%20SCHWARZ.jpg",
-    category: "Chassisteile / Karosserie",
-    badge: "CIK 506",
-    specs: ["Ausführung: schwarz", "Norm: CIK-FIA 506", "Artikel-Nr. 108506"],
+    name: "Motor IAME X30",
+    price: "CHF 2'990.00",
+    productImage: `${SHOP_IMG}/4348_kl.jpg`,
+    category: "Motoren / IAME",
+    badge: "Komplett",
+    specs: [
+      "Mit Auspuff und Vergaser",
+      "Mit Kühler und Wasserpumpe",
+      "Ohne Batterie",
+      "Artikel-Nr. 202550",
+    ],
+  },
+  {
+    name: "Jacke Swiss Hutless Soft-Shell",
+    price: "Ab CHF 119.00",
+    productImage: `${SHOP_IMG}/5491_kl.jpg`,
+    category: "Bekleidung / Sport's Wear",
+    badge: "Team",
+    specs: ["Offizielle Team-Bekleidung", "Groessen XS bis XXL", "Soft-Shell"],
   },
 ];
