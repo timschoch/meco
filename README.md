@@ -34,6 +34,7 @@ Bearer auth applies to `/v1/*` when `MECO_TOKEN` is set, and is off when it is n
 | `POST /v1/render` | render one Template at one or more Placements |
 | `POST /v1/carousel` | render Slides into one multi-page PDF, or N images |
 | `POST /v1/crop` | cut a Source Image to a shape by Crop Anchor |
+| `POST /mcp` | the same operations as MCP tools, streamable HTTP |
 
 `GET /v1/templates` is the point of the design: a calling tool reads it and
 knows exactly what to send, without anyone documenting each new Template.
@@ -90,6 +91,13 @@ A Template is a design with no pixel size of its own; it adapts to whatever
 Placement it is rendered for. Add one by writing the component and registering
 it with a Zod schema in `src/templates/registry.ts` — the discovery endpoint
 picks it up automatically.
+
+## Using it from Claude
+
+`skills/meco/` is the skill that drives the MCP server from Claude Code and
+Claude Desktop; [`skills/meco/SETUP.md`](skills/meco/SETUP.md) has the connector
+setup for both. `zip -r meco-skill.zip meco` inside `skills/` produces the
+upload Claude Desktop wants.
 
 ## How it renders
 
