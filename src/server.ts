@@ -5,6 +5,8 @@
  * Carousel, crop a Source Image, and describe what exists so another tool can
  * discover all of it without being told.
  */
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -248,9 +250,14 @@ app.post("/v1/crop", async (c) => {
 });
 
 // Serve local renders so the URLs the local driver hands back actually resolve.
-app.use("/renders/*", serveStatic({ root: "./out" }));
-app.use("/carousels/*", serveStatic({ root: "./out" }));
-app.use("/crops/*", serveStatic({ root: "./out" }));
+// Only mounted for local storage: on Blob the URLs point at Blob, and mounting
+// these would just log a missing-directory warning on every request.
+if (storage.kind === "local") {
+  mkdirSync(resolve(process.cwd(), "out"), { recursive: true });
+  app.use("/renders/*", serveStatic({ root: "./out" }));
+  app.use("/carousels/*", serveStatic({ root: "./out" }));
+  app.use("/crops/*", serveStatic({ root: "./out" }));
+}
 
 const port = Number(process.env.PORT ?? 8787);
 serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, (info) => {

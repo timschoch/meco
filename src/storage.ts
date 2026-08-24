@@ -42,7 +42,11 @@ export class LocalStorage implements Storage {
 
   constructor(
     private readonly root = resolve(process.cwd(), "out"),
-    private readonly baseUrl = process.env.MECO_BASE_URL ?? "http://127.0.0.1:8787",
+    // Must track the port the server actually bound to, or the URLs handed back
+    // point somewhere that is not listening — which is what happens in a
+    // container, where PORT is 80 rather than the dev default.
+    private readonly baseUrl = process.env.MECO_BASE_URL ??
+      `http://127.0.0.1:${process.env.PORT ?? 8787}`,
   ) {}
 
   async put(
