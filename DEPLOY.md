@@ -1,15 +1,32 @@
 # Deploy
 
-Container image build (`Dockerfile.vercel`) on Vercel Functions. Auto-detected —
-no `services` config needed for this single-container project.
+Live: <https://meco-teal.vercel.app> — Vercel project `timschochs-projects/meco`.
 
-## One-time setup
+Container image build (`Dockerfile.vercel`) on Vercel Functions. A root
+`Dockerfile.vercel` is **not** auto-detected next to a `package.json`; the
+`services` block in `vercel.json` is what selects the container runtime, and the
+`rewrites` entry is what routes traffic into it.
 
-1. Link the project: `vercel link`
-2. Create the Blob store (adds `BLOB_READ_WRITE_TOKEN` to project env automatically):
-   `vercel blob create-store meco --access public`
-3. Set the bearer-auth env var for the server: run `vercel env add MECO_TOKEN`,
-   pick `production` (repeat for `preview` / `development`), paste the value when prompted.
+## Release
+
+Push to `main`. The GitHub repo is connected to the project, so Vercel builds
+the image and promotes it to production on its own.
+
+Out-of-band deploys from the working tree: `vercel deploy` (preview),
+`vercel deploy --prod` (production). Watch a build with
+`vercel inspect --logs <deployment-url>`.
+
+## One-time setup (already done)
+
+1. `vercel link --project meco --scope timschochs-projects`
+2. `vercel blob create-store meco-renders --access public --yes` — creates the
+   store and writes `BLOB_READ_WRITE_TOKEN` into the project env.
+3. `vercel env add MECO_TOKEN <environment>` for `production`, `preview` and
+   `development` — the value is read from stdin.
+4. `vercel project protection disable meco --sso` — Vercel Authentication would
+   otherwise put an SSO wall in front of every request, and the point of the
+   service is that other tools can call it. `MECO_TOKEN` is the auth.
+5. `vercel git connect https://github.com/timschoch/meco`
 
 ## Env vars
 
@@ -20,14 +37,6 @@ no `services` config needed for this single-container project.
 | `PORT` | Vercel platform | container listen port; default 80, do not set manually |
 
 Pull them locally when needed: `vercel env pull .env.local`
-
-## Deploy
-
-- Preview: `vercel deploy`
-- Production: `vercel deploy --prod`
-
-The build step builds `Dockerfile.vercel` and pushes it to Vercel Container
-Registry. Watch progress with `vercel logs <deployment-url>` or `vercel inspect --logs`.
 
 ## Test locally
 
