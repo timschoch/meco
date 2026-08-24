@@ -17,8 +17,13 @@ function asset(rel: string): Buffer {
 export interface GoogleFontSpec {
   kind: "google";
   name: string;
-  /** A single weight, or a variable-font range such as `"300..700"`. */
-  weight: number | `${number}..${number}`;
+  /**
+   * A single weight, a list of weights, or a range such as `"300..700"`.
+   * A range only works for families Google publishes as a variable font;
+   * static families (Barlow Condensed, for one) must list discrete weights or
+   * the stylesheet request comes back 400.
+   */
+  weight: number | number[] | `${number}..${number}`;
 }
 
 /** A font file that ships with the repo. */
@@ -109,25 +114,28 @@ export const hopefamily = {
 } satisfies Brand;
 
 /**
- * Swiss Hutless — karting chassis and race kit.
+ * Swiss Hutless Karts AG — karting chassis and race kit.
  *
- * Loud, high-contrast and motorsport-flavoured: near-black field, one racing
- * red for every accent, condensed uppercase headings.
+ * Loud, high-contrast and motorsport-flavoured: near-black field, condensed
+ * uppercase headings. Red and navy are sampled from the shop's own logo
+ * (`shop/Bilder/shoplogo.png`), not chosen — red carries every accent, navy is
+ * the secondary the wordmark uses.
  */
 export const swisshutless = {
   id: "swisshutless",
   name: "Swiss Hutless",
   colors: {
-    red: "#e2001a",
-    redDark: "#b40015",
+    red: "#d80028",
+    redDark: "#a80020",
+    navy: "#304898",
     black: "#0a0a0c",
     graphite: "#1b1d21",
-    white: "#ffffff",
+    white: "#f8f8f8",
     silver: "#c8ccd2",
   },
   fonts: [
-    { kind: "google", name: "Barlow Condensed", weight: "400..700" },
-    { kind: "google", name: "Barlow", weight: "400..700" },
+    { kind: "google", name: "Barlow Condensed", weight: [400, 600, 700] },
+    { kind: "google", name: "Barlow", weight: [400, 600, 700] },
   ],
   headingFamily: "Barlow Condensed",
   bodyFamily: "Barlow",
