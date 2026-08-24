@@ -348,6 +348,9 @@ export const races: DemoRace[] = [
     date: "29. März 2026",
     season: "Schweizer Kart Meisterschaft 2026",
     category: "Super Mini / X30 / OK Junior / KZ2",
+    // Wikimedia Commons, motorsport at this circuit.
+    trackImage:
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Massimiliano_Clerici_Stilo_Corse_Franciacorta1.JPG/1920px-Massimiliano_Clerici_Stilo_Corse_Franciacorta1.JPG",
   },
   {
     round: 2,
@@ -380,6 +383,9 @@ export const races: DemoRace[] = [
     date: "23. August 2026",
     season: "Schweizer Kart Meisterschaft 2026",
     category: "Super Mini / X30 / OK Junior / KZ2",
+    // Wikimedia Commons, the circuit's own finish line.
+    trackImage:
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Cremona_Circuit_finish_line.jpg/1920px-Cremona_Circuit_finish_line.jpg",
   },
   {
     round: 6,
@@ -444,5 +450,16 @@ export const products = [
       "Hinterachse: 25 mm / 30 mm",
       "Karosserie: Panda",
     ],
+  },
+  {
+    // No price: the shop does not publish one on any page reachable without a
+    // login, so the field is left off rather than filled with a guess. The
+    // template renders fine without it.
+    name: "Frontspoiler 506",
+    productImage:
+      "https://shop.swisshutless.com/shop/ProdukteDetails/108506%20FRONTSPOILER%20506%20SCHWARZ.jpg",
+    category: "Chassisteile / Karosserie",
+    badge: "CIK 506",
+    specs: ["Ausführung: schwarz", "Norm: CIK-FIA 506", "Artikel-Nr. 108506"],
   },
 ];

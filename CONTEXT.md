@@ -6,8 +6,12 @@ meco turns code-authored templates and JSON data into social media images and PD
 
 ### Templates and rendering
 
+**Brand**:
+The look a Template renders in — colours, fonts and wordmark, owned by one consumer of meco. A Template belongs to exactly one Brand.
+_Avoid_: theme, skin, style, client
+
 **Template**:
-A design authored as code, with no pixel size of its own. It declares the data it needs and adapts to whatever Channel it is rendered for.
+A design authored as code, with no pixel size of its own. It declares the data it needs and adapts to whatever Placement it is rendered for.
 _Avoid_: layout, design, banner, creative
 
 **Channel**:
