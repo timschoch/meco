@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+# Deploys the Hono server as a Vercel Functions container image.
+# https://vercel.com/docs/functions/container-images
+
+FROM node:24-slim AS deps
+WORKDIR /app
+RUN npm install -g pnpm@11
+# Fresh install so native deps (sharp, @takumi-rs/core) resolve to their
+# linux builds even though this image is built from a macOS arm64 host.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+FROM node:24-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json tsconfig.json ./
+COPY src ./src
+COPY assets ./assets
+
+# Vercel sets $PORT; default 80 per the container-images contract.
+EXPOSE 80
+CMD ["node_modules/.bin/tsx", "src/server.ts"]

@@ -1,0 +1,16 @@
+node_modules
+out
+.temp
+.git
+.agents
+.claude
+.envrc
+.mcp.json
+.gitignore
+.direnv
+*.md
+!DEPLOY.md
+docs
+lessons.md
+ctx.md
+skills-lock.json

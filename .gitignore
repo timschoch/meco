@@ -1,3 +1,7 @@
 .env
 .env.local
 .temp/*
+.vercel
+node_modules/
+out/
+*.tsbuildinfo

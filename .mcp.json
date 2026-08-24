@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "Payload-prod": {
+      "type": "http",
+      "url": "https://colin.laica.dev/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${PAYLOAD_PROD_MCP_BEARER_TOKEN}"
+      }
+    }
+  }
+}
