@@ -101,6 +101,10 @@ gets. Paste `MECO_TOKEN` into the header field once; it stays in the browser.
 The form is generated from each Template's JSON Schema and pre-filled from its
 `example`, so a new Template appears in the UI with no UI change.
 
+`pnpm test:ui` runs the page in jsdom against a stubbed API and drives all three
+tabs. Browser-only bugs — a read-only DOM property, a form field read back in the
+wrong shape — are invisible to a render test, and this is what catches them.
+
 ## Using it from Claude
 
 `skills/meco/` is the skill that drives the MCP server from Claude Code and

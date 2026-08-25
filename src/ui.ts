@@ -87,7 +87,9 @@ export const UI_HTML = String.raw`<!doctype html>
   <div class="out" id="out"><p class="note">Pick a template and hit Render.</p></div>
 </main>
 
-<script type="module">
+<!-- A classic script, not a module: nothing here imports, and it lets the
+     jsdom test in scripts/ui-test.mjs execute this exact page. -->
+<script>
 const $ = (s) => document.querySelector(s);
 const out = $("#out");
 let templates = [];
@@ -114,12 +116,20 @@ async function call(path, body) {
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const json = await res.json().catch(() => ({ error: res.status + " " + res.statusText }));
-  if (!res.ok) throw new Error(JSON.stringify(json, null, 2));
+  if (!res.ok) {
+    const err = new Error(JSON.stringify(json, null, 2));
+    err.status = res.status;
+    throw err;
+  }
   return json;
 }
 
 function el(tag, attrs = {}, ...kids) {
-  const n = Object.assign(document.createElement(tag), attrs);
+  // dataset is a read-only accessor, so Object.assign throws on it; its keys
+  // have to be written one at a time.
+  const { dataset, ...rest } = attrs;
+  const n = Object.assign(document.createElement(tag), rest);
+  if (dataset) for (const [k, v] of Object.entries(dataset)) n.dataset[k] = v;
   for (const k of kids) n.append(k);
   return n;
 }
@@ -351,11 +361,15 @@ function draw() {
 async function boot() {
   try {
     [templates, channels] = await Promise.all([call("/v1/templates"), call("/v1/channels")]);
-    draw();
-    show([el("p", { className: "note", textContent: "Ready. " + templates.length + " templates, " + channels.placements.length + " placements." })]);
   } catch (err) {
-    $("#form").replaceChildren(el("p", { className: "err", textContent: "Could not load templates. Paste MECO_TOKEN above and press Save.\n\n" + err.message }));
+    const hint = err.status === 401
+      ? "Paste MECO_TOKEN above and press Save."
+      : "Could not reach the API.";
+    $("#form").replaceChildren(el("p", { className: "err", textContent: hint + "\n\n" + err.message }));
+    return;
   }
+  draw();
+  show([el("p", { className: "note", textContent: "Ready. " + templates.length + " templates, " + channels.placements.length + " placements." })]);
 }
 
 boot();
