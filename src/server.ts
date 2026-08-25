@@ -90,6 +90,25 @@ app.get("/v1/brands", (c) =>
   ),
 );
 
+// ------------------------------------------------------------------ gallery
+
+// Everything rendered so far, newest first, optionally for one Brand only.
+app.get("/v1/gallery", async (c) => {
+  const limit = c.req.query("limit");
+  const parsed = api.galleryQuery.safeParse({
+    ...(c.req.query("brand") ? { brand: c.req.query("brand") } : {}),
+    ...(limit ? { limit: Number(limit) } : {}),
+  });
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
+  }
+  try {
+    return c.json(await api.gallery(parsed.data, storage));
+  } catch (err) {
+    return errorResponse(c, err);
+  }
+});
+
 // ------------------------------------------------------------------- render
 
 app.post("/v1/render", async (c) => {

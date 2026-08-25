@@ -74,6 +74,7 @@ export const UI_HTML = String.raw`<!doctype html>
     <button class="tab" role="tab" data-panel="render" aria-selected="true">Render</button>
     <button class="tab" role="tab" data-panel="carousel" aria-selected="false">Carousel</button>
     <button class="tab" role="tab" data-panel="crop" aria-selected="false">Crop</button>
+    <button class="tab" role="tab" data-panel="gallery" aria-selected="false">Gallery</button>
   </div>
   <div class="grow"></div>
   <div class="token">
@@ -94,7 +95,10 @@ const $ = (s) => document.querySelector(s);
 const out = $("#out");
 let templates = [];
 let channels = { placements: [] };
+let brands = [];
 let panel = "render";
+// Survives a tab switch, so coming back to the Gallery keeps the filter.
+let galleryBrand = "";
 
 // ------------------------------------------------------------------ plumbing
 
@@ -342,6 +346,44 @@ function cropForm() {
   };
 }
 
+function galleryForm() {
+  const form = $("#form");
+  form.replaceChildren();
+
+  const brand = el("select", { name: "brand", dataset: { role: "control" } });
+  brand.append(el("option", { value: "", textContent: "All companies" }));
+  for (const b of brands) brand.append(el("option", { value: b.id, textContent: b.name }));
+  brand.value = galleryBrand;
+  form.append(field("Company", brand, "a Crop belongs to none, so filtering hides Crops"));
+
+  const go = el("button", { className: "go", type: "submit", textContent: "Reload" });
+  form.append(go);
+
+  async function load() {
+    galleryBrand = brand.value;
+    show([el("p", { className: "note", textContent: "Loading …" })]);
+    try {
+      const res = await call("/v1/gallery" + (galleryBrand ? "?brand=" + encodeURIComponent(galleryBrand) : ""));
+      if (!res.items.length) {
+        return show([el("p", { className: "note", textContent: "Nothing rendered yet." })]);
+      }
+      const cards = res.items.map((i) => card(
+        i.url,
+        [i.brand ?? "no brand", i.kind, Math.round(i.bytes / 1024) + " KB", i.createdAt.slice(0, 10)].join(" · "),
+        i.key.endsWith(".pdf"),
+      ));
+      show([
+        el("p", { className: "note", textContent: "Showing " + res.items.length + " of " + res.total + "." }),
+        el("div", { className: "cards" }, ...cards),
+      ]);
+    } catch (err) { fail(err); }
+  }
+
+  brand.onchange = load;
+  form.onsubmit = (e) => { e.preventDefault(); load(); };
+  load();
+}
+
 // ----------------------------------------------------------------------- boot
 
 for (const tab of document.querySelectorAll(".tab")) {
@@ -355,12 +397,17 @@ for (const tab of document.querySelectorAll(".tab")) {
 function draw() {
   if (panel === "render") renderForm();
   else if (panel === "carousel") carouselForm();
+  else if (panel === "gallery") galleryForm();
   else cropForm();
 }
 
 async function boot() {
   try {
-    [templates, channels] = await Promise.all([call("/v1/templates"), call("/v1/channels")]);
+    [templates, channels, brands] = await Promise.all([
+      call("/v1/templates"),
+      call("/v1/channels"),
+      call("/v1/brands"),
+    ]);
   } catch (err) {
     const hint = err.status === 401
       ? "Paste MECO_TOKEN above and press Save."

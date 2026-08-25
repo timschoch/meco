@@ -26,11 +26,15 @@ _Avoid_: preset, size, format, variant, aspect ratio
 A stored image or PDF produced from one Template, one set of data and one Placement, reachable at a stable URL. The same three inputs always yield the same Render.
 _Avoid_: output, generation, asset, artifact
 
+**Gallery**:
+Everything meco has stored — every Render, Carousel and Crop — listed newest first, optionally narrowed to one Brand. A view of what exists, never a thing that is published.
+_Avoid_: library, archive, history, feed
+
 ### Carousels
 
 **Carousel**:
-An ordered set of Slides published as a single multi-page document.
-_Avoid_: deck, slideshow, gallery, sequence
+An ordered set of Slides published as a single multi-page document. Never a Gallery — a Carousel is one document, a Gallery is a listing.
+_Avoid_: deck, slideshow, sequence
 
 **Slide**:
 One page of a Carousel. Each Slide names its own Template and data, so a cover, a body page and a closing page can differ.

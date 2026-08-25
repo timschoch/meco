@@ -6,15 +6,24 @@
  * nothing and gets the same URL back. See CONTEXT.md.
  */
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { dirname, join, posix, relative, resolve, sep } from "node:path";
 
 export interface StoredObject {
-  /** Content-addressed key, e.g. `renders/3f2a…c1.png`. */
+  /** Content-addressed key, e.g. `renders/laica/3f2a…c1.png`. */
   key: string;
   url: string;
   bytes: number;
   contentType: string;
+}
+
+/** One stored output as the listing sees it — no content type, a timestamp. */
+export interface StoredListing {
+  key: string;
+  url: string;
+  bytes: number;
+  /** ISO 8601. When the object was written. */
+  createdAt: string;
 }
 
 export interface Storage {
@@ -25,6 +34,8 @@ export interface Storage {
     contentType: string,
     extension: string,
   ): Promise<StoredObject>;
+  /** Every stored object whose key starts with `prefix`, newest first. */
+  list(prefix: string): Promise<StoredListing[]>;
 }
 
 export function contentKey(
@@ -66,6 +77,37 @@ export class LocalStorage implements Storage {
       contentType,
     };
   }
+
+  async list(prefix: string): Promise<StoredListing[]> {
+    const dir = join(this.root, prefix);
+    const items: StoredListing[] = [];
+    // A prefix that was never written to is not an error here: it just means
+    // nothing of that kind has been stored yet.
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true, recursive: true });
+    } catch {
+      return items;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const file = join(entry.parentPath, entry.name);
+      const info = await stat(file);
+      const key = posix.join(prefix, relativeKey(dir, file));
+      items.push({
+        key,
+        url: `${this.baseUrl}/${key}`,
+        bytes: info.size,
+        createdAt: new Date(info.mtimeMs).toISOString(),
+      });
+    }
+    return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+}
+
+/** A key is always POSIX, whatever separator the local filesystem uses. */
+function relativeKey(dir: string, file: string): string {
+  return relative(dir, file).split(sep).join("/");
 }
 
 /** Vercel Blob, for when meco runs on Vercel. */
@@ -97,6 +139,32 @@ export class BlobStorage implements Storage {
       allowOverwrite: true,
     });
     return { key, url: result.url, bytes: data.length, contentType };
+  }
+
+  async list(prefix: string): Promise<StoredListing[]> {
+    const { list } = await import("@vercel/blob");
+    const items: StoredListing[] = [];
+    let cursor: string | undefined;
+    // Blob pages at 1000; a gallery that stops at the first page would quietly
+    // hide everything older.
+    do {
+      const page = await list({
+        prefix: `${prefix}/`,
+        token: this.token,
+        limit: 1000,
+        ...(cursor ? { cursor } : {}),
+      });
+      for (const blob of page.blobs) {
+        items.push({
+          key: blob.pathname,
+          url: blob.url,
+          bytes: blob.size,
+          createdAt: new Date(blob.uploadedAt).toISOString(),
+        });
+      }
+      cursor = page.hasMore ? page.cursor : undefined;
+    } while (cursor);
+    return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 }
 

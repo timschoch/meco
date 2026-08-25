@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 
+import { BRANDS } from "./brands.js";
 import { slidesToPdf } from "./carousel.js";
 import { resolvePlacements } from "./channels.js";
 import { CROP_ANCHORS, cropImage, fetchSourceImage } from "./crop.js";
@@ -67,7 +68,12 @@ export async function render(input: RenderInput, storage: Storage) {
         ...(input.quality === undefined ? {} : { quality: input.quality }),
       });
       const ext = input.format === "jpeg" ? "jpg" : input.format;
-      const stored = await storage.put("renders", bytes, `image/${input.format}`, ext);
+      const stored = await storage.put(
+        `renders/${template.brand.id}`,
+        bytes,
+        `image/${input.format}`,
+        ext,
+      );
       return {
         placement: placement.id,
         width: placement.width,
@@ -106,8 +112,12 @@ export async function carousel(input: CarouselInput, storage: Storage) {
   }
 
   const pages: Buffer[] = [];
+  // A Carousel is filed under the Brand of its first Slide: the whole document
+  // belongs to one Brand, and the cover is the Slide that says which.
+  let brandId = "";
   for (const slide of input.slides) {
     const { template, data } = parseTemplateData(slide.template, slide.data);
+    brandId ||= template.brand.id;
     const images = await loadImages(template.images(data));
     pages.push(
       await renderImage({
@@ -121,13 +131,18 @@ export async function carousel(input: CarouselInput, storage: Storage) {
 
   if (input.output === "images") {
     const slides = await Promise.all(
-      pages.map((p) => storage.put("renders", p, "image/png", "png")),
+      pages.map((p) => storage.put(`renders/${brandId}`, p, "image/png", "png")),
     );
     return { placement: placement.id, slides };
   }
 
   const pdf = await slidesToPdf(pages);
-  const stored = await storage.put("carousels", pdf, "application/pdf", "pdf");
+  const stored = await storage.put(
+    `carousels/${brandId}`,
+    pdf,
+    "application/pdf",
+    "pdf",
+  );
   return { placement: placement.id, pages: pages.length, ...stored };
 }
 
@@ -165,4 +180,63 @@ export async function crop(input: CropInput, storage: Storage) {
     ...(result.anchor ? { anchor: result.anchor } : {}),
     ...stored,
   };
+}
+
+// ------------------------------------------------------------------ gallery
+
+/**
+ * Everything meco has stored, newest first.
+ *
+ * The Brand is read off the key rather than kept in an index: `put` files a
+ * Render under `renders/<brand>/…`, so listing one prefix per Brand is the
+ * whole filter. Crops carry no Brand — they involve no Template.
+ */
+export const galleryQuery = z.object({
+  brand: z.string().optional(),
+  limit: z.number().int().min(1).max(500).default(120),
+});
+
+export type GalleryInput = z.infer<typeof galleryQuery>;
+
+const KINDS = ["renders", "carousels", "crops"] as const;
+
+export interface GalleryItem {
+  key: string;
+  url: string;
+  bytes: number;
+  createdAt: string;
+  /** `render`, `carousel` or `crop`. */
+  kind: string;
+  /** Absent for a Crop, and for anything stored before Brands were filed. */
+  brand?: string;
+}
+
+export async function gallery(input: GalleryInput, storage: Storage) {
+  const wanted = input.brand;
+  if (wanted && !BRANDS.has(wanted)) {
+    throw new ApiError(`No such brand: "${wanted}"`);
+  }
+
+  const listings = await Promise.all(
+    KINDS.map(async (kind) => {
+      // A Crop has no Brand, so a filtered gallery leaves Crops out entirely.
+      if (wanted && kind === "crops") return [];
+      const prefix = wanted && kind !== "crops" ? `${kind}/${wanted}` : kind;
+      const objects = await storage.list(prefix);
+      return objects.map((o) => ({ ...o, ...describeKey(o.key) }));
+    }),
+  );
+
+  const items = listings
+    .flat()
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return { total: items.length, items: items.slice(0, input.limit) };
+}
+
+/** `renders/laica/3f2a….png` → kind `render`, brand `laica`. */
+function describeKey(key: string): { kind: string; brand?: string } {
+  const [first, second] = key.split("/");
+  const kind = (first ?? "").replace(/s$/, "");
+  const brand = second && BRANDS.has(second) ? second : undefined;
+  return { kind, ...(brand ? { brand } : {}) };
 }

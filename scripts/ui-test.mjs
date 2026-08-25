@@ -79,15 +79,36 @@ const channels = {
   ],
 };
 
+const brands = [
+  { id: "laica", name: "Laica" },
+  { id: "hopefamily", name: "Hope Family" },
+  { id: "swisshutless", name: "Swiss Hutless" },
+];
+
+const gallery = [
+  { key: "renders/laica/a.png", url: "https://blob.test/a.png", bytes: 4096, createdAt: "2026-08-25T10:00:00.000Z", kind: "render", brand: "laica" },
+  { key: "carousels/laica/b.pdf", url: "https://blob.test/b.pdf", bytes: 8192, createdAt: "2026-08-24T10:00:00.000Z", kind: "carousel", brand: "laica" },
+  { key: "renders/swisshutless/c.png", url: "https://blob.test/c.png", bytes: 2048, createdAt: "2026-08-23T10:00:00.000Z", kind: "render", brand: "swisshutless" },
+  { key: "crops/d.jpg", url: "https://blob.test/d.jpg", bytes: 1024, createdAt: "2026-08-22T10:00:00.000Z", kind: "crop" },
+];
+
 /** Every request the page made, so the test can assert on the payloads. */
 const calls = [];
 
 function stubFetch(url, init = {}) {
   const body = init.body ? JSON.parse(init.body) : undefined;
   calls.push({ url, headers: init.headers ?? {}, body });
+  const [path, query] = url.split("?");
+  const wanted = new URLSearchParams(query ?? "").get("brand");
   const json =
-    url === "/v1/templates" ? templates
-    : url === "/v1/channels" ? channels
+    path === "/v1/templates" ? templates
+    : path === "/v1/channels" ? channels
+    : path === "/v1/brands" ? brands
+    : path === "/v1/gallery"
+      ? (() => {
+          const items = wanted ? gallery.filter((i) => i.brand === wanted) : gallery;
+          return { total: items.length, items };
+        })()
     : url === "/v1/render"
       ? { template: body.template, renders: body.channels.map((id) => ({ placement: id, width: 1, height: 1, bytes: 2048, url: "https://blob.test/" + id.replace("/", "-") + ".png" })) }
     : url === "/v1/carousel"
@@ -197,6 +218,25 @@ await tick();
 await tick();
 const crop = calls.find((c) => c.url === "/v1/crop");
 check("crop posted numeric size", crop?.body.width === 1080 && crop?.body.height === 1920);
+
+// ------------------------------------------------------------ gallery tab
+
+doc.querySelector('[data-panel="gallery"]').click();
+await tick();
+await tick();
+check("gallery filter drew every brand plus All", $('[name="brand"]')?.options.length === brands.length + 1);
+check("gallery listed everything", doc.querySelectorAll(".card").length === gallery.length);
+check("gallery skipped the image for a PDF", doc.querySelectorAll(".card img").length === gallery.length - 1);
+check("gallery captioned with brand and kind", doc.body.textContent.includes("laica · render"));
+
+const brandPick = $('[name="brand"]');
+brandPick.value = "swisshutless";
+brandPick.dispatchEvent(new window.Event("change"));
+await tick();
+await tick();
+const filtered = calls.filter((c) => c.url.startsWith("/v1/gallery")).at(-1);
+check("filter asked the API for one brand", filtered?.url === "/v1/gallery?brand=swisshutless");
+check("filtered gallery drew one card", doc.querySelectorAll(".card").length === 1);
 
 // ------------------------------------------------------------------- token
 
