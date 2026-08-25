@@ -19,8 +19,15 @@ Add `--scope user` to reach it from every project instead of this one.
 
 ## Claude Desktop
 
-Settings → Connectors → Add custom connector, with the URL above and an
-`Authorization: Bearer <MECO_TOKEN>` header.
+Settings → Connectors → Add custom connector, with the URL above and this header:
+
+| Field | Value |
+|---|---|
+| Name | `x-auth-token` |
+| Value | the token on its own, with no `Bearer` prefix |
+
+Claude Desktop reserves `Authorization` for its own OAuth flow and greys it out,
+so `x-auth-token` is the name to pick from the dropdown. meco accepts either.
 
 ## Checking
 

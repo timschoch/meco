@@ -23,7 +23,9 @@ Run it only when an upstream asset changes.
 
 Base URL: <https://meco-teal.vercel.app>. See [DEPLOY.md](DEPLOY.md).
 
-Bearer auth applies to `/v1/*` when `MECO_TOKEN` is set, and is off when it is not.
+Auth applies to `/v1/*` and `/mcp` when `MECO_TOKEN` is set, and is off when it
+is not. Send it as `Authorization: Bearer <token>` or, for clients that cannot
+set that header, `x-auth-token: <token>`.
 
 | Endpoint | Does |
 |---|---|

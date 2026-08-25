@@ -26,10 +26,17 @@ const storage = createStorage();
 /** Bearer auth, on only when a token is configured. */
 const TOKEN = process.env.MECO_TOKEN;
 
+/**
+ * `x-auth-token` alongside the usual bearer header: Claude Desktop reserves
+ * `Authorization` for its own OAuth flow and greys it out in the connector
+ * dialog, leaving `x-auth-token` as the only approved name a custom connector
+ * can actually set.
+ */
 const requireToken = async (c: Context, next: Next) => {
   if (!TOKEN) return next();
-  const header = c.req.header("authorization") ?? "";
-  if (header !== `Bearer ${TOKEN}`) {
+  const bearer = c.req.header("authorization") === `Bearer ${TOKEN}`;
+  const direct = c.req.header("x-auth-token") === TOKEN;
+  if (!bearer && !direct) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   return next();
