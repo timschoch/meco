@@ -68,8 +68,11 @@ export function swissHutlessRace(data: RaceData, placement: Placement) {
           left: 0,
           width: "100%",
           height: "100%",
+          // The photo stays untouched at the top; only the lower half darkens
+          // so the standings block keeps its contrast. The short top fade is
+          // there for the header line, not to tint the image.
           backgroundImage:
-            "linear-gradient(to bottom, rgba(10,10,12,0.72) 0%, rgba(10,10,12,0.35) 38%, rgba(10,10,12,0.94) 100%)",
+            "linear-gradient(to bottom, rgba(10,10,12,0.28) 0%, rgba(10,10,12,0) 16%, rgba(10,10,12,0) 42%, rgba(10,10,12,0.82) 74%, rgba(10,10,12,0.96) 100%)",
         }}
       />
 
