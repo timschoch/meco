@@ -18,6 +18,7 @@ import { CHANNELS, PLACEMENTS } from "./channels.js";
 import { createMecoMcpHandler } from "./mcp.js";
 import { createStorage } from "./storage.js";
 import { describeTemplates } from "./templates/registry.js";
+import { UI_HTML } from "./ui.js";
 
 const app = new Hono();
 const storage = createStorage();
@@ -49,6 +50,10 @@ function errorResponse(c: Context, err: unknown) {
 app.get("/health", (c) =>
   c.json({ ok: true, storage: storage.kind, templates: describeTemplates().length }),
 );
+
+// The demo console. The page itself is public; every call it makes carries the
+// bearer token the visitor pasted, so it is exactly as protected as `/v1/*`.
+app.get("/", (c) => c.html(UI_HTML));
 
 // ---------------------------------------------------------------- discovery
 

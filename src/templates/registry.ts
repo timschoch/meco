@@ -30,6 +30,13 @@ export interface Template<T = unknown> {
   images: (data: T) => string[];
   /** Placements this Template is designed for. Advisory, not enforced. */
   suggestedPlacements: string[];
+  /**
+   * Real data that renders this Template, so the demo UI and any calling tool
+   * can start from something that works instead of from an empty form. Sourced
+   * the same way `scripts/demo-data.ts` is — read from the shop, the CMS or the
+   * official calendar, never invented.
+   */
+  example: T;
 }
 
 const laicaPostSchema = z.object({
@@ -90,6 +97,13 @@ export const TEMPLATES: ReadonlyMap<string, Template<never>> = new Map(
         build: laicaPost,
         images: laicaPostImages,
         suggestedPlacements: ["linkedin/post", "linkedin/wide"],
+        example: {
+          title: "Viel gelernt bei der Innovationskonferenz",
+          excerpt:
+            "Letzte Woche durften wir spannende Leute kennenlernen. Und dabei gleich etwas über uns selbst gelernt.",
+          date: "26. Juni 2026",
+          heroImage: "https://www.laica.dev/api/media/file/Astronaut-pitch.png",
+        },
       },
       {
         id: "laica-slide",
@@ -100,6 +114,12 @@ export const TEMPLATES: ReadonlyMap<string, Template<never>> = new Map(
         build: laicaSlide,
         images: laicaSlideImages,
         suggestedPlacements: ["linkedin/post"],
+        example: {
+          kind: "cover",
+          kicker: "Logbuch",
+          title: "Viele kleine Schritte",
+          body: "LinkedIn-Outreach läuft, Rücklauf ist dünn. Die spannendste Erkenntnis kam aus den Checks.",
+        },
       },
       {
         id: "hopefamily-post",
@@ -109,6 +129,14 @@ export const TEMPLATES: ReadonlyMap<string, Template<never>> = new Map(
         build: hopeFamilyPost,
         images: hopeFamilyPostImages,
         suggestedPlacements: ["instagram/post", "instagram/story", "facebook/post"],
+        example: {
+          title: "Eine Woche, die Spuren hinterlässt",
+          excerpt:
+            "110 Mädchen, eine Woche Sommerlager und ganz viele Geschichten, die bleiben.",
+          date: "11.08.2026",
+          headerImage:
+            "https://images.squarespace-cdn.com/content/v1/68e52c240f55e10baf8c8466/e9e78711-b321-4497-b685-b1ac09b1fcbf/IMG-20260722-WA0008.jpg",
+        },
       },
       {
         id: "swisshutless-race",
@@ -118,6 +146,16 @@ export const TEMPLATES: ReadonlyMap<string, Template<never>> = new Map(
         build: swissHutlessRace,
         images: swissHutlessRaceImages,
         suggestedPlacements: ["instagram/post", "instagram/story"],
+        example: {
+          round: 3,
+          circuit: "Circuit de l'Enclos",
+          location: "Septfontaines / Levier, Frankreich",
+          date: "31. Mai 2026",
+          season: "Schweizer Kart Meisterschaft 2026",
+          category: "Super Mini / X30 / OK Junior / KZ2",
+          trackImage:
+            "https://circuitdelenclos.com/upload/contenu/Plan-Aerien-Piste-2018.jpg",
+        },
       },
       {
         id: "swisshutless-product",
@@ -127,6 +165,20 @@ export const TEMPLATES: ReadonlyMap<string, Template<never>> = new Map(
         build: swissHutlessProduct,
         images: swissHutlessProductImages,
         suggestedPlacements: ["instagram/post", "instagram/story"],
+        example: {
+          name: 'Kart Mini "Performance"',
+          price: "CHF 4'990.00",
+          productImage:
+            "https://shop.swisshutless.com/shop/resources/product_images_klein/6813_kl.jpg",
+          category: "Karts & Chassis / Racing",
+          badge: "Ready to drive",
+          specs: [
+            "Motor: BMB L-X",
+            "Reifen: LeCont LMK",
+            "Komplett, fahrbereit",
+            "Artikel-Nr. 104500",
+          ],
+        },
       },
     ] as unknown as Template<never>[]
   ).map((t) => [t.id, t]),
@@ -150,5 +202,6 @@ export function describeTemplates() {
     description: t.description,
     suggestedPlacements: t.suggestedPlacements,
     schema: z.toJSONSchema(t.schema, { io: "input" }),
+    example: t.example,
   }));
 }

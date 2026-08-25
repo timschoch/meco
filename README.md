@@ -27,6 +27,7 @@ Bearer auth applies to `/v1/*` when `MECO_TOKEN` is set, and is off when it is n
 
 | Endpoint | Does |
 |---|---|
+| `GET /` | demo console: pick a Template, fill the form, see the Render |
 | `GET /health` | liveness, storage driver, template count |
 | `GET /v1/templates` | every Template with its input contract as JSON Schema |
 | `GET /v1/channels` | Channels and Placements with their pixel sizes |
@@ -91,6 +92,14 @@ A Template is a design with no pixel size of its own; it adapts to whatever
 Placement it is rendered for. Add one by writing the component and registering
 it with a Zod schema in `src/templates/registry.ts` — the discovery endpoint
 picks it up automatically.
+
+## Demo console
+
+<https://meco-teal.vercel.app> is a one-page console over the same `/v1/*`
+endpoints — no separate render path, so what it shows is what a calling tool
+gets. Paste `MECO_TOKEN` into the header field once; it stays in the browser.
+The form is generated from each Template's JSON Schema and pre-filled from its
+`example`, so a new Template appears in the UI with no UI change.
 
 ## Using it from Claude
 
