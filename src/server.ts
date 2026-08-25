@@ -97,6 +97,7 @@ app.get("/v1/gallery", async (c) => {
   const limit = c.req.query("limit");
   const parsed = api.galleryQuery.safeParse({
     ...(c.req.query("brand") ? { brand: c.req.query("brand") } : {}),
+    ...(c.req.query("placement") ? { placement: c.req.query("placement") } : {}),
     ...(limit ? { limit: Number(limit) } : {}),
   });
   if (!parsed.success) {

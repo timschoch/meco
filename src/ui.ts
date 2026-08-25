@@ -97,8 +97,9 @@ let templates = [];
 let channels = { placements: [] };
 let brands = [];
 let panel = "render";
-// Survives a tab switch, so coming back to the Gallery keeps the filter.
+// Survives a tab switch, so coming back to the Gallery keeps the filters.
 let galleryBrand = "";
+let galleryPlacement = "";
 
 // ------------------------------------------------------------------ plumbing
 
@@ -356,20 +357,32 @@ function galleryForm() {
   brand.value = galleryBrand;
   form.append(field("Company", brand, "a Crop belongs to none, so filtering hides Crops"));
 
+  const placement = el("select", { name: "placement", dataset: { role: "control" } });
+  placement.append(el("option", { value: "", textContent: "All placements" }));
+  for (const p of channels.placements) {
+    placement.append(el("option", { value: p.id, textContent: p.id + " " + p.width + "×" + p.height }));
+  }
+  placement.value = galleryPlacement;
+  form.append(field("Placement", placement, "the output size"));
+
   const go = el("button", { className: "go", type: "submit", textContent: "Reload" });
   form.append(go);
 
   async function load() {
     galleryBrand = brand.value;
+    galleryPlacement = placement.value;
     show([el("p", { className: "note", textContent: "Loading …" })]);
+    const query = new URLSearchParams();
+    if (galleryBrand) query.set("brand", galleryBrand);
+    if (galleryPlacement) query.set("placement", galleryPlacement);
     try {
-      const res = await call("/v1/gallery" + (galleryBrand ? "?brand=" + encodeURIComponent(galleryBrand) : ""));
+      const res = await call("/v1/gallery" + (query.toString() ? "?" + query : ""));
       if (!res.items.length) {
-        return show([el("p", { className: "note", textContent: "Nothing rendered yet." })]);
+        return show([el("p", { className: "note", textContent: "Nothing stored for that filter." })]);
       }
       const cards = res.items.map((i) => card(
         i.url,
-        [i.brand ?? "no brand", i.kind, Math.round(i.bytes / 1024) + " KB", i.createdAt.slice(0, 10)].join(" · "),
+        [i.brand ?? "no brand", i.placement ?? i.kind, Math.round(i.bytes / 1024) + " KB", i.createdAt.slice(0, 10)].join(" · "),
         i.key.endsWith(".pdf"),
       ));
       show([
@@ -380,6 +393,7 @@ function galleryForm() {
   }
 
   brand.onchange = load;
+  placement.onchange = load;
   form.onsubmit = (e) => { e.preventDefault(); load(); };
   load();
 }

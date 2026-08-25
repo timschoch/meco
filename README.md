@@ -34,7 +34,7 @@ set that header, `x-auth-token: <token>`.
 | `GET /v1/templates` | every Template with its input contract as JSON Schema |
 | `GET /v1/channels` | Channels and Placements with their pixel sizes |
 | `GET /v1/brands` | brand tokens |
-| `GET /v1/gallery` | every stored Render, Carousel and Crop, newest first; `?brand=` filters |
+| `GET /v1/gallery` | every stored Render, Carousel and Crop, newest first; `?brand=` and `?placement=` filter |
 | `POST /v1/render` | render one Template at one or more Placements |
 | `POST /v1/carousel` | render Slides into one multi-page PDF, or N images |
 | `POST /v1/crop` | cut a Source Image to a shape by Crop Anchor |

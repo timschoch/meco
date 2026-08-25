@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import { BRANDS } from "./brands.js";
 import { slidesToPdf } from "./carousel.js";
-import { resolvePlacements } from "./channels.js";
+import { PLACEMENTS, resolvePlacements, type PlacementId } from "./channels.js";
 import { CROP_ANCHORS, cropImage, fetchSourceImage } from "./crop.js";
 import { loadImages, renderImage, type ImageFormat } from "./render.js";
 import type { Storage } from "./storage.js";
@@ -69,7 +69,7 @@ export async function render(input: RenderInput, storage: Storage) {
       });
       const ext = input.format === "jpeg" ? "jpg" : input.format;
       const stored = await storage.put(
-        `renders/${template.brand.id}`,
+        `renders/${template.brand.id}/${placement.id}`,
         bytes,
         `image/${input.format}`,
         ext,
@@ -131,14 +131,16 @@ export async function carousel(input: CarouselInput, storage: Storage) {
 
   if (input.output === "images") {
     const slides = await Promise.all(
-      pages.map((p) => storage.put(`renders/${brandId}`, p, "image/png", "png")),
+      pages.map((p) =>
+        storage.put(`renders/${brandId}/${placement.id}`, p, "image/png", "png"),
+      ),
     );
     return { placement: placement.id, slides };
   }
 
   const pdf = await slidesToPdf(pages);
   const stored = await storage.put(
-    `carousels/${brandId}`,
+    `carousels/${brandId}/${placement.id}`,
     pdf,
     "application/pdf",
     "pdf",
@@ -187,12 +189,14 @@ export async function crop(input: CropInput, storage: Storage) {
 /**
  * Everything meco has stored, newest first.
  *
- * The Brand is read off the key rather than kept in an index: `put` files a
- * Render under `renders/<brand>/…`, so listing one prefix per Brand is the
- * whole filter. Crops carry no Brand — they involve no Template.
+ * Brand and Placement are read off the key rather than kept in an index: `put`
+ * files a Render under `renders/<brand>/<channel>/<placement>/…`, so a Brand
+ * filter is one prefix listing and a Placement filter is one key comparison.
+ * A Crop has neither — it involves no Template and no Placement.
  */
 export const galleryQuery = z.object({
   brand: z.string().optional(),
+  placement: z.string().optional(),
   limit: z.number().int().min(1).max(500).default(120),
 });
 
@@ -207,21 +211,25 @@ export interface GalleryItem {
   createdAt: string;
   /** `render`, `carousel` or `crop`. */
   kind: string;
-  /** Absent for a Crop, and for anything stored before Brands were filed. */
+  /** Absent for a Crop, and for anything stored before filing began. */
   brand?: string;
+  placement?: string;
 }
 
 export async function gallery(input: GalleryInput, storage: Storage) {
-  const wanted = input.brand;
-  if (wanted && !BRANDS.has(wanted)) {
-    throw new ApiError(`No such brand: "${wanted}"`);
+  const { brand, placement } = input;
+  if (brand && !BRANDS.has(brand)) {
+    throw new ApiError(`No such brand: "${brand}"`);
+  }
+  if (placement && !PLACEMENTS.has(placement as PlacementId)) {
+    throw new ApiError(`No such placement: "${placement}"`);
   }
 
   const listings = await Promise.all(
     KINDS.map(async (kind) => {
-      // A Crop has no Brand, so a filtered gallery leaves Crops out entirely.
-      if (wanted && kind === "crops") return [];
-      const prefix = wanted && kind !== "crops" ? `${kind}/${wanted}` : kind;
+      // A Crop carries neither, so any filter at all leaves Crops out.
+      if ((brand || placement) && kind === "crops") return [];
+      const prefix = brand ? `${kind}/${brand}` : kind;
       const objects = await storage.list(prefix);
       return objects.map((o) => ({ ...o, ...describeKey(o.key) }));
     }),
@@ -229,14 +237,25 @@ export async function gallery(input: GalleryInput, storage: Storage) {
 
   const items = listings
     .flat()
+    .filter((i) => !placement || i.placement === placement)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return { total: items.length, items: items.slice(0, input.limit) };
 }
 
-/** `renders/laica/3f2a….png` → kind `render`, brand `laica`. */
-function describeKey(key: string): { kind: string; brand?: string } {
-  const [first, second] = key.split("/");
+/** `renders/laica/instagram/story/3f2a….png` → render, laica, instagram/story. */
+function describeKey(key: string): {
+  kind: string;
+  brand?: string;
+  placement?: string;
+} {
+  const [first, second, third, fourth] = key.split("/");
   const kind = (first ?? "").replace(/s$/, "");
   const brand = second && BRANDS.has(second) ? second : undefined;
-  return { kind, ...(brand ? { brand } : {}) };
+  const id = `${third}/${fourth}`;
+  const placement = PLACEMENTS.has(id as PlacementId) ? id : undefined;
+  return {
+    kind,
+    ...(brand ? { brand } : {}),
+    ...(placement ? { placement } : {}),
+  };
 }

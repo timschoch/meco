@@ -27,7 +27,7 @@ A stored image or PDF produced from one Template, one set of data and one Placem
 _Avoid_: output, generation, asset, artifact
 
 **Gallery**:
-Everything meco has stored — every Render, Carousel and Crop — listed newest first, optionally narrowed to one Brand. A view of what exists, never a thing that is published.
+Everything meco has stored — every Render, Carousel and Crop — listed newest first, optionally narrowed to one Brand and one Placement. A view of what exists, never a thing that is published.
 _Avoid_: library, archive, history, feed
 
 ### Carousels

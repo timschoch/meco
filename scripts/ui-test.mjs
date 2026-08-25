@@ -86,9 +86,9 @@ const brands = [
 ];
 
 const gallery = [
-  { key: "renders/laica/a.png", url: "https://blob.test/a.png", bytes: 4096, createdAt: "2026-08-25T10:00:00.000Z", kind: "render", brand: "laica" },
-  { key: "carousels/laica/b.pdf", url: "https://blob.test/b.pdf", bytes: 8192, createdAt: "2026-08-24T10:00:00.000Z", kind: "carousel", brand: "laica" },
-  { key: "renders/swisshutless/c.png", url: "https://blob.test/c.png", bytes: 2048, createdAt: "2026-08-23T10:00:00.000Z", kind: "render", brand: "swisshutless" },
+  { key: "renders/laica/linkedin/post/a.png", url: "https://blob.test/a.png", bytes: 4096, createdAt: "2026-08-25T10:00:00.000Z", kind: "render", brand: "laica", placement: "linkedin/post" },
+  { key: "carousels/laica/linkedin/post/b.pdf", url: "https://blob.test/b.pdf", bytes: 8192, createdAt: "2026-08-24T10:00:00.000Z", kind: "carousel", brand: "laica", placement: "linkedin/post" },
+  { key: "renders/swisshutless/instagram/story/c.png", url: "https://blob.test/c.png", bytes: 2048, createdAt: "2026-08-23T10:00:00.000Z", kind: "render", brand: "swisshutless", placement: "instagram/story" },
   { key: "crops/d.jpg", url: "https://blob.test/d.jpg", bytes: 1024, createdAt: "2026-08-22T10:00:00.000Z", kind: "crop" },
 ];
 
@@ -99,14 +99,18 @@ function stubFetch(url, init = {}) {
   const body = init.body ? JSON.parse(init.body) : undefined;
   calls.push({ url, headers: init.headers ?? {}, body });
   const [path, query] = url.split("?");
-  const wanted = new URLSearchParams(query ?? "").get("brand");
+  const params = new URLSearchParams(query ?? "");
+  const wanted = params.get("brand");
+  const wantedPlacement = params.get("placement");
   const json =
     path === "/v1/templates" ? templates
     : path === "/v1/channels" ? channels
     : path === "/v1/brands" ? brands
     : path === "/v1/gallery"
       ? (() => {
-          const items = wanted ? gallery.filter((i) => i.brand === wanted) : gallery;
+          const items = gallery
+            .filter((i) => !wanted || i.brand === wanted)
+            .filter((i) => !wantedPlacement || i.placement === wantedPlacement);
           return { total: items.length, items };
         })()
     : url === "/v1/render"
@@ -227,7 +231,8 @@ await tick();
 check("gallery filter drew every brand plus All", $('[name="brand"]')?.options.length === brands.length + 1);
 check("gallery listed everything", doc.querySelectorAll(".card").length === gallery.length);
 check("gallery skipped the image for a PDF", doc.querySelectorAll(".card img").length === gallery.length - 1);
-check("gallery captioned with brand and kind", doc.body.textContent.includes("laica · render"));
+check("gallery captioned with brand and placement", doc.body.textContent.includes("laica · linkedin/post"));
+check("placement filter offered every placement plus All", $('[name="placement"]')?.options.length === channels.placements.length + 1);
 
 const brandPick = $('[name="brand"]');
 brandPick.value = "swisshutless";
@@ -237,6 +242,30 @@ await tick();
 const filtered = calls.filter((c) => c.url.startsWith("/v1/gallery")).at(-1);
 check("filter asked the API for one brand", filtered?.url === "/v1/gallery?brand=swisshutless");
 check("filtered gallery drew one card", doc.querySelectorAll(".card").length === 1);
+
+// Both filters at once, and the picked brand must survive the second change.
+const placementPick = $('[name="placement"]');
+placementPick.value = "instagram/story";
+placementPick.dispatchEvent(new window.Event("change"));
+await tick();
+await tick();
+const both = calls.filter((c) => c.url.startsWith("/v1/gallery")).at(-1);
+check("both filters went to the API", both?.url === "/v1/gallery?brand=swisshutless&placement=instagram%2Fstory", both?.url ?? "");
+check("both filters kept the one match", doc.querySelectorAll(".card").length === 1);
+
+// A filter that matches nothing must say so rather than draw an empty grid.
+brandPick.value = "hopefamily";
+brandPick.dispatchEvent(new window.Event("change"));
+await tick();
+await tick();
+check("empty result explained", doc.body.textContent.includes("Nothing stored for that filter."));
+
+// Leaving the Gallery and coming back keeps what was picked.
+doc.querySelector('[data-panel="render"]').click();
+await tick();
+doc.querySelector('[data-panel="gallery"]').click();
+await tick();
+check("filters survived a tab switch", $('[name="brand"]')?.value === "hopefamily" && $('[name="placement"]')?.value === "instagram/story");
 
 // ------------------------------------------------------------------- token
 
