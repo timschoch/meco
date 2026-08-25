@@ -30,6 +30,9 @@ export function swissHutlessProduct(data: ProductData, placement: Placement) {
   const pad = tall ? 72 : 64;
   const nameSize = tall ? 72 : 62;
   const imageHeight = tall ? "44%" : "40%";
+  // The wordmark ships at 303×166; keep that ratio so it never squashes.
+  const logoHeight = tall ? 66 : 58;
+  const logoWidth = Math.round((logoHeight * 303) / 166);
 
   return (
     <div
@@ -56,25 +59,25 @@ export function swissHutlessProduct(data: ProductData, placement: Placement) {
             alignItems: "center",
           }}
         >
-          <div
-            style={{
-              width: 40,
-              height: 6,
-              backgroundColor: c.red,
-              marginRight: 14,
-            }}
-          />
-          <div
-            style={{
-              fontFamily: swisshutless.headingFamily,
-              fontSize: 28,
-              fontWeight: 700,
-              color: c.white,
-              letterSpacing: 3,
-            }}
-          >
-            SWISS HUTLESS
-          </div>
+          {swisshutless.logo ? (
+            <img
+              src={swisshutless.logo as unknown as string}
+              width={logoWidth}
+              height={logoHeight}
+            />
+          ) : (
+            <div
+              style={{
+                fontFamily: swisshutless.headingFamily,
+                fontSize: 28,
+                fontWeight: 700,
+                color: c.white,
+                letterSpacing: 3,
+              }}
+            >
+              SWISS HUTLESS
+            </div>
+          )}
         </div>
         {data.badge ? (
           <div

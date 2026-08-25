@@ -14,7 +14,7 @@ const OUT = resolve(import.meta.dirname, "..", "assets");
 interface AssetJob {
   /** Where it lands under assets/. */
   out: string;
-  /** Candidate sources, first one that exists wins. */
+  /** Candidate sources — a path or an `https:` URL. First one that exists wins. */
   from: string[];
   /** Rasterise to this width (SVG only). */
   width?: number;
@@ -39,6 +39,10 @@ const JOBS: AssetJob[] = [
     out: "laica/logo.png",
     from: ["/Users/tim/repo/colin/public/laica-logo-black-green-200.png"],
   },
+  {
+    out: "swisshutless/logo.png",
+    from: ["https://shop.swisshutless.com/shop/Bilder/shoplogo.png"],
+  },
 ];
 
 /** Brand fonts that are not on Google Fonts, so they must ship with the repo. */
@@ -57,13 +61,26 @@ const FONT_JOBS: Array<{ out: string; from: string[] }> = [
   },
 ];
 
+function isUrl(p: string): boolean {
+  return p.startsWith("http://") || p.startsWith("https://");
+}
+
 async function exists(p: string): Promise<boolean> {
+  if (isUrl(p)) return true;
   try {
     await access(p);
     return true;
   } catch {
     return false;
   }
+}
+
+/** Read a source, whether it is a local path or a URL. */
+async function fetchSource(p: string): Promise<Buffer> {
+  if (!isUrl(p)) return readFile(p);
+  const res = await fetch(p);
+  if (!res.ok) throw new Error(`${p} → HTTP ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
 }
 
 async function run(): Promise<void> {
@@ -83,7 +100,7 @@ async function run(): Promise<void> {
       continue;
     }
 
-    const bytes = await readFile(src);
+    const bytes = await fetchSource(src);
     const png = src.endsWith(".svg")
       ? await sharp(bytes, { density: 400 })
           .resize({ width: job.width ?? 900 })

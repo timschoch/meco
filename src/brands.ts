@@ -119,7 +119,8 @@ export const hopefamily = {
  * Loud, high-contrast and motorsport-flavoured: near-black field, condensed
  * uppercase headings. Red and navy are sampled from the shop's own logo
  * (`shop/Bilder/shoplogo.png`), not chosen — red carries every accent, navy is
- * the secondary the wordmark uses.
+ * the secondary the wordmark uses. That same logo ships as the brand logo; it
+ * carries its own light plate, so it reads on the dark frame.
  */
 export const swisshutless = {
   id: "swisshutless",
@@ -139,6 +140,7 @@ export const swisshutless = {
   ],
   headingFamily: "Barlow Condensed",
   bodyFamily: "Barlow",
+  logo: asset("swisshutless/logo.png"),
 } satisfies Brand;
 
 export const BRANDS: ReadonlyMap<string, Brand> = new Map<string, Brand>([

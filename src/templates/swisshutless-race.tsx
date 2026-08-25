@@ -32,6 +32,9 @@ export function swissHutlessRace(data: RaceData, placement: Placement) {
   const tall = placement.height / placement.width > 1.5;
   const pad = tall ? 90 : 78;
   const circuitSize = tall ? 104 : 88;
+  // The wordmark ships at 303×166; keep that ratio so it never squashes.
+  const logoHeight = tall ? 62 : 54;
+  const logoWidth = Math.round((logoHeight * 303) / 166);
 
   return (
     <div
@@ -179,6 +182,7 @@ export function swissHutlessRace(data: RaceData, placement: Placement) {
             style={{
               display: "flex",
               alignItems: "center",
+              justifyContent: "space-between",
               marginTop: 34,
               paddingTop: 30,
               borderTopWidth: 3,
@@ -196,6 +200,13 @@ export function swissHutlessRace(data: RaceData, placement: Placement) {
             >
               {data.date}
             </div>
+            {swisshutless.logo ? (
+              <img
+                src={swisshutless.logo as unknown as string}
+                width={logoWidth}
+                height={logoHeight}
+              />
+            ) : null}
           </div>
         </div>
       </div>
