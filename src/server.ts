@@ -140,6 +140,25 @@ app.post("/v1/crop", async (c) => {
 const mcp = createMecoMcpHandler(storage);
 app.all("/mcp", (c) => mcp.fetch(c.req.raw));
 
+/**
+ * The same endpoint with the token in the path.
+ *
+ * A 401 from `/mcp` is what the MCP spec uses to start an OAuth flow, so a
+ * client that sees one goes looking for an authorisation server instead of
+ * sending the token it was given — which is where Claude Desktop's custom
+ * connector gets stuck. Carrying the token in the path means the request is
+ * authorised on arrival and no 401 is ever produced.
+ *
+ * The cost is that the token appears in request logs, so treat this URL as the
+ * secret it contains and prefer the header on clients that can send one.
+ */
+app.all("/mcp/:token", (c) => {
+  if (TOKEN && c.req.param("token") !== TOKEN) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  return mcp.fetch(c.req.raw);
+});
+
 // Serve local renders so the URLs the local driver hands back actually resolve.
 // Only mounted for local storage: on Blob the URLs point at Blob, and mounting
 // these would just log a missing-directory warning on every request.

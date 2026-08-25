@@ -19,15 +19,18 @@ Add `--scope user` to reach it from every project instead of this one.
 
 ## Claude Desktop
 
-Settings → Connectors → Add custom connector, with the URL above and this header:
+Settings → Connectors → Add custom connector, with the token in the URL and no
+header at all:
 
-| Field | Value |
-|---|---|
-| Name | `x-auth-token` |
-| Value | the token on its own, with no `Bearer` prefix |
+```
+https://meco-teal.vercel.app/mcp/<MECO_TOKEN>
+```
 
-Claude Desktop reserves `Authorization` for its own OAuth flow and greys it out,
-so `x-auth-token` is the name to pick from the dropdown. meco accepts either.
+A custom connector answers a 401 by hunting for an OAuth server rather than by
+sending its configured header, so the plain `/mcp` URL ends in "Registrierung
+beim Anmeldedienst fehlgeschlagen". The token in the path authorises the request
+on arrival, so no 401 is ever produced. That URL is as secret as the token in
+it.
 
 ## Checking
 

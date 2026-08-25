@@ -38,6 +38,7 @@ set that header, `x-auth-token: <token>`.
 | `POST /v1/carousel` | render Slides into one multi-page PDF, or N images |
 | `POST /v1/crop` | cut a Source Image to a shape by Crop Anchor |
 | `POST /mcp` | the same operations as MCP tools, streamable HTTP |
+| `POST /mcp/<token>` | the same, for clients that treat a 401 as a reason to start OAuth |
 
 `GET /v1/templates` is the point of the design: a calling tool reads it and
 knows exactly what to send, without anyone documenting each new Template.
