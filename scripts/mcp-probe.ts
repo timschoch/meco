@@ -108,7 +108,7 @@ const modernMeta = {
  * metered container that is an invocation that never ends — and meco has
  * nothing to push, so the wait is forever.
  */
-const LISTEN_PARAMS = { notifications: ["notifications/tools/list_changed"] };
+const LISTEN_PARAMS = { notifications: { toolsListChanged: true } };
 
 const METHODS = [
   { method: "tools/list", params: {} },

@@ -35,9 +35,44 @@ function fail(err: unknown) {
   };
 }
 
+/**
+ * Turn away `subscriptions/listen` before the SDK can open a stream for it.
+ *
+ * That method is the 2026 spec's long-lived change feed, and the SDK always
+ * serves it over SSE and holds it open until an event arrives. meco publishes
+ * no events — its tools are compiled in and its capabilities say so — so the
+ * stream would wait forever, and on a metered container an open stream is an
+ * invocation billed until the platform kills it. Declining `listChanged` stops
+ * a well-behaved client from asking; this stops the ones that ask anyway.
+ *
+ * `-32601` is the same answer the 2025 path has always given this method, and
+ * clients on that path work fine, so it is a shape they already handle.
+ */
+async function declineSubscription(request: Request): Promise<Response> {
+  let id: unknown = null;
+  try {
+    id = ((await request.json()) as { id?: unknown }).id ?? null;
+  } catch {
+    // A body we cannot parse still gets a well-formed answer, just without an id.
+  }
+  return Response.json({
+    jsonrpc: "2.0",
+    id,
+    error: { code: -32601, message: "Method not found" },
+  });
+}
+
 export function createMecoMcpHandler(storage: Storage) {
-  return createMcpHandler(() => {
-    const server = new McpServer({ name: "meco", version: "0.1.0" });
+  const handler = createMcpHandler(() => {
+    const server = new McpServer(
+      { name: "meco", version: "0.1.0" },
+      // meco's tools are compiled in: the list is the same for every caller and
+      // never changes while the process lives. Advertising `listChanged` invites
+      // clients to open a `subscriptions/listen` stream, which the SDK holds open
+      // over SSE waiting for an event that can never arrive — on a metered
+      // container that is an invocation billed until the platform kills it.
+      { capabilities: { tools: { listChanged: false } } },
+    );
 
     server.registerTool(
       "list_templates",
@@ -180,4 +215,14 @@ export function createMecoMcpHandler(storage: Storage) {
 
     return server;
   });
+
+  // The 2026 era names the method in a header, so the decision is made without
+  // touching the body of any request that is going through.
+  return {
+    ...handler,
+    fetch: (request: Request) =>
+      request.headers.get("mcp-method") === "subscriptions/listen"
+        ? declineSubscription(request)
+        : handler.fetch(request),
+  };
 }
