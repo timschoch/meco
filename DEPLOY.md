@@ -27,6 +27,11 @@ Out-of-band deploys from the working tree: `vercel deploy` (preview),
    otherwise put an SSO wall in front of every request, and the point of the
    service is that other tools can call it. `MECO_TOKEN` is the auth.
 5. `vercel git connect https://github.com/timschoch/meco`
+6. Function max duration set to **60 s** (project setting
+   `resourceConfig.functionDefaultTimeout`, Vercel default is 300 s). An MCP
+   client that holds the `/mcp` response stream open otherwise keeps the
+   container — and the billing — alive for the full 300 s. 60 s is well above
+   any real render. Takes effect on the next deployment.
 
 ## Env vars
 
