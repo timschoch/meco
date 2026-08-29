@@ -7,6 +7,12 @@ Container image build (`Dockerfile.vercel`) on Vercel Functions. A root
 `services` block in `vercel.json` is what selects the container runtime, and the
 `rewrites` entry is what routes traffic into it.
 
+The image compiles TypeScript at build time (`pnpm build` → `dist/`) and runs
+`node dist/server.js`. `tsx` is for local development only: a scale-to-zero
+container boots often, and transpiling `src/` on every boot is paid CPU.
+`dist/` mirrors `src/` one level deep, which is what keeps `../assets` resolving
+from `brands.ts`.
+
 ## Release
 
 Push to `main`. The GitHub repo is connected to the project, so Vercel builds
@@ -28,10 +34,9 @@ Out-of-band deploys from the working tree: `vercel deploy` (preview),
    service is that other tools can call it. `MECO_TOKEN` is the auth.
 5. `vercel git connect https://github.com/timschoch/meco`
 6. Function max duration set to **60 s** (project setting
-   `resourceConfig.functionDefaultTimeout`, Vercel default is 300 s). An MCP
-   client that holds the `/mcp` response stream open otherwise keeps the
-   container — and the billing — alive for the full 300 s. 60 s is well above
-   any real render. Takes effect on the next deployment.
+   `resourceConfig.functionDefaultTimeout`, Vercel default is 300 s). It is the
+   backstop for any request that fails to end on its own; 60 s is well above any
+   real render. Takes effect on the next deployment.
 
 ## Env vars
 
@@ -63,6 +68,16 @@ docker run --rm -p 8080:80 \
 curl http://localhost:8080/
 ```
 
+## Prove an MCP exchange still ends
+
+```
+pnpm exec tsx scripts/mcp-probe.ts
+```
+
+Drives every MCP exchange shape in-process and exits non-zero if any response
+body is still open after five seconds. A body that never closes bills the
+container until the platform kills it, so this is the guard on that.
+
 ## Gotchas
 
 - Never `docker cp` a macOS-built `node_modules` into the image — `sharp` and
@@ -70,3 +85,7 @@ curl http://localhost:8080/
   always runs a fresh `pnpm install` inside the container; keep it that way.
 - Image must stay under 15 GB total / 500 MB per layer (Vercel Container
   Registry limit).
+- Never advertise an MCP capability meco cannot honour. `tools.listChanged` is
+  declared `false` on purpose: advertising it invites `subscriptions/listen`,
+  which the SDK serves as an SSE stream held open for an event meco never
+  sends. `src/mcp.ts` also declines that method outright.
