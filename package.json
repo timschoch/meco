@@ -12,7 +12,8 @@
     "start": "node dist/server.js",
     "demo": "tsx scripts/demo.ts",
     "typecheck": "tsc --noEmit",
-    "test:ui": "tsx scripts/ui-test.mjs"
+    "test:ui": "tsx scripts/ui-test.mjs",
+    "test:mcp": "tsx scripts/mcp-probe.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",

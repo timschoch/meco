@@ -7,8 +7,8 @@
  * the *body* ends, so every probe reads the stream to completion under a clock.
  *
  * Drives the MCP handler in-process — no port, no container, no Vercel. Both
- * `/mcp` routes in `src/server.ts` are one-line delegations to this handler, so
- * this is the same code path a real client reaches.
+ * `/mcp` routes in `src/server.ts` hand the raw request straight to this
+ * handler, so this is the same code path a real client reaches.
  */
 import { setTimeout as delay } from "node:timers/promises";
 

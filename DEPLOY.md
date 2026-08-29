@@ -71,7 +71,7 @@ curl http://localhost:8080/
 ## Prove an MCP exchange still ends
 
 ```
-pnpm exec tsx scripts/mcp-probe.ts
+pnpm test:mcp
 ```
 
 Drives every MCP exchange shape in-process and exits non-zero if any response
