@@ -10,14 +10,23 @@ RUN npm install -g pnpm@11
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
+# Compile ahead of time. Running tsx in production would transpile the whole of
+# src/ on every container boot, and a scale-to-zero container boots often.
+FROM deps AS build
+WORKDIR /app
+COPY tsconfig.json tsconfig.build.json ./
+COPY src ./src
+RUN pnpm build
+
 FROM node:24-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json tsconfig.json ./
-COPY src ./src
+COPY --from=build /app/dist ./dist
+COPY package.json ./
+# dist/ mirrors src/ one level deep, so `../assets` still points here.
 COPY assets ./assets
 
 # Vercel sets $PORT; default 80 per the container-images contract.
 EXPOSE 80
-CMD ["node_modules/.bin/tsx", "src/server.ts"]
+CMD ["node", "dist/server.js"]

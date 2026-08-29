@@ -1,0 +1,15 @@
+// Production emit. The root config is a checker (`noEmit`) and covers scripts/
+// as well; this one compiles src/ only, so dist/ mirrors src/ one for one.
+//
+// That mirroring matters: `brands.ts` finds the fonts at `../assets` relative to
+// its own directory, and `dist/` sits at the same depth as `src/`.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true
+  },
+  "include": ["src/**/*"]
+}
