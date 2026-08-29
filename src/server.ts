@@ -158,7 +158,50 @@ app.post("/v1/crop", async (c) => {
 // tools rather than as HTTP. Stateless: one server per request, nothing to keep
 // warm in a container that scales to zero.
 const mcp = createMecoMcpHandler(storage);
-app.all("/mcp", (c) => mcp.fetch(c.req.raw));
+
+/**
+ * Serve one MCP exchange and record when its response body actually ended.
+ *
+ * The platform bills a request until its body closes, and a body that never
+ * closes shows up in the platform log only as a timeout with no method
+ * attached — which makes an expensive exchange indistinguishable from a cheap
+ * one. Wrapping the stream is the only place that end is observable.
+ */
+async function serveMcp(request: Request): Promise<Response> {
+  const started = performance.now();
+  const method = request.headers.get("mcp-method") ?? "?";
+  const response = await mcp.fetch(request);
+
+  const done = (note: string) => {
+    const ms = (performance.now() - started).toFixed(0);
+    console.log(`mcp ${method} ${String(response.status)} ${note} ${ms}ms`);
+  };
+
+  if (!response.body) {
+    done("no-body");
+    return response;
+  }
+
+  // Identity transform: it changes nothing about the bytes or the backpressure,
+  // it only gives us a hook on the end of the stream.
+  const { readable, writable } = new TransformStream();
+  void response.body
+    .pipeTo(writable)
+    .then(() => {
+      done("closed");
+    })
+    .catch(() => {
+      done("aborted");
+    });
+
+  return new Response(readable, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+app.all("/mcp", (c) => serveMcp(c.req.raw));
 
 /**
  * The same endpoint with the token in the path.
@@ -176,7 +219,7 @@ app.all("/mcp/:token", (c) => {
   if (TOKEN && c.req.param("token") !== TOKEN) {
     return c.json({ error: "Unauthorized" }, 401);
   }
-  return mcp.fetch(c.req.raw);
+  return serveMcp(c.req.raw);
 });
 
 // Serve local renders so the URLs the local driver hands back actually resolve.
