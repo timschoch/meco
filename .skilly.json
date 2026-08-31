@@ -1,0 +1,11 @@
+{
+  "bundles": [
+    "workflow"
+  ],
+  "status": {
+    "skilly": {
+      "lastUpdate": "2026-08-31",
+      "commit": "d9048bddff7b892ca14d4099a2afd8ad8d0f2864"
+    }
+  }
+}
