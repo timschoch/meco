@@ -1,0 +1,11 @@
+{
+  "bundles": [
+    "setup-project"
+  ],
+  "status": {
+    "skilly": {
+      "lastUpdate": "2026-08-31",
+      "commit": "3a6b8a1a234442cd8b881c8f573350ad1143a017"
+    }
+  }
+}

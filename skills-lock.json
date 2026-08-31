@@ -145,6 +145,30 @@
       "skillPath": "skills/misc/setup-pre-commit/SKILL.md",
       "computedHash": "1b140af948d0a6330c4cf52d46ca2e06a0e96fdc34d22ec8888d2b9751b99b62"
     },
+    "setup-project": {
+      "source": "timschoch/skilly",
+      "sourceType": "github",
+      "skillPath": "bundles/setup-project/skills/setup-project/SKILL.md",
+      "computedHash": "71003809b56b3622c8079b31708fb021f43d5fad1b12d245134dbd155108110a"
+    },
+    "setup-release-please": {
+      "source": "timschoch/skilly",
+      "sourceType": "github",
+      "skillPath": "bundles/setup-project/skills/setup-release-please/SKILL.md",
+      "computedHash": "c58a310494792c5b22024265a3fc2d3e3bd6a09848448b85e122b2b7adf2cd15"
+    },
+    "setup-repo": {
+      "source": "timschoch/skilly",
+      "sourceType": "github",
+      "skillPath": "bundles/setup-project/skills/setup-repo/SKILL.md",
+      "computedHash": "091a1a499c9b8e4dcf41990c902eab159517b46f4827c59e63d5ad0c5869876f"
+    },
+    "setup-skilly": {
+      "source": "timschoch/skilly",
+      "sourceType": "github",
+      "skillPath": "bundles/setup-project/skills/setup-skilly/SKILL.md",
+      "computedHash": "5d9e59dc1eec8d8021321548d2d4ca98339df284ba5778f67fd60ea42f5ad637"
+    },
     "setup-ts-deep-modules": {
       "source": "timschoch/mattpocock-skills",
       "sourceType": "github",
