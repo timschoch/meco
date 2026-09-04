@@ -145,6 +145,20 @@ either, because the install needs the workspace lockfile at the repository root.
 `MECO_TOKEN` must be set on both services. `POST /faces/detect` requires it;
 `GET /faces/health` does not, so that a liveness probe does not need a secret.
 
+`POST /faces/detect` takes the image bytes as the body and answers
+
+```
+{ "width": 1120, "height": 1400,
+  "faces": [ { "box": { "x": 0.4795, "y": 0.1734, "width": 0.0789, "height": 0.0858 },
+               "landmarks": { "rEye": {…}, "lEye": {…}, "nose": {…},
+                              "rMouth": {…}, "lMouth": {…} },
+               "score": 0.934 } ] }
+```
+
+every number a fraction of the image. The box is spelled the way `SubjectBox` in
+`src/crop-solver.ts` is spelled, so a face needs no rename on its way into the
+solver.
+
 ### Measured
 
 | | |

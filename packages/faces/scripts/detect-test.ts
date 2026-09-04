@@ -43,7 +43,12 @@ const check = (ok: boolean, label: string, detail = "") => {
 
 /** How far apart two boxes are, as the worst of their four coordinates. */
 const deviation = (a: Box, b: Box) =>
-  Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.w - b.w), Math.abs(a.h - b.h));
+  Math.max(
+    Math.abs(a.x - b.x),
+    Math.abs(a.y - b.y),
+    Math.abs(a.width - b.width),
+    Math.abs(a.height - b.height),
+  );
 
 // -------------------------------------------------------------- the fixtures
 
@@ -91,7 +96,8 @@ for (const image of expected.images) {
   // eye — "right" being the subject's right, which is the viewer's left.
   for (const face of result.faces) {
     const { rEye, lEye } = face.landmarks;
-    const inUpperHalf = (y: number) => y > face.box.y && y < face.box.y + face.box.h * 0.6;
+    const inUpperHalf = (y: number) =>
+      y > face.box.y && y < face.box.y + face.box.height * 0.6;
     check(
       rEye.x < lEye.x && inUpperHalf(rEye.y) && inUpperHalf(lEye.y),
       `${image.file} eye landmarks`,

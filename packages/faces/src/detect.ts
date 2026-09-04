@@ -149,8 +149,8 @@ function toFractions(face: DetectedFace, width: number, height: number): Face {
     box: {
       x: left,
       y: top,
-      w: clamp01((face.box.x + face.box.w) / width) - left,
-      h: clamp01((face.box.y + face.box.h) / height) - top,
+      width: clamp01((face.box.x + face.box.width) / width) - left,
+      height: clamp01((face.box.y + face.box.height) / height) - top,
     },
     landmarks: {
       rEye: point(face.landmarks.rEye),
@@ -218,7 +218,7 @@ export async function detectFaces(image: Buffer): Promise<DetectResult> {
     // Detections land in the *resized* frame, so the resize is the only thing
     // between them and a fraction of the original.
     .map((face) => toFractions(face, fitWidth, fitHeight))
-    .filter((face) => face.box.w > 0 && face.box.h > 0);
+    .filter((face) => face.box.width > 0 && face.box.height > 0);
 
   return { width, height, faces };
 }

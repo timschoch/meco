@@ -17,12 +17,19 @@ export interface Point {
   y: number;
 }
 
-/** A face rectangle: top-left corner plus size, in the frame it was decoded in. */
+/**
+ * A face rectangle: top-left corner plus size, in the frame it was decoded in.
+ *
+ * Spelled `width`/`height` rather than the `w`/`h` of the plan's shorthand,
+ * because a face becomes a `SubjectBox` the moment meco reads it and that type
+ * is already spelled this way. A rename at the boundary would be one more place
+ * to get a crop wrong.
+ */
 export interface Box {
   x: number;
   y: number;
-  w: number;
-  h: number;
+  width: number;
+  height: number;
 }
 
 /**
@@ -121,7 +128,7 @@ function collectCandidates(outputs: YunetOutputs, opts: DecodeOptions): Detected
         });
 
         faces.push({
-          box: { x: cx - w / 2, y: cy - h / 2, w, h },
+          box: { x: cx - w / 2, y: cy - h / 2, width: w, height: h },
           landmarks: {
             rEye: point(0),
             lEye: point(1),
@@ -142,11 +149,11 @@ function collectCandidates(outputs: YunetOutputs, opts: DecodeOptions): Detected
 function iou(a: Box, b: Box): number {
   const left = Math.max(a.x, b.x);
   const top = Math.max(a.y, b.y);
-  const right = Math.min(a.x + a.w, b.x + b.w);
-  const bottom = Math.min(a.y + a.h, b.y + b.h);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
   if (right <= left || bottom <= top) return 0;
   const overlap = (right - left) * (bottom - top);
-  return overlap / (a.w * a.h + b.w * b.h - overlap);
+  return overlap / (a.width * a.height + b.width * b.height - overlap);
 }
 
 /**

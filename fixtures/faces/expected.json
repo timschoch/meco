@@ -15,17 +15,17 @@
       "file": "artemis-2-crew.jpg",
       "note": "Four faces at four scales and two rows — the group case.",
       "faces": [
-        { "label": "back left", "box": { "x": 0.228, "y": 0.248, "w": 0.088, "h": 0.095 } },
-        { "label": "back centre", "box": { "x": 0.481, "y": 0.175, "w": 0.078, "h": 0.079 } },
-        { "label": "front centre", "box": { "x": 0.451, "y": 0.354, "w": 0.089, "h": 0.093 } },
-        { "label": "back right", "box": { "x": 0.719, "y": 0.27, "w": 0.085, "h": 0.087 } }
+        { "label": "back left", "box": { "x": 0.228, "y": 0.248, "width": 0.088, "height": 0.095 } },
+        { "label": "back centre", "box": { "x": 0.481, "y": 0.175, "width": 0.078, "height": 0.079 } },
+        { "label": "front centre", "box": { "x": 0.451, "y": 0.354, "width": 0.089, "height": 0.093 } },
+        { "label": "back right", "box": { "x": 0.719, "y": 0.27, "width": 0.085, "height": 0.087 } }
       ]
     },
     {
       "file": "astronaut-portrait.jpg",
       "note": "One large, well-lit face — the single-Subject case.",
       "faces": [
-        { "label": "centre", "box": { "x": 0.402, "y": 0.135, "w": 0.25, "h": 0.276 } }
+        { "label": "centre", "box": { "x": 0.402, "y": 0.135, "width": 0.25, "height": 0.276 } }
       ]
     },
     {
