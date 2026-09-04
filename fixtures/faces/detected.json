@@ -1,0 +1,182 @@
+{
+  "$comment": [
+    "Recorded answers from a real POST /detect against meco-faces, for the two",
+    "fixture photographs that have faces in them. Checked in so that meco's own",
+    "tests can frame a Crop on a real detection without loading ONNX Runtime,",
+    "reaching the network, or depending on a second workspace package.",
+    "This is a recording, not a claim about the detector: what guards the",
+    "detector is packages/faces `pnpm test:detect`, which measures it against the",
+    "hand-marked boxes in expected.json beside this file. Every number is a",
+    "fraction of the image, rounded to six decimals.",
+    "Re-record with: POST the fixture bytes to /detect and round the answer."
+  ],
+  "images": {
+    "astronaut-portrait.jpg": {
+      "width": 1120,
+      "height": 1400,
+      "faces": [
+        {
+          "box": {
+            "x": 0.40261,
+            "y": 0.126244,
+            "width": 0.250412,
+            "height": 0.281318
+          },
+          "landmarks": {
+            "rEye": {
+              "x": 0.463922,
+              "y": 0.239791
+            },
+            "lEye": {
+              "x": 0.578752,
+              "y": 0.238508
+            },
+            "nose": {
+              "x": 0.517188,
+              "y": 0.290799
+            },
+            "rMouth": {
+              "x": 0.470572,
+              "y": 0.331344
+            },
+            "lMouth": {
+              "x": 0.575951,
+              "y": 0.329524
+            }
+          },
+          "score": 0.947076
+        }
+      ]
+    },
+    "artemis-2-crew.jpg": {
+      "width": 1120,
+      "height": 1400,
+      "faces": [
+        {
+          "box": {
+            "x": 0.479477,
+            "y": 0.173436,
+            "width": 0.078856,
+            "height": 0.085846
+          },
+          "landmarks": {
+            "rEye": {
+              "x": 0.502088,
+              "y": 0.207512
+            },
+            "lEye": {
+              "x": 0.537273,
+              "y": 0.208016
+            },
+            "nose": {
+              "x": 0.520097,
+              "y": 0.224193
+            },
+            "rMouth": {
+              "x": 0.50547,
+              "y": 0.237627
+            },
+            "lMouth": {
+              "x": 0.535999,
+              "y": 0.238143
+            }
+          },
+          "score": 0.934197
+        },
+        {
+          "box": {
+            "x": 0.71715,
+            "y": 0.26943,
+            "width": 0.085982,
+            "height": 0.088178
+          },
+          "landmarks": {
+            "rEye": {
+              "x": 0.727777,
+              "y": 0.302365
+            },
+            "lEye": {
+              "x": 0.771474,
+              "y": 0.302797
+            },
+            "nose": {
+              "x": 0.742348,
+              "y": 0.318606
+            },
+            "rMouth": {
+              "x": 0.731867,
+              "y": 0.333334
+            },
+            "lMouth": {
+              "x": 0.767374,
+              "y": 0.333038
+            }
+          },
+          "score": 0.933354
+        },
+        {
+          "box": {
+            "x": 0.231509,
+            "y": 0.256812,
+            "width": 0.086741,
+            "height": 0.083791
+          },
+          "landmarks": {
+            "rEye": {
+              "x": 0.256856,
+              "y": 0.282856
+            },
+            "lEye": {
+              "x": 0.296862,
+              "y": 0.282109
+            },
+            "nose": {
+              "x": 0.278132,
+              "y": 0.299943
+            },
+            "rMouth": {
+              "x": 0.259948,
+              "y": 0.318812
+            },
+            "lMouth": {
+              "x": 0.294939,
+              "y": 0.3155
+            }
+          },
+          "score": 0.932872
+        },
+        {
+          "box": {
+            "x": 0.446159,
+            "y": 0.361597,
+            "width": 0.090768,
+            "height": 0.089403
+          },
+          "landmarks": {
+            "rEye": {
+              "x": 0.464088,
+              "y": 0.39287
+            },
+            "lEye": {
+              "x": 0.50205,
+              "y": 0.392159
+            },
+            "nose": {
+              "x": 0.479501,
+              "y": 0.409901
+            },
+            "rMouth": {
+              "x": 0.469109,
+              "y": 0.43335
+            },
+            "lMouth": {
+              "x": 0.500061,
+              "y": 0.425879
+            }
+          },
+          "score": 0.927661
+        }
+      ]
+    }
+  }
+}

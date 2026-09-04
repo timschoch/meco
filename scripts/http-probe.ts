@@ -11,13 +11,22 @@
  * Same shape as `scripts/mcp-probe.ts`: one line per check, non-zero exit when
  * any of them failed.
  */
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  CLIENT_CAPABILITIES_META_KEY,
+  CLIENT_INFO_META_KEY,
+  PROTOCOL_VERSION_META_KEY,
+} from "@modelcontextprotocol/server";
 import sharp from "sharp";
 
 import { createApp } from "../src/app.js";
 import { CROP_PRODUCERS } from "../src/crop-solver.js";
+import { FACES_URL, type Detection } from "../src/faces.js";
 import { LocalStorage } from "../src/storage.js";
 
 const problems: string[] = [];
@@ -34,6 +43,16 @@ function check(name: string, ok: boolean, detail = ""): void {
  */
 const TOKEN = "probe-token";
 process.env.MECO_TOKEN = TOKEN;
+
+/**
+ * No face service until the faces section switches one on.
+ *
+ * Face detection is opt-in per deployment, and the crops below are the ones that
+ * were framed without it — leaving it unset here is what keeps them a test of
+ * the producers they are about, and proves in passing that a meco with no
+ * `FACES_URL` behaves exactly as it did before there was one.
+ */
+delete process.env[FACES_URL];
 
 const root = await mkdtemp(join(tmpdir(), "meco-http-"));
 const storage = new LocalStorage(root, "http://local");
@@ -336,6 +355,436 @@ for (const one of OUT_OF_RANGE) {
   check(`a Subject Area with ${String(one.label)} is refused`, status === 400, String(status));
 }
 
+// --------------------------------------------------------------------- faces
+
+console.log("\nfaces");
+
+/**
+ * A stand-in for meco-faces, on a real socket.
+ *
+ * `FACES_URL` is meco's only injection point for the face service, so a stand-in
+ * that listens on a port is reached by exactly the code path the deployed
+ * service is — the client, the token header, the parsing of the answer. Nothing
+ * is stubbed inside meco.
+ *
+ * It counts what it is asked, which is the only way to prove the claim that
+ * matters about the Annotation cache: not that the second answer is the same,
+ * but that the second answer cost nothing.
+ *
+ * What it answers with is recorded from the real detector — see
+ * `fixtures/faces/detected.json` — so the framing under test is the framing a
+ * real photograph gets, without ONNX Runtime in this process.
+ */
+const fixtures = (path: string) =>
+  fileURLToPath(new URL(`../fixtures/faces/${path}`, import.meta.url));
+
+const recorded = JSON.parse(await readFile(fixtures("detected.json"), "utf8")) as {
+  images: Record<string, Detection>;
+};
+
+/**
+ * Hashed here rather than with `sourceHash` from `src/annotations.ts`.
+ *
+ * The claim below is that meco files an Annotation under the SHA-256 of the
+ * Source Image bytes. Computing the expected key with the very function that
+ * computes the real one would make that claim true by construction.
+ */
+const sha = (data: Buffer) => createHash("sha256").update(data).digest("hex");
+
+/** Recorded detections, keyed by the hash of the photograph they belong to. */
+const canned = new Map<string, Detection>();
+/** One entry per request the stand-in was asked to serve. */
+const detectCalls: string[] = [];
+
+const facesService = createServer((req, res) => {
+  const chunks: Buffer[] = [];
+  req.on("data", (c: Buffer) => chunks.push(c));
+  req.on("end", () => {
+    void (async () => {
+      const body = Buffer.concat(chunks);
+      detectCalls.push(sha(body));
+      const known = canned.get(sha(body));
+      // An image nobody recorded is a photograph with no faces in it, answered
+      // the way meco-faces would answer one: its real size, and an empty list.
+      const answer = known ?? { ...(await sharp(body).metadata()), faces: [] };
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({ width: answer.width, height: answer.height, faces: answer.faces }),
+      );
+    })();
+  });
+});
+
+await new Promise<void>((resolve) => facesService.listen(0, "127.0.0.1", resolve));
+const facesPort = (facesService.address() as { port: number }).port;
+process.env[FACES_URL] = `http://127.0.0.1:${String(facesPort)}`;
+
+/** One of the fixture photographs, as the `data:` URL a Crop takes. */
+async function fixturePhoto(name: string): Promise<{ url: string; hash: string }> {
+  const bytes = await readFile(fixtures(name));
+  return { url: `data:image/jpeg;base64,${bytes.toString("base64")}`, hash: sha(bytes) };
+}
+
+const PORTRAIT = await fixturePhoto("astronaut-portrait.jpg");
+const GROUP = await fixturePhoto("artemis-2-crew.jpg");
+canned.set(PORTRAIT.hash, recorded.images["astronaut-portrait.jpg"]!);
+canned.set(GROUP.hash, recorded.images["artemis-2-crew.jpg"]!);
+
+for (const shape of [
+  { label: "9:16", width: 1080, height: 1920 },
+  { label: "4:5", width: 1080, height: 1350 },
+  { label: "1:1", width: 1080, height: 1080 },
+]) {
+  const { status, json } = await post("/v1/crop", {
+    source: PORTRAIT.url,
+    width: shape.width,
+    height: shape.height,
+  });
+  cropKeys.add(String(json.key));
+  const wanted = `${String(shape.width)}x${String(shape.height)}`;
+  check(
+    `a portrait at ${shape.label} was framed on the face`,
+    status === 200 && json.resolvedBy === "face" && json.satisfied === true,
+    `${String(status)} resolvedBy=${String(json.resolvedBy)} satisfied=${String(json.satisfied)}`,
+  );
+  check(
+    `a portrait at ${shape.label} stored an image of the size asked for`,
+    (await storedSize(json.key)) === wanted,
+    await storedSize(json.key),
+  );
+}
+
+/**
+ * The cache, which is the whole reason an Annotation is stored at all.
+ *
+ * Three shapes of the same photograph have just been cropped, and the group
+ * photograph has not been seen at all. One detection for the portrait, one for
+ * the group, and nothing for the two repeats.
+ */
+const afterPortrait = detectCalls.length;
+check(
+  "three Crops of one photograph cost one detection",
+  afterPortrait === 1,
+  `${String(afterPortrait)} calls to the face service`,
+);
+
+const groupCrop = await post("/v1/crop", { source: GROUP.url, width: 1920, height: 1080 });
+cropKeys.add(String(groupCrop.json.key));
+check(
+  "a group photograph is framed on a face too",
+  groupCrop.status === 200 && groupCrop.json.resolvedBy === "face",
+  `${String(groupCrop.status)} resolvedBy=${String(groupCrop.json.resolvedBy)}`,
+);
+check(
+  "a photograph never seen before does cost a detection",
+  detectCalls.length === afterPortrait + 1,
+  `${String(detectCalls.length)} calls in total`,
+);
+
+const again = await post("/v1/crop", { source: PORTRAIT.url, width: 1080, height: 1920 });
+check(
+  "a second request for the same Source Image bytes makes no call at all",
+  detectCalls.length === afterPortrait + 1 && again.status === 200,
+  `${String(detectCalls.length)} calls, still ${String(afterPortrait + 1)}`,
+);
+check(
+  "and it returns the same Crop it did the first time",
+  cropKeys.has(String(again.json.key)),
+  String(again.json.key),
+);
+
+/**
+ * The Annotation itself, stored in the IPTC Image Region shape.
+ *
+ * Read back off disk rather than out of the response, because where it is filed
+ * and what is in it are two separate promises and only the file keeps both.
+ */
+const annotationKey = `annotations/${PORTRAIT.hash}.json`;
+const annotation = JSON.parse(
+  await readFile(join(root, annotationKey), "utf8"),
+) as {
+  source: { hash: string; width: number; height: number };
+  ImageRegion: {
+    RegionId: string;
+    RegionBoundary: { RbShape: string; RbUnit: string; RbW: number };
+    rCtype: { uri: string }[];
+    "meco:producer": string;
+  }[];
+};
+check(
+  "the Annotation is filed under the hash of the Source Image bytes",
+  annotation.source.hash === PORTRAIT.hash,
+  annotationKey,
+);
+check(
+  "it carries one machine region per detected face",
+  annotation.ImageRegion.length === recorded.images["astronaut-portrait.jpg"]!.faces.length &&
+    annotation.ImageRegion.every((r) => r["meco:producer"] === "yunet"),
+  `${String(annotation.ImageRegion.length)} regions`,
+);
+check(
+  "every region is an IPTC rectangle in relative units",
+  annotation.ImageRegion.every(
+    (r) =>
+      r.RegionBoundary.RbShape === "rectangle" &&
+      r.RegionBoundary.RbUnit === "relative" &&
+      r.RegionBoundary.RbW > 0 &&
+      r.RegionBoundary.RbW <= 1,
+  ),
+  JSON.stringify(annotation.ImageRegion[0]?.RegionBoundary),
+);
+check(
+  "a face is an IPTC human region",
+  annotation.ImageRegion.every((r) =>
+    r.rCtype.some((c) => c.uri === "http://cv.iptc.org/newscodes/imageregiontype/human"),
+  ),
+);
+
+// --------------------------------------------------------- find subjects
+
+/**
+ * `/v1/subjects` and the `find_subjects` MCP tool have to be the same answer,
+ * because the console draws its overlay from one and a calling agent reads the
+ * other. Driven through the app's own `/mcp` route, so this is the transport a
+ * real client uses and not a direct call to the handler.
+ */
+const subjects = await post("/v1/subjects", { source: PORTRAIT.url });
+check(
+  "find subjects answers with the Annotation",
+  subjects.status === 200 &&
+    (subjects.json.ImageRegion as unknown[]).length === annotation.ImageRegion.length,
+  `${String(subjects.status)} ${JSON.stringify(subjects.json).slice(0, 120)}`,
+);
+check(
+  "and it too was served from the cache",
+  detectCalls.length === afterPortrait + 1,
+  `${String(detectCalls.length)} calls`,
+);
+
+const mcpCall = await app.fetch(
+  new Request("http://local/mcp", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": "tools/call",
+      "mcp-name": "find_subjects",
+      "x-auth-token": TOKEN,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "find_subjects",
+        arguments: { source: PORTRAIT.url },
+        _meta: {
+          [PROTOCOL_VERSION_META_KEY]: "2026-07-28",
+          [CLIENT_INFO_META_KEY]: { name: "http-probe", version: "0" },
+          [CLIENT_CAPABILITIES_META_KEY]: {},
+        },
+      },
+    }),
+  }),
+);
+const mcpText = await mcpCall.text();
+// The SDK answers as JSON or as a one-event SSE stream; which is its business.
+const mcpPayload = JSON.parse(
+  mcpText
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trim())
+    .join("") || mcpText,
+) as { result?: { content?: { text: string }[] } };
+const mcpAnnotation = mcpPayload.result?.content?.[0]?.text ?? "";
+check(
+  "the MCP tool returns the same Annotation as the route",
+  mcpAnnotation !== "" &&
+    JSON.stringify(JSON.parse(mcpAnnotation)) === JSON.stringify(subjects.json),
+  mcpAnnotation.slice(0, 160),
+);
+
+// --------------------------------------------- what a face makes reachable
+
+/**
+ * The refusal a Subject Area could not produce until now.
+ *
+ * Every producer before the face yields a bare point, and a point has no size to
+ * scale up — so the zoom derived from a Subject Area was always null and the
+ * Source Image was never measured against it. A face is the first Subject with a
+ * width, which makes "this photograph is too small" a thing a request can
+ * actually be told. It has to arrive as a 400 naming both sizes, not as a Crop
+ * that quietly framed something else.
+ */
+const tooSmall = await post("/v1/crop", {
+  source: PORTRAIT.url,
+  width: 1080,
+  height: 1080,
+  subjectArea: { x: 0.4, y: 0.4, width: 0.05, height: 0.05 },
+});
+const tooSmallMessage = String(tooSmall.json.error ?? "");
+check(
+  "a Source Image too small for the Subject Area is refused over the wire",
+  tooSmall.status === 400,
+  `${String(tooSmall.status)} ${tooSmallMessage.slice(0, 120)}`,
+);
+check(
+  "the refusal names the window it needed and the one that fits",
+  tooSmallMessage.includes("7877x7877") && tooSmallMessage.includes("1120x1120"),
+  tooSmallMessage,
+);
+
+/**
+ * A face is also the first producer that can satisfy a Subject Area at all, so
+ * the flag stops being a claim only the solver test can check.
+ */
+const filled = await post("/v1/crop", {
+  source: PORTRAIT.url,
+  width: 1080,
+  height: 1080,
+  subjectArea: { x: 0.35, y: 0.1, width: 0.3, height: 0.5 },
+});
+cropKeys.add(String(filled.json.key));
+check(
+  "a face fills a Subject Area and the answer says so",
+  filled.status === 200 &&
+    filled.json.resolvedBy === "face" &&
+    filled.json.subjectAreaSatisfied === true,
+  `${String(filled.status)} resolvedBy=${String(filled.json.resolvedBy)}` +
+    ` subjectAreaSatisfied=${String(filled.json.subjectAreaSatisfied)}`,
+);
+
+// -------------------------------------- what the caller asked for, with faces
+
+/**
+ * A Crop Anchor and a strategy have to go on working once faces are switched on.
+ *
+ * They are not overridden so much as outranked: `PRIORITY` in `src/crop.ts` puts
+ * a face above both, which is the order parent issue #5 story 9 asks for — a
+ * Crop with no face falls back to the busiest region, then to the Crop Anchor,
+ * then to centre. So the pair of claims is that a face wins when there is one,
+ * and that the caller's own instruction still decides when there is not. The
+ * third fixture is a photograph of Mars, which is the honest way to have no face
+ * in the picture rather than switching the service off.
+ */
+const FACELESS = await fixturePhoto("jezero-crater.jpg");
+
+const anchoredWithFace = await post("/v1/crop", {
+  source: PORTRAIT.url,
+  width: 1080,
+  height: 1350,
+  anchor: "top",
+});
+cropKeys.add(String(anchoredWithFace.json.key));
+check(
+  "a face outranks the Crop Anchor the caller named",
+  anchoredWithFace.json.resolvedBy === "face",
+  `resolvedBy=${String(anchoredWithFace.json.resolvedBy)}`,
+);
+check(
+  "and the answer does not claim the anchor decided",
+  anchoredWithFace.json.anchor === undefined,
+  `anchor=${String(anchoredWithFace.json.anchor)}`,
+);
+
+const anchoredNoFace = await post("/v1/crop", {
+  source: FACELESS.url,
+  width: 1080,
+  height: 1350,
+  anchor: "top",
+});
+cropKeys.add(String(anchoredNoFace.json.key));
+check(
+  "a photograph with no face still obeys the Crop Anchor",
+  anchoredNoFace.status === 200 &&
+    anchoredNoFace.json.resolvedBy === "anchor" &&
+    anchoredNoFace.json.anchor === "top",
+  `${String(anchoredNoFace.status)} resolvedBy=${String(anchoredNoFace.json.resolvedBy)}`,
+);
+
+const salientNoFace = await post("/v1/crop", {
+  source: FACELESS.url,
+  width: 1080,
+  height: 1920,
+  strategy: "attention",
+});
+cropKeys.add(String(salientNoFace.json.key));
+check(
+  "a photograph with no face still lets the picture decide",
+  salientNoFace.status === 200 && salientNoFace.json.resolvedBy === "saliency",
+  `resolvedBy=${String(salientNoFace.json.resolvedBy)}`,
+);
+
+/**
+ * With no face, no anchor and no strategy the answer is still `centre`.
+ *
+ * Pinned rather than approved. Story 9 of parent issue #5 asks for the busiest
+ * region *before* the Crop Anchor, which would make this `saliency`; the
+ * saliency producer has been gated behind an explicit `strategy` since it
+ * shipped, and ungating it changes a Crop nobody asked to change. Recorded on
+ * #11 as a question for the owner — this check is here so that the answer, when
+ * it comes, has to be a deliberate edit.
+ */
+const bareNoFace = await post("/v1/crop", { source: FACELESS.url, width: 1200, height: 627 });
+cropKeys.add(String(bareNoFace.json.key));
+check(
+  "with nothing asked for and no face, the centre still decides",
+  bareNoFace.json.resolvedBy === "centre",
+  `resolvedBy=${String(bareNoFace.json.resolvedBy)}`,
+);
+
+// ------------------------------------------------------ a face service down
+
+/**
+ * Pointed at a port nothing is listening on, which is what "down" is.
+ *
+ * A Crop must not fail because the face service did: it has other producers, and
+ * a photograph framed on saliency is a worse Crop than one framed on a face but a
+ * far better answer than a 500. What it must not do is stay quiet about it.
+ */
+process.env[FACES_URL] = "http://127.0.0.1:1";
+
+const degraded = await post("/v1/crop", {
+  source: LANDSCAPE,
+  width: 1080,
+  height: 1920,
+  strategy: "attention",
+});
+cropKeys.add(String(degraded.json.key));
+const warnings = (degraded.json.warnings ?? []) as string[];
+check(
+  "a Crop still succeeds when the face service is down",
+  degraded.status === 200 && degraded.json.resolvedBy === "saliency",
+  `${String(degraded.status)} resolvedBy=${String(degraded.json.resolvedBy)}`,
+);
+check(
+  "and it says the faces were not looked for",
+  warnings.length === 1 && warnings[0]!.includes("did not answer"),
+  JSON.stringify(warnings),
+);
+check(
+  "a failed detection is not cached, so the next request tries again",
+  (await post("/v1/crop", { source: LANDSCAPE, width: 1080, height: 1350, strategy: "attention" }))
+    .json.warnings !== undefined,
+);
+
+/**
+ * `find subjects` has no other producer to fall back on, so it is the one
+ * surface that refuses rather than degrades — and a deployment that never
+ * configured a face service gets told which setting is missing.
+ */
+delete process.env[FACES_URL];
+const unconfigured = await post("/v1/subjects", { source: PORTRAIT.url });
+check(
+  "find subjects on a deployment with no face service names the setting",
+  unconfigured.status === 400 && String(unconfigured.json.error).includes(FACES_URL),
+  `${String(unconfigured.status)} ${String(unconfigured.json.error)}`,
+);
+
+facesService.closeAllConnections();
+await new Promise<void>((resolve) => facesService.close(() => { resolve(); }));
+
 // ------------------------------------------------------------------- gallery
 
 console.log("\ngallery");
@@ -351,6 +800,13 @@ check(
 check(
   "every listed Crop is content-addressed under crops/",
   items.every((i) => i.kind !== "crop" || /^crops\/[0-9a-f]{32}\.\w+$/.test(i.key)),
+);
+// An Annotation is a record, not a stored output. Several were written above, so
+// this is a listing that had something to leave out rather than an empty claim.
+check(
+  "the Gallery lists no Annotation",
+  items.every((i) => !i.key.startsWith("annotations/")),
+  items.map((i) => i.key).join(" "),
 );
 
 const byBrand = await get("/v1/gallery?brand=laica");

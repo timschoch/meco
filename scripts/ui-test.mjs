@@ -122,6 +122,22 @@ function stubFetch(url, init = {}) {
     // The real endpoint reports the flag only when the request named an area,
     // so the stub has to be just as quiet — otherwise the card can never be
     // shown to stay clean for a Crop that asked for nothing.
+    // The Annotation, in the shape src/annotations.ts stores it: two faces so
+    // that "one box per face" is a count and not a coincidence.
+    : url === "/v1/subjects" ? {
+        source: { hash: "a".repeat(64), width: 1120, height: 1400 },
+        annotatedAt: "2026-09-04T10:00:00.000Z",
+        ImageRegion: [
+          {
+            RegionId: "face-1", RegionName: "Face 1",
+            RegionBoundary: { RbShape: "rectangle", RbUnit: "relative", RbX: 0.4, RbY: 0.12, RbW: 0.25, RbH: 0.28 },
+          },
+          {
+            RegionId: "face-2", RegionName: "Face 2",
+            RegionBoundary: { RbShape: "rectangle", RbUnit: "relative", RbX: 0.1, RbY: 0.3, RbW: 0.12, RbH: 0.14 },
+          },
+        ],
+      }
     : url === "/v1/crop" ? {
         width: body.width,
         height: body.height,
@@ -272,6 +288,9 @@ check("the card reported a Subject Area that was missed", doc.body.textContent.i
 
 // Bad input has to be caught in the page. The API would refuse it too, but a
 // number the browser can see is wrong should never cost a round trip.
+/** How many Crops had been made before the preview, which must make none. */
+const cropsBefore = calls.filter((c) => c.url === "/v1/crop").length;
+
 const refused = async (label, values, wanted) => {
   const before = calls.length;
   setArea(values);
@@ -282,6 +301,40 @@ const refused = async (label, values, wanted) => {
 await refused("a half-filled Subject Area is refused in the page", ["0.3", "", "0.4", "0.3"], "all four");
 await refused("a Subject Area above 1 is refused in the page", ["0.3", "0.3", "1.4", "0.3"], "between 0 and 1");
 await refused("a Subject Area off the edge is refused in the page", ["0.8", "0.3", "0.4", "0.3"], "inside the frame");
+
+// ------------------------------------------------ preview subjects overlay
+
+/**
+ * The overlay is the one thing in the console that draws geometry rather than
+ * showing a URL, so it is the one thing a wrong coordinate would hide. Boxes are
+ * real elements positioned in per cent, which is what lets this count them and
+ * read back where they were put.
+ */
+const previewButton = [...doc.querySelectorAll("button")].find((b) => b.textContent === "Preview subjects");
+check("the Crop tab offers a Preview subjects button", !!previewButton);
+
+previewButton.click();
+await tick();
+await tick();
+
+const previewed = calls.filter((c) => c.url === "/v1/subjects").at(-1);
+check("preview asked /v1/subjects for the Source Image", previewed?.body.source === $('[name="source"]').value);
+check("preview did not crop anything", calls.filter((c) => c.url === "/v1/crop").length === cropsBefore);
+
+const drawn = doc.querySelectorAll(".overlay .face");
+check("the overlay drew one box per detected face", drawn.length === 2, String(drawn.length));
+check(
+  "the overlay drew the Source Image under them",
+  $(".overlay img")?.getAttribute("src") === $('[name="source"]').value,
+);
+check(
+  "a box sits where the region says it does",
+  drawn[0]?.style.left === "40%" && drawn[0]?.style.top === "12%"
+    && drawn[0]?.style.width === "25%" && drawn[0]?.style.height === "28%",
+  drawn[0]?.getAttribute("style") ?? "no box",
+);
+check("each box is labelled with its region", drawn[0]?.querySelector("b")?.textContent === "Face 1");
+check("the count is stated in words too", doc.body.textContent.includes("2 subjects found."));
 
 // ------------------------------------------------------------ gallery tab
 

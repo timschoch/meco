@@ -63,6 +63,18 @@ export const UI_HTML = String.raw`<!doctype html>
   .meta b { color: var(--ink); font-weight: 600; }
   .meta a { color: var(--accent); }
   .note { color: var(--dim); font-size: 13px; }
+  /* The Subject preview: boxes drawn over the Source Image, positioned in per
+     cent so they hold wherever the picture is scaled to. */
+  .overlay { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
+  .overlay img { display: block; width: 100%; background: #000; }
+  .face { position: absolute; border: 2px solid var(--accent); border-radius: 3px; }
+  .face b {
+    position: absolute; left: -2px; bottom: 100%; padding: 1px 5px;
+    background: var(--accent); color: #06281a; font-size: 11px; line-height: 1.5;
+    border-radius: 3px 3px 0 0; white-space: nowrap; font-weight: 600;
+  }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row .go { flex: 1; }
   .err { color: var(--bad); white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; }
   .token { display: flex; gap: 6px; align-items: center; }
   .token input { width: 220px; }
@@ -369,7 +381,55 @@ function cropForm() {
   }
 
   const go = el("button", { className: "go", type: "submit", textContent: "Crop" });
-  form.append(go);
+  // "Preview subjects" is deliberately beside Crop and not inside it: seeing what
+  // meco found in the picture is the step before choosing a shape, and it costs
+  // no Crop — the Annotation it draws is the same one the Crop is framed from.
+  const preview = el("button", { className: "ghost", type: "button", textContent: "Preview subjects" });
+  form.append(el("div", { className: "row" }, go, preview));
+
+  /**
+   * The Source Image with one box per detected face drawn over it.
+   *
+   * Absolutely positioned elements in per cent rather than a canvas: the boxes
+   * are fractions of the image, so per cent is the unit they are already in, and
+   * they stay right at whatever width the picture is shown at. It also means the
+   * overlay is real elements — the jsdom test in scripts/ui-test.mjs can count
+   * them, which it could not do with pixels painted into a canvas.
+   */
+  function overlay(url, regions) {
+    // A fraction as a per cent, rounded before it is written: 0.28 * 100 is
+    // 28.000000000000004 in binary floating point, and a stylesheet should not
+    // carry that.
+    const pc = (n) => +(n * 100).toFixed(4) + "%";
+    const wrap = el("div", { className: "overlay" });
+    wrap.append(el("img", { src: url }));
+    for (const region of regions) {
+      const b = region.RegionBoundary;
+      const box = el("div", {
+        className: "face",
+        style: "left:" + pc(b.RbX) + ";top:" + pc(b.RbY) + ";"
+          + "width:" + pc(b.RbW) + ";height:" + pc(b.RbH),
+      });
+      box.append(el("b", { textContent: region.RegionName }));
+      wrap.append(box);
+    }
+    return wrap;
+  }
+
+  preview.onclick = async () => {
+    preview.disabled = true;
+    show([el("p", { className: "note", textContent: "Looking for subjects …" })]);
+    try {
+      const res = await call("/v1/subjects", { source: source.value });
+      const regions = res.ImageRegion ?? [];
+      show([
+        el("p", { className: "note", textContent:
+          regions.length + (regions.length === 1 ? " subject found." : " subjects found.")
+          + (res.warnings ? " " + res.warnings.join(" ") : "") }),
+        overlay(source.value, regions),
+      ]);
+    } catch (err) { fail(err); } finally { preview.disabled = false; }
+  };
 
   form.onsubmit = async (e) => {
     e.preventDefault();

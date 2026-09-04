@@ -164,6 +164,33 @@ meco's. A root-level `Containerfile` is what is left.
 `MECO_TOKEN` must be set on both services. `POST /faces/detect` requires it;
 `GET /faces/health` does not, so that a liveness probe does not need a secret.
 
+### Telling meco where the faces are
+
+**`FACES_URL` must be set on the meco service**, or meco never calls the face
+service at all — no Crop is framed on a face and `POST /v1/subjects` answers 400
+naming this variable. It is the single injection point on meco's side, which is
+what lets one code path serve the rewrite, a second project and a laptop:
+
+| Deployment | `FACES_URL` |
+|---|---|
+| Both services in this project | the deployment's own origin plus the prefix, e.g. `https://meco-teal.vercel.app/faces` |
+| A separate `meco-faces` project | that project's origin, e.g. `https://meco-faces.vercel.app` |
+| `docker run` locally | `http://localhost:8788` |
+
+The first row goes back out through the platform and in again by the rewrite —
+one extra hop, bounded by the rule that each Source Image is detected once. Left
+unset, meco behaves exactly as it did before there was a face service; that is
+the state every Crop test in `pnpm test:http` runs its non-face cases in.
+
+Nothing else on meco's side is configurable: the detect timeout is a constant in
+`src/faces.ts`, because a knob on a route only meco calls is a promise with no
+one to keep it.
+
+Annotations are filed at `annotations/<sha256-of-the-source-image>.json` in the
+same store as Crops, public. They hold rectangles and landmark points, no
+photograph and no name, and the Gallery does not list them — an Annotation is a
+record, not a stored output.
+
 `POST /faces/detect` takes the image bytes as the body and answers
 
 ```
