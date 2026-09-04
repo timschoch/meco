@@ -27,7 +27,6 @@ import sharp from "sharp";
 import { createApp } from "../src/app.js";
 import { CROP_PRODUCERS, solveCrop } from "../src/crop-solver.js";
 import { faceSubjectBoxes } from "../src/crop.js";
-import { facesInFrame } from "../src/face-blur.js";
 import { FACES_URL, type Detection } from "../src/faces.js";
 import { LocalStorage } from "../src/storage.js";
 
@@ -558,103 +557,125 @@ check(
  */
 console.log("\nface blur");
 
-const BLUR_SHAPE = { width: 1080, height: 1350 };
 const GROUP_DETECTION = recorded.images["artemis-2-crew.jpg"]!;
 const GROUP_SIZE = { width: GROUP_DETECTION.width, height: GROUP_DETECTION.height };
 
-const sharpCrop = await post("/v1/crop", { source: GROUP.url, ...BLUR_SHAPE, format: "png" });
-const blurCrop = await post("/v1/crop", {
-  source: GROUP.url,
-  ...BLUR_SHAPE,
-  format: "png",
-  blurUnknownFaces: true,
-});
-cropKeys.add(String(sharpCrop.json.key));
-cropKeys.add(String(blurCrop.json.key));
+/**
+ * Where a face lands in the finished frame, worked out here rather than by
+ * calling `facesInFrame` from `src/face-blur.js`.
+ *
+ * That function is what is under test. Deriving the expected rectangles from it
+ * would make a mapping bug — a dropped window offset, swapped scales — move both
+ * sides of every comparison together and pass. So the arithmetic is written out
+ * a second time, from the recorded detection and the solved window, and the two
+ * have to agree by accident of being right rather than by construction.
+ */
+function faceRect(
+  box: { x: number; y: number; width: number; height: number },
+  window: { left: number; top: number; width: number; height: number },
+  out: { width: number; height: number },
+) {
+  const scaleX = out.width / window.width;
+  const scaleY = out.height / window.height;
+  const left = Math.round((box.x * GROUP_SIZE.width - window.left) * scaleX);
+  const top = Math.round((box.y * GROUP_SIZE.height - window.top) * scaleY);
+  const right = Math.round(((box.x + box.width) * GROUP_SIZE.width - window.left) * scaleX);
+  const bottom = Math.round(((box.y + box.height) * GROUP_SIZE.height - window.top) * scaleY);
+  const shows = right > 0 && left < out.width && bottom > 0 && top < out.height;
+  return {
+    shows,
+    // What of it is actually in the picture, which is what the pixels can speak
+    // about. The face itself may hang off the edge.
+    left: Math.max(0, left),
+    top: Math.max(0, top),
+    width: Math.min(out.width, right) - Math.max(0, left),
+    height: Math.min(out.height, bottom) - Math.max(0, top),
+  };
+}
+
+/** Both Crops of one shape as raw pixels, and which of them differ. */
+async function comparePixels(shape: { width: number; height: number }) {
+  const plainCrop = await post("/v1/crop", { source: GROUP.url, ...shape, format: "png" });
+  const blurCrop = await post("/v1/crop", {
+    source: GROUP.url,
+    ...shape,
+    format: "png",
+    blurUnknownFaces: true,
+  });
+  cropKeys.add(String(plainCrop.json.key));
+  cropKeys.add(String(blurCrop.json.key));
+
+  const raw = async (key: unknown) =>
+    sharp(join(root, String(key))).raw().toBuffer({ resolveWithObject: true });
+  const before = await raw(plainCrop.json.key);
+  const after = await raw(blurCrop.json.key);
+
+  /** True where the two frames disagree, one entry per pixel. */
+  const changed = new Uint8Array(before.info.width * before.info.height);
+  for (let i = 0; i < changed.length; i++) {
+    for (let c = 0; c < before.info.channels; c++) {
+      if (before.data[i * before.info.channels + c] !== after.data[i * before.info.channels + c]) {
+        changed[i] = 1;
+        break;
+      }
+    }
+  }
+  const window = solveCrop(faceSubjectBoxes(GROUP_DETECTION.faces), GROUP_SIZE, shape, {});
+  const rects = GROUP_DETECTION.faces.map((f) => faceRect(f.box, window, shape));
+  return { plainCrop, blurCrop, changed, info: before.info, rects };
+}
+
+const WHOLE_GROUP = { width: 1080, height: 1350 };
+const whole = await comparePixels(WHOLE_GROUP);
 
 check(
   "every face in the window was blurred, and the answer counts them",
-  blurCrop.status === 200 && blurCrop.json.blurred === GROUP_DETECTION.faces.length,
-  `${String(blurCrop.status)} blurred=${String(blurCrop.json.blurred)} of ${String(GROUP_DETECTION.faces.length)}`,
+  whole.blurCrop.status === 200 && whole.blurCrop.json.blurred === GROUP_DETECTION.faces.length,
+  `${String(whole.blurCrop.status)} blurred=${String(whole.blurCrop.json.blurred)}` +
+    ` of ${String(GROUP_DETECTION.faces.length)}`,
 );
 check(
   "a Crop that did not ask for Face Blur says nothing about it",
-  sharpCrop.json.blurred === undefined,
-  String(sharpCrop.json.blurred),
+  whole.plainCrop.json.blurred === undefined,
+  String(whole.plainCrop.json.blurred),
 );
 check(
   "Face Blur changed the picture, so it is not the same Crop",
-  sharpCrop.json.key !== blurCrop.json.key,
-  `${String(sharpCrop.json.key)} vs ${String(blurCrop.json.key)}`,
+  whole.plainCrop.json.key !== whole.blurCrop.json.key,
+  `${String(whole.plainCrop.json.key)} vs ${String(whole.blurCrop.json.key)}`,
 );
-
-/**
- * Where the faces landed in the finished frame.
- *
- * Solved here from the recorded detection rather than read out of the response,
- * so the rectangles the pixels are checked against are derived independently of
- * the Crop that produced them.
- */
-const blurWindow = solveCrop(
-  faceSubjectBoxes(GROUP_DETECTION.faces),
-  GROUP_SIZE,
-  BLUR_SHAPE,
-  {},
-);
-const faceRects = facesInFrame(GROUP_DETECTION.faces, GROUP_SIZE, blurWindow, BLUR_SHAPE);
-
-const rawFrame = async (key: unknown) =>
-  sharp(join(root, String(key))).raw().toBuffer({ resolveWithObject: true });
-const before = await rawFrame(sharpCrop.json.key);
-const after = await rawFrame(blurCrop.json.key);
-
 check(
-  "both Crops are the same frame to compare",
-  before.info.width === after.info.width &&
-    before.info.height === after.info.height &&
-    before.info.channels === after.info.channels,
-  `${String(before.info.width)}x${String(before.info.height)}x${String(before.info.channels)}`,
+  "this shape really does hold every face, so the comparison covers them all",
+  whole.rects.every((r) => r.shows),
+  whole.rects.map((r) => String(r.shows)).join(" "),
 );
-
-/** True where the two frames disagree, one entry per pixel. */
-const changed = new Uint8Array(before.info.width * before.info.height);
-for (let i = 0; i < changed.length; i++) {
-  for (let c = 0; c < before.info.channels; c++) {
-    if (before.data[i * before.info.channels + c] !== after.data[i * before.info.channels + c]) {
-      changed[i] = 1;
-      break;
-    }
-  }
-}
 
 /** Marked where any face box covers, so "outside" is every face at once. */
-const covered = new Uint8Array(changed.length);
-for (const r of faceRects) {
+const covered = new Uint8Array(whole.changed.length);
+for (const r of whole.rects) {
   for (let y = r.top; y < r.top + r.height; y++) {
-    for (let x = r.left; x < r.left + r.width; x++) covered[y * before.info.width + x] = 1;
+    for (let x = r.left; x < r.left + r.width; x++) covered[y * whole.info.width + x] = 1;
   }
 }
 
-const changedInside = faceRects.map((r) => {
+const changedInside = whole.rects.map((r) => {
   let n = 0;
   for (let y = r.top; y < r.top + r.height; y++) {
-    for (let x = r.left; x < r.left + r.width; x++) n += changed[y * before.info.width + x]!;
+    for (let x = r.left; x < r.left + r.width; x++) n += whole.changed[y * whole.info.width + x]!;
   }
   return n / (r.width * r.height);
 });
 let changedOutside = 0;
-for (let i = 0; i < changed.length; i++) if (changed[i] === 1 && covered[i] === 0) changedOutside++;
+for (let i = 0; i < whole.changed.length; i++) {
+  if (whole.changed[i] === 1 && covered[i] === 0) changedOutside++;
+}
 
-check(
-  "one face box per blurred face",
-  faceRects.length === blurCrop.json.blurred,
-  `${String(faceRects.length)} rectangles, blurred=${String(blurCrop.json.blurred)}`,
-);
 // Half rather than all of the box: the mask is the inscribed ellipse, which is
 // π/4 of the rectangle, and the corners it leaves alone are the proof of that.
 check(
   "the pixels inside every face box changed",
-  changedInside.length > 0 && changedInside.every((share) => share > 0.5),
+  changedInside.length === GROUP_DETECTION.faces.length &&
+    changedInside.every((share) => share > 0.5),
   changedInside.map((s) => s.toFixed(3)).join(" "),
 );
 check(
@@ -665,17 +686,52 @@ check(
 check(
   "every pixel outside the face boxes is byte-identical",
   changedOutside === 0,
-  `${String(changedOutside)} of ${String(changed.length)} pixels differ`,
+  `${String(changedOutside)} of ${String(whole.changed.length)} pixels differ`,
 );
 
 /**
- * A face the window cut out is not in the picture, so it cannot have been
- * blurred. The shape is narrow enough that the solver has to sacrifice faces —
- * the check would prove nothing on a window that held them all.
+ * A face the window cut in half is still a face, and the half that shows has to
+ * go — right up to the edge of the frame.
+ *
+ * This is the case an ellipse inscribed in the visible sliver gets wrong: that
+ * ellipse tapers to nothing at the frame edge, so the part of the face pressed
+ * against the edge stays sharp. So the claim is measured in the one column where
+ * the two answers differ most, the column on the edge itself. The real face's
+ * ellipse is at its widest near there and covers almost the whole column; a
+ * sliver ellipse covers almost none of it.
+ */
+const HALVED = { width: 450, height: 1400 };
+const halved = await comparePixels(HALVED);
+const cut = halved.rects.filter((r) => r.shows && r.left === 0);
+
+check(
+  "the halved shape really does cut a face at the frame edge",
+  cut.length === 1 && cut[0]!.width < 60,
+  `${String(cut.length)} faces on the edge, ${String(cut[0]?.width)}px of face showing`,
+);
+let changedOnEdge = 0;
+const edge = cut[0];
+if (edge) {
+  for (let y = edge.top; y < edge.top + edge.height; y++) {
+    changedOnEdge += halved.changed[y * halved.info.width]!;
+  }
+}
+check(
+  "a face cut by the window is hidden right up to the frame edge",
+  edge !== undefined && changedOnEdge > edge.height / 2,
+  `${String(changedOnEdge)} of ${String(edge?.height)} pixels on the edge changed`,
+);
+
+/**
+ * A face the window cut out entirely is not in the picture, so it cannot have
+ * been blurred. The shape is narrow enough that the solver has to sacrifice
+ * faces — the check would prove nothing on a window that held them all.
  */
 const NARROW = { width: 350, height: 1400 };
 const narrowWindow = solveCrop(faceSubjectBoxes(GROUP_DETECTION.faces), GROUP_SIZE, NARROW, {});
-const stillShowing = facesInFrame(GROUP_DETECTION.faces, GROUP_SIZE, narrowWindow, NARROW).length;
+const stillShowing = GROUP_DETECTION.faces.filter(
+  (f) => faceRect(f.box, narrowWindow, NARROW).shows,
+).length;
 const narrowCrop = await post("/v1/crop", {
   source: GROUP.url,
   ...NARROW,
@@ -695,8 +751,8 @@ check(
 
 /**
  * Face Blur must not defeat the Annotation cache. It asks for nothing the
- * framing did not already ask for, so three more Crops of a photograph already
- * seen cost no detection at all.
+ * framing did not already ask for, so the Crops above — all of one photograph
+ * already seen — cost no detection at all.
  */
 check(
   "Face Blur costs no extra detection",
@@ -743,48 +799,77 @@ check(
   `${String(detectCalls.length)} calls`,
 );
 
-const mcpCall = await app.fetch(
-  new Request("http://local/mcp", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
-      "mcp-protocol-version": "2026-07-28",
-      "mcp-method": "tools/call",
-      "mcp-name": "find_subjects",
-      "x-auth-token": TOKEN,
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: {
-        name: "find_subjects",
-        arguments: { source: PORTRAIT.url },
-        _meta: {
-          [PROTOCOL_VERSION_META_KEY]: "2026-07-28",
-          [CLIENT_INFO_META_KEY]: { name: "http-probe", version: "0" },
-          [CLIENT_CAPABILITIES_META_KEY]: {},
-        },
+/** One MCP tool call over the app's own `/mcp` route, answered as text. */
+let mcpId = 0;
+async function callTool(name: string, args: Json): Promise<string> {
+  mcpId++;
+  const res = await app.fetch(
+    new Request("http://local/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-protocol-version": "2026-07-28",
+        "mcp-method": "tools/call",
+        "mcp-name": name,
+        "x-auth-token": TOKEN,
       },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: mcpId,
+        method: "tools/call",
+        params: {
+          name,
+          arguments: args,
+          _meta: {
+            [PROTOCOL_VERSION_META_KEY]: "2026-07-28",
+            [CLIENT_INFO_META_KEY]: { name: "http-probe", version: "0" },
+            [CLIENT_CAPABILITIES_META_KEY]: {},
+          },
+        },
+      }),
     }),
-  }),
-);
-const mcpText = await mcpCall.text();
-// The SDK answers as JSON or as a one-event SSE stream; which is its business.
-const mcpPayload = JSON.parse(
-  mcpText
-    .split("\n")
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice("data:".length).trim())
-    .join("") || mcpText,
-) as { result?: { content?: { text: string }[] } };
-const mcpAnnotation = mcpPayload.result?.content?.[0]?.text ?? "";
+  );
+  const text = await res.text();
+  // The SDK answers as JSON or as a one-event SSE stream; which is its business.
+  const payload = JSON.parse(
+    text
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice("data:".length).trim())
+      .join("") || text,
+  ) as { result?: { content?: { text: string }[] } };
+  return payload.result?.content?.[0]?.text ?? "";
+}
+
+const mcpAnnotation = await callTool("find_subjects", { source: PORTRAIT.url });
 check(
   "the MCP tool returns the same Annotation as the route",
   mcpAnnotation !== "" &&
     JSON.stringify(JSON.parse(mcpAnnotation)) === JSON.stringify(subjects.json),
   mcpAnnotation.slice(0, 160),
+);
+
+/**
+ * Face Blur over MCP, not merely advertised in the tool's schema.
+ *
+ * `scripts/mcp-probe.ts` checks that `crop_image` declares `blurUnknownFaces`,
+ * which is what lets a client know it may send one. This is the other half: a
+ * client that does send it gets a Crop with the faces gone and a count to read.
+ */
+const mcpBlurred = JSON.parse(
+  await callTool("crop_image", {
+    source: GROUP.url,
+    width: 1080,
+    height: 1350,
+    blurUnknownFaces: true,
+  }) || "{}",
+) as { blurred?: number; key?: string };
+cropKeys.add(String(mcpBlurred.key));
+check(
+  "the MCP tool blurs faces too, and counts them in its answer",
+  mcpBlurred.blurred === GROUP_DETECTION.faces.length,
+  `blurred=${String(mcpBlurred.blurred)} of ${String(GROUP_DETECTION.faces.length)}`,
 );
 
 // --------------------------------------------- what a face makes reachable

@@ -328,10 +328,10 @@ export async function cropImage(req: CropRequest): Promise<CropResult> {
   // Face Blur goes on the framed pixels, between the resize and the encode. A
   // Crop that did not ask for it never enters this branch and so is the same
   // bytes it has always been.
-  const hidden = req.blurUnknownFaces
+  const hiddenFaces = req.blurUnknownFaces
     ? facesInFrame(unknownFaces(req.faces ?? []), size, window, { width, height })
     : [];
-  if (hidden.length > 0) pipeline = await blurFaces(pipeline, hidden);
+  if (hiddenFaces.length > 0) pipeline = await blurFaces(pipeline, hiddenFaces);
 
   if (format === "png") pipeline = pipeline.png();
   else if (format === "webp") pipeline = pipeline.webp({ quality });
@@ -351,7 +351,7 @@ export async function cropImage(req: CropRequest): Promise<CropResult> {
       ? {}
       : { subjectAreaSatisfied: window.subjectAreaSatisfied }),
     ...(window.resolvedBy === "anchor" && anchor ? { anchor } : {}),
-    ...(req.blurUnknownFaces ? { blurred: hidden.length } : {}),
+    ...(req.blurUnknownFaces ? { blurred: hiddenFaces.length } : {}),
   };
 }
 

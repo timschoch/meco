@@ -58,6 +58,10 @@ _Avoid_: region, bbox, focal point
 A stored image cut from a Source Image to a required shape, reachable at a stable URL. A sibling of a Render: both are stored outputs, but a Crop involves no Template.
 _Avoid_: resize, thumbnail, transform, variant
 
+**Face Blur**:
+An option on a Crop: every face showing in the finished frame that meco cannot name is hidden behind an elliptical mask. A face the crop window left out is not in the picture and so is neither hidden nor counted. Never a property of a Source Image — the Source Image is untouched, and only the Crop carries the blur.
+_Avoid_: anonymise, redact, pixelate, censor
+
 **Crop Anchor**:
 Which of the nine regions of a Source Image a Crop keeps when the required shape is narrower or shorter than the original. Defaults to the centre.
 _Avoid_: gravity, focal point, position, alignment

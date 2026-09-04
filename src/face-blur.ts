@@ -1,5 +1,5 @@
 /**
- * Face Blur — hiding the faces a Crop is not allowed to show.
+ * Face Blur — hiding the faces a Crop is not allowed to show. See CONTEXT.md.
  *
  * Two halves, and the split is the point. `unknownFaces` decides *which* faces
  * are hidden and is one sentence of policy; `blurFaces` decides *how* and is all
@@ -66,11 +66,19 @@ export function unknownFaces(faces: readonly DetectedFace[]): readonly DetectedF
 /**
  * Where each face lands in the finished frame, in output pixels.
  *
- * A face the window cut out yields nothing at all, and a face the window cut in
- * half yields the half that shows: the caller counts what comes back, so a face
- * that is not in the picture cannot be counted as blurred, and a face that is
- * partly in the picture is still hidden. Rounding is done on both edges before
- * the width is taken, so the rectangle never drifts a pixel wider than the face.
+ * A face the window cut out yields nothing at all — the caller counts what comes
+ * back, so a face that is not in the picture cannot be counted as blurred.
+ *
+ * A face the window cut in half yields the *whole* face, rectangle hanging off
+ * the edge of the frame and all. That is deliberate and it is why the clipping
+ * is not done here: the mask has to be the ellipse of the real face, and only
+ * then be cut off by the frame. Inscribing an ellipse in the visible sliver
+ * instead would draw a different, smaller ellipse in the wrong place and leave
+ * the face sharp along the frame edge — which on a half-cropped face is exactly
+ * the part still showing. `blurFaces` paints only what is in the picture.
+ *
+ * Rounding is done on both edges before the width is taken, so the rectangle
+ * never drifts a pixel wider than the face.
  */
 export function facesInFrame(
   faces: readonly DetectedFace[],
@@ -89,15 +97,24 @@ export function facesInFrame(
     const right = Math.round(((box.x + box.width) * source.width - window.left) * scaleX);
     const bottom = Math.round(((box.y + box.height) * source.height - window.top) * scaleY);
 
-    const clipped = {
-      left: Math.max(0, left),
-      top: Math.max(0, top),
-      width: Math.min(out.width, right) - Math.max(0, left),
-      height: Math.min(out.height, bottom) - Math.max(0, top),
-    };
-    if (clipped.width > 0 && clipped.height > 0) rects.push(clipped);
+    // Any overlap at all is a face in the picture. A face showing one pixel is
+    // still a face showing, so the test is intersection and not containment.
+    const shows = right > 0 && left < out.width && bottom > 0 && top < out.height;
+    if (shows) rects.push({ left, top, width: right - left, height: bottom - top });
   }
   return rects;
+}
+
+/** The part of a rectangle that is inside a frame of `size`, empty if none is. */
+function clipToFrame(rect: PixelRect, size: PixelSize): PixelRect {
+  const left = Math.max(0, rect.left);
+  const top = Math.max(0, rect.top);
+  return {
+    left,
+    top,
+    width: Math.min(size.width, rect.left + rect.width) - left,
+    height: Math.min(size.height, rect.top + rect.height) - top,
+  };
 }
 
 /**
@@ -139,17 +156,28 @@ export async function blurFaces(framed: Sharp, faces: readonly PixelRect[]): Pro
   const frame = { width: info.width, height: info.height, channels: info.channels };
 
   for (const face of faces) {
+    // Both the radius and the ellipse come from the whole face, even when the
+    // frame holds only part of it: a face cut in half is half a face at full
+    // size, not a small whole one, and blurring it as if it were the latter
+    // would under-blur it and miss the part against the edge.
     const sigma = Math.min(SIGMA_MAX, Math.max(SIGMA_MIN, SIGMA_PER_FACE_WIDTH * face.width));
-    const patch = await sharp(data, { raw: frame }).extract(face).blur(sigma).raw().toBuffer();
     const mask = ellipseMask(face.width, face.height);
 
-    for (let y = 0; y < face.height; y++) {
-      for (let x = 0; x < face.width; x++) {
-        const coverage = mask[y * face.width + x]!;
+    const shown = clipToFrame(face, frame);
+    if (shown.width <= 0 || shown.height <= 0) continue;
+    const patch = await sharp(data, { raw: frame }).extract(shown).blur(sigma).raw().toBuffer();
+
+    // Where the visible part starts inside the face's own mask.
+    const offsetX = shown.left - face.left;
+    const offsetY = shown.top - face.top;
+
+    for (let y = 0; y < shown.height; y++) {
+      for (let x = 0; x < shown.width; x++) {
+        const coverage = mask[(offsetY + y) * face.width + offsetX + x]!;
         if (coverage === 0) continue;
         const alpha = coverage / 255;
-        const into = ((face.top + y) * frame.width + face.left + x) * frame.channels;
-        const from = (y * face.width + x) * frame.channels;
+        const into = ((shown.top + y) * frame.width + shown.left + x) * frame.channels;
+        const from = (y * shown.width + x) * frame.channels;
         for (let c = 0; c < frame.channels; c++) {
           data[into + c] = Math.round(data[into + c]! * (1 - alpha) + patch[from + c]! * alpha);
         }
