@@ -91,3 +91,7 @@ _Avoid_: training image, sample, example, headshot
 **Face Print**:
 The 512 floats meco-faces returns for one face, on the unit sphere, from which two faces can be compared but no photograph can be recovered. A Person has one per Reference Photo. Still a biometric template of a real person. meco-faces computes them and stores nothing.
 _Avoid_: embedding, descriptor, template, vector, encoding
+
+**Match**:
+A detected face meco is willing to name: its best Face Print similarity within one Brand clears an absolute threshold and beats the second-best Person by a margin. Open-set — "nobody" is a valid answer and the common one, so a face that fails either test is unknown rather than assigned to whoever was closest. Never a property of a face on its own: the same face is a Match for the Brand that enrolled that Person and unknown to every other.
+_Avoid_: recognition hit, identification, confidence, hit

@@ -274,7 +274,30 @@ check(
     : "none does — the fixture set does not separate",
 );
 
-const shipped = sweep(MATCH_THRESHOLD, MATCH_MARGIN);
+/**
+ * The shipped operating point, decided by the shipped function.
+ *
+ * Not by `decide`. The table above is a survey and may be computed by the
+ * sweep's own arithmetic; the two checks below are the gate, and a gate that ran
+ * a copy of the code would pass while the code was broken. The agreement check
+ * further down is what ties the survey back to the gate.
+ */
+function shippedOutcome(): Outcome {
+  const out: Outcome = { threshold: MATCH_THRESHOLD, false: 0, missed: 0, correct: 0 };
+  for (const trial of trials) {
+    const match = matchFacePrint(trial.face.print, trial.gallery);
+    if (match === null) {
+      if (trial.truth !== null) out.missed++;
+    } else if (match.personId !== trial.truth) {
+      out.false++;
+    } else {
+      out.correct++;
+    }
+  }
+  return out;
+}
+
+const shipped = shippedOutcome();
 
 // The one that matters. A false Match is a stranger's name on a face, or one
 // Person's name on another's, and it is why this script is in the gate.
@@ -357,6 +380,75 @@ check(
     wrong === "" ? `${String(narrowed)} answers narrowed to nobody` : wrong,
   );
   check(narrowed > 0, "and it did narrow some", `${String(narrowed)} of them`);
+}
+
+// -------------------------------------------- the rule, on faces nobody has
+
+/**
+ * Two properties the fixture photographs cannot test, on Face Prints built to
+ * order.
+ *
+ * Everything above is a measurement, and a measurement needs real faces or it
+ * measures nothing. These two are not measurements — they assert that a rule is
+ * applied at all, and the case each rule guards against does not exist in the
+ * fixture set and would not be honest to fake in it. So they are built here, out
+ * of arithmetic that says plainly what it is: unit vectors placed at a chosen
+ * angle to one another, with no claim to be anybody's face.
+ *
+ * Both were found by mutation. `matchFacePrint` with the margin deleted, and
+ * with `persons` filtering the gallery before the comparison instead of the
+ * winner after it, each passed the entire suite — because no two people in the
+ * fixtures look alike, which is exactly the situation both rules exist for.
+ */
+{
+  /** A unit vector at `cosine` to the first basis direction. */
+  const at = (cosine: number, axis: number): number[] => {
+    const v = Array.from({ length: 512 }, () => 0);
+    v[0] = cosine;
+    v[axis] = Math.sqrt(1 - cosine * cosine);
+    return v;
+  };
+
+  const query = at(1, 1);
+  const person = (id: string, cosine: number, axis: number): EnrolledPrint => ({
+    personId: id,
+    personName: id,
+    photoId: `${id}-1`,
+    print: at(cosine, axis),
+    printedAt: "2026-09-05T00:00:00.000Z",
+  });
+
+  // Two Persons of one Brand who look alike. Both well over the threshold and
+  // two hundredths apart, which is inside the margin — so the honest answer is
+  // that meco cannot tell them apart, not that the one ahead by a hundredth
+  // takes the other one's place in a published picture.
+  const alike = [person("close-a", 0.9, 1), person("close-b", 0.88, 2)];
+  check(
+    matchFacePrint(query, alike) === null,
+    "two Persons inside the margin are told apart by neither",
+    `0.90 against 0.88, margin ${String(MATCH_MARGIN)}`,
+  );
+  check(
+    matchFacePrint(query, [alike[0]!])?.personId === "close-a",
+    "and with only one of them enrolled the same face is a Match",
+    "so the margin refuses a rival, not a score",
+  );
+
+  // The narrowing order. The face really belongs to the Person nobody named,
+  // and it clears the threshold against the Person who was named. Comparing
+  // against the named subset alone would put the wrong human's name on it.
+  const two = [person("wanted", 0.6, 1), person("actual", 0.9, 2)];
+  const narrowedTo = matchFacePrint(query, two, ["wanted"]);
+  check(
+    narrowedTo === null,
+    "a face that is really somebody else is not handed to the Person who was named",
+    narrowedTo === null ? "refused" : `named ${narrowedTo.personId}`,
+  );
+  check(
+    matchFacePrint(query, two)?.personId === "actual",
+    "though unnarrowed it is that other Person, so the trap is a real one",
+    "0.90 against 0.60, both over the threshold",
+  );
 }
 
 console.log(`\n${problems.length === 0 ? "MATCH OK" : `${String(problems.length)} FAILED`}`);

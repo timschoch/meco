@@ -310,12 +310,40 @@ throwing.
   transform's own prediction instead: within 0.19 px.
 - **The export.** Face Prints computed through the whole service path are
   compared with the Face Prints PyTorch produced, committed in
-  `fixtures/faces/edgeface-reference.json`. Measured: cosine 1.000000 on all six
-  fixture faces, against a floor of 0.99.
-- **The meaning.** The same person in two photographs four years apart scores
-  **0.8689**; the worst of the fourteen different-people pairs scores **0.2644**.
-  Those are a sanity floor and not an operating point — the real match threshold
-  is calibrated on enrolled photographs in the matching ticket.
+  `fixtures/faces/edgeface-reference.json`. Measured: cosine 1.000000 on all
+  nine fixture faces, against a floor of 0.99.
+- **The meaning.** The same person in three photographs — two portraits four
+  years apart and a launch-pad group shot — scores **0.8689**, **0.8182** and
+  **0.7304**; the worst of the thirty-three different-people pairs scores
+  **0.2855**. Those are a sanity floor and not an operating point; the operating
+  point is the next section.
+- **The committed Face Prints.** `fixtures/faces/face-prints.json` is what the
+  match calibration sweeps, and meco cannot recompute it — the embedder is in
+  this package. So this test re-embeds every fixture face and fails on any
+  difference at all. A stale file would otherwise fail nowhere and calibrate a
+  threshold against numbers no deployed model produces.
+
+### Prove no stranger is given a name
+
+```
+pnpm test:match
+```
+
+Sweeps the match threshold over every fixture face against every gallery and
+fails on a single **false Match** — a stranger named, or one Person named as
+another. That is the failure that matters: not a wrong number in a log, but the
+wrong person's face left sharp in a published post. A *missed* Match is reported
+and does not fail the run.
+
+The shipped operating point is **threshold 0.50, margin 0.05**, and every value
+from 0.30 to 0.80 decides all 66 trials correctly. Where the numbers came from,
+what the margin is worth, and when both have to be earned again are in
+[`docs/adr/0003-face-recognition-licence-consent-and-threshold.md`](docs/adr/0003-face-recognition-licence-consent-and-threshold.md).
+The short version: **calibrated on the committed fixture photographs, not on
+anyone meco has enrolled, because nobody is enrolled yet.**
+
+It needs no model and no network — it reads `fixtures/faces/face-prints.json`
+and calls the same `matchFacePrint` the service calls.
 
 ### Change the recognition model
 
@@ -334,11 +362,20 @@ uv pip install --python .temp/edgeface-venv/bin/python \
   torch torchvision timm onnx onnxruntime numpy pillow
 pnpm --filter meco-faces dump:aligned          # the aligned squares, from the real warp
 .temp/edgeface-venv/bin/python packages/faces/scripts/export-edgeface.py
+pnpm --filter meco-faces dump:prints           # the Face Prints the match sweep reads
 ```
 
-Run the two in that order. The first writes `fixtures/faces/aligned/`, the
+Run the three in that order. The first writes `fixtures/faces/aligned/`, the
 second embeds exactly those pixels — which is what makes the committed reference
-a statement about the input meco-faces really sends.
+a statement about the input meco-faces really sends — and the third rewrites
+`fixtures/faces/face-prints.json` so the match calibration is sweeping the new
+model rather than the old one.
+
+**Changing the recognition model invalidates every stored Face Print.** A print
+from one network means nothing against a print from another, and a stored print
+carries no model tag to notice by — see ADR-0003. There is no migration that
+reads the old prints. The Reference Photos are still in the private store, so
+the path is to enrol them again, and it is the only path.
 
 ### Test locally
 
@@ -379,7 +416,12 @@ holds all three:
 
 Consent is recorded, not assumed: the console has a checkbox at enrol time and
 the answer is stored as `consentAt` on the photograph. Absent means nobody said
-so. Only enrol people who agreed.
+so. Only enrol people who agreed — a licence to republish a photograph is not
+the subject's agreement to be recognised by software, and the two are different
+permissions. The rule and the reasoning are
+[ADR-0003](docs/adr/0003-face-recognition-licence-consent-and-threshold.md),
+which also records that the EdgeFace weights are CC BY-NC-SA and why that is an
+accepted risk rather than an oversight.
 
 Uploads go to `POST /v1/people/:id/photos`, as multipart (several files at once)
 or as a JSON body naming a URL. **The platform caps a request body at 100 MB**
