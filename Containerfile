@@ -2,15 +2,18 @@
 # Deploys meco-faces as a Vercel Functions container image.
 # https://vercel.com/docs/functions/container-images
 #
+# The odd name is forced from two sides. Vercel checks the *basename* of a
+# service `entrypoint` and rejects anything that is not a Dockerfile or a
+# Containerfile, so `Dockerfile.faces` is out; and it builds with the
+# entrypoint's own directory as the context, ignoring the service `root`, so the
+# file cannot sit in `packages/faces/` either — the install needs the workspace
+# lockfile at the repository root. `Dockerfile.vercel` is meco's. What is left
+# is a root-level `Containerfile`.
+#
 # A second image rather than another route in meco's: ONNX Runtime and its
 # models add roughly 100 MB and a session load to every boot, and meco boots far
 # more often than anyone asks for a face. See
-# ../../docs/adr/0002-meco-faces-as-a-separate-service.md.
-#
-# The build context is the repository root, not this directory: the install
-# needs the workspace lockfile. The file is named `Dockerfile.vercel` and sits
-# here because Vercel checks the basename of a service `entrypoint` and rejects
-# anything that is not a Dockerfile or a Containerfile.
+# docs/adr/0002-meco-faces-as-a-separate-service.md.
 
 FROM node:24-slim AS build
 WORKDIR /app

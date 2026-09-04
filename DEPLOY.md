@@ -157,7 +157,7 @@ start on Vercel is this number plus whatever the platform spends provisioning an
 instance. Reproduce with:
 
 ```
-docker build -f packages/faces/Dockerfile.vercel -t meco-faces .
+docker build -f Containerfile -t meco-faces .
 MECO_TOKEN=local-token pnpm --filter meco-faces exec tsx scripts/latency.ts \
   http://localhost:8788 12 -- \
   docker run --rm --name faces-lat -p 8788:80 -e PORT=80 -e MECO_TOKEN=local-token meco-faces
@@ -183,7 +183,7 @@ ONNX Runtime version.
 ### Test locally
 
 ```
-docker build -f packages/faces/Dockerfile.vercel -t meco-faces .
+docker build -f Containerfile -t meco-faces .
 docker run --rm -p 8788:80 -e PORT=80 -e MECO_TOKEN=<token> meco-faces
 curl http://localhost:8788/health
 curl -X POST http://localhost:8788/detect \
@@ -200,7 +200,7 @@ curl -X POST http://localhost:8788/detect \
   Registry limit).
 - `onnxruntime-node` unpacks to ~280 MB because it ships prebuilt binaries for
   all five platforms it supports, and its postinstall downloads CUDA provider
-  binaries on `linux/x64` and nowhere else. `packages/faces/Dockerfile.vercel` sets
+  binaries on `linux/x64` and nowhere else. `Containerfile` sets
   `ONNXRUNTIME_NODE_INSTALL=skip` and deletes every `bin/napi-v6` directory but
   the one `$TARGETARCH` needs. Keep both; either one alone leaves most of that
   weight in the image.
