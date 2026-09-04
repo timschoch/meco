@@ -132,11 +132,15 @@ also keeps the documented fallback — a separate `meco-faces` project reached b
 `FACES_URL` env var — a configuration change rather than a code change. Why the
 service is separate at all: `docs/adr/0002-meco-faces-as-a-separate-service.md`.
 
-The faces Dockerfile is named `Dockerfile.vercel` and lives in `packages/faces/`
-because Vercel checks the **basename** of a service `entrypoint` and rejects
-anything that is not a Dockerfile or a Containerfile — `Dockerfile.faces` at the
-root fails the build with `invalid "entrypoint"`. It is still built from the
-repository root, because the install needs the workspace lockfile.
+The faces image is built from a root-level **`Containerfile`**, and the name is
+forced from two sides. Vercel checks the *basename* of a service `entrypoint`
+and rejects anything that is not a Dockerfile or a Containerfile, so
+`Dockerfile.faces` fails the build outright with `invalid "entrypoint"`. And it
+builds with the entrypoint's own directory as the context, ignoring the service
+`root` — `buildah build -f <root>/packages/faces/Dockerfile.vercel
+<root>/packages/faces` — so the file cannot live beside the package it builds
+either, because the install needs the workspace lockfile at the repository root.
+`Dockerfile.vercel` is meco's. A root-level `Containerfile` is what is left.
 
 `MECO_TOKEN` must be set on both services. `POST /faces/detect` requires it;
 `GET /faces/health` does not, so that a liveness probe does not need a secret.
@@ -150,11 +154,9 @@ repository root, because the install needs the workspace lockfile.
 | Cold, 12 MP photo | **480 ms** from `docker run` to a served detection |
 | Warm, 12 MP photo | **45 ms** median, 30–88 ms over 12 runs |
 
-Measured on local Docker (Apple silicon, `linux/arm64`) against the real image,
-not against the deployment: a preview URL sits behind Vercel's own routing and
-scheduling, which would measure the platform rather than the service. A cold
-start on Vercel is this number plus whatever the platform spends provisioning an
-instance. Reproduce with:
+The image size is the `linux/amd64` build, which is what Vercel runs. The two
+latency figures are local Docker on Apple silicon (`linux/arm64`), against the
+real image, and they are the service's own cost. Reproduce with:
 
 ```
 docker build -f Containerfile -t meco-faces .
@@ -167,6 +169,18 @@ docker rm -f faces-lat
 The 12 MP photo is a fixture enlarged to 3000×4000 at run time. What is being
 timed is a decode and a fixed-size resize, and neither cares whether the detail
 is real.
+
+**Against a deployment the same request takes about 1.1 s**, measured on a
+preview from Switzerland to `cle1`: 1420 ms first, 1068 ms median over twelve
+runs. That number is not the detector. A 0.2 MB photo takes the same 0.75–2.3 s
+as the 1.1 MB one, so what is being measured is the round trip and Vercel's
+routing, which is why the table above is the local one. Point the same script at
+a deployment when you want the number a caller in another region actually sees:
+
+```
+MECO_TOKEN=<preview token> pnpm --filter meco-faces exec tsx scripts/latency.ts \
+  https://<deployment>.vercel.app/faces 12
+```
 
 ### Prove the detector still finds faces
 

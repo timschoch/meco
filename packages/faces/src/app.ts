@@ -15,13 +15,17 @@
  */
 import { Hono, type Context, type Next } from "hono";
 
-import { MODEL, detectFaces, isLoaded, runtimeVersion } from "./detect.js";
+import { MODEL, ModelLoadError, detectFaces, isLoaded, runtimeVersion } from "./detect.js";
 
 export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
   const routes = new Hono();
 
   /**
    * The same bearer check meco runs, against the same `MECO_TOKEN`.
+   *
+   * Copied rather than shared. The two services are separate images with
+   * separate dependency trees, and eight lines is a cheaper price than a
+   * package that exists only to hold them.
    *
    * `x-auth-token` is accepted alongside `Authorization` so that the two
    * services agree on what an authorised request looks like; meco needs the
@@ -71,7 +75,7 @@ export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
 
     try {
       const started = performance.now();
-      const result = await detectFaces(Buffer.from(body), readTuning(c));
+      const result = await detectFaces(Buffer.from(body));
       const ms = performance.now() - started;
       console.log(
         `detect ${String(result.width)}x${String(result.height)} ` +
@@ -79,8 +83,13 @@ export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
       );
       return c.json(result);
     } catch (err) {
-      // Every failure here is a caller mistake — a body that is not an image,
-      // or a threshold that is not a number.
+      // A model that will not load is this service's fault, not the caller's,
+      // and answering 400 would send them off looking at their own image.
+      if (err instanceof ModelLoadError) {
+        console.error(err.message);
+        return c.json({ error: err.message }, 503);
+      }
+      // Everything else is a caller mistake — a body that is not an image.
       return c.json({ error: (err as Error).message }, 400);
     }
   });
@@ -99,30 +108,4 @@ export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
   app.route("/", routes);
   app.route("/faces", routes);
   return app;
-}
-
-/**
- * Detector knobs a caller may override per request.
- *
- * They exist for calibration, not for everyday use: the defaults in `detect.ts`
- * are what production runs on, and meco sends none of these.
- */
-function readTuning(c: Context) {
-  const num = (name: string) => {
-    const raw = c.req.query(name);
-    if (raw === undefined) return undefined;
-    const value = Number(raw);
-    if (!Number.isFinite(value)) throw new Error(`Query parameter "${name}" must be a number.`);
-    return value;
-  };
-  const scoreThreshold = num("score");
-  const nmsThreshold = num("nms");
-  const topK = num("topK");
-  const longSide = num("longSide");
-  return {
-    ...(scoreThreshold === undefined ? {} : { scoreThreshold }),
-    ...(nmsThreshold === undefined ? {} : { nmsThreshold }),
-    ...(topK === undefined ? {} : { topK }),
-    ...(longSide === undefined ? {} : { longSide }),
-  };
 }

@@ -14,17 +14,13 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
+import sharp from "sharp";
+
 import { createFacesApp } from "../src/app.js";
 import { detectFaces, type Face } from "../src/detect.js";
+import { type Box } from "../src/yunet.js";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/faces/", import.meta.url));
-
-interface Box {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
 
 interface Expectation {
   file: string;
@@ -90,9 +86,9 @@ for (const image of expected.images) {
   }
 
   // The eyes drive the headroom rule a Crop applies, so a landmark that is
-  // merely somewhere on the face is not good enough: it has to be in the upper
-  // half of its own box, and the right eye has to be left of the left eye —
-  // "right" being the subject's right, which is the viewer's left.
+  // merely somewhere on the face is not good enough: it has to sit in the top
+  // three fifths of its own box, and the right eye has to be left of the left
+  // eye — "right" being the subject's right, which is the viewer's left.
   for (const face of result.faces) {
     const { rEye, lEye } = face.landmarks;
     const inUpperHalf = (y: number) => y > face.box.y && y < face.box.y + face.box.h * 0.6;
@@ -102,6 +98,33 @@ for (const image of expected.images) {
       `rEye ${rEye.x.toFixed(3)},${rEye.y.toFixed(3)} lEye ${lEye.x.toFixed(3)},${lEye.y.toFixed(3)}`,
     );
   }
+}
+
+// ------------------------------------------------------- awkward colour input
+
+// A photograph is not always three 8-bit channels on the way in. sharp converts
+// to sRGB inside the pipeline, so all of these should come out the same — but
+// the tensor is packed by walking the raw buffer with a stride of three, and if
+// that assumption ever stopped holding the faces would move rather than the
+// call failing.
+const portrait = await readFile(`${FIXTURES}astronaut-portrait.jpg`);
+const truth = (await detectFaces(portrait)).faces[0]!.box;
+
+for (const [label, encode] of [
+  ["greyscale jpeg", () => sharp(portrait).greyscale().jpeg().toBuffer()],
+  ["single-channel png", () => sharp(portrait).toColourspace("b-w").png().toBuffer()],
+  ["cmyk jpeg", () => sharp(portrait).toColourspace("cmyk").jpeg().toBuffer()],
+  ["rgba png", () => sharp(portrait).ensureAlpha().png().toBuffer()],
+] as const) {
+  const { faces } = await detectFaces(await encode());
+  const off = faces.length === 1 ? deviation(truth, faces[0]!.box) : Infinity;
+  check(
+    off <= expected.tolerance,
+    `${label} finds the same face`,
+    faces.length === 1
+      ? `box off by ${off.toFixed(4)} from the sRGB answer`
+      : `expected 1 face, found ${String(faces.length)}`,
+  );
 }
 
 // ------------------------------------------------------------------- the API

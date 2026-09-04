@@ -81,7 +81,7 @@ export interface DecodeOptions {
   topK: number;
 }
 
-const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
+export const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
 
 /**
  * Read every grid cell of every stride and keep the cells that look like a face.

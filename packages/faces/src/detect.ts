@@ -15,8 +15,11 @@ import * as ort from "onnxruntime-node";
 import sharp from "sharp";
 
 import {
+  clamp01,
   decodeYunet,
+  type Box,
   type DetectedFace,
+  type Landmarks,
   type Stride,
   type StrideOutputs,
   type YunetOutputs,
@@ -54,23 +57,13 @@ const TOP_K = 5000;
 /** The network's dims must be multiples of this, or it fails inside. */
 const DIM_MULTIPLE = 32;
 
-export interface DetectOptions {
-  scoreThreshold?: number;
-  nmsThreshold?: number;
-  topK?: number;
-  longSide?: number;
-}
-
-/** A face as it leaves the service: every number a fraction of the image. */
+/**
+ * A face as it leaves the service: the same shape the decoder produces, with
+ * every number a fraction of the image instead of a pixel.
+ */
 export interface Face {
-  box: { x: number; y: number; w: number; h: number };
-  landmarks: {
-    rEye: { x: number; y: number };
-    lEye: { x: number; y: number };
-    nose: { x: number; y: number };
-    rMouth: { x: number; y: number };
-    lMouth: { x: number; y: number };
-  };
+  box: Box;
+  landmarks: Landmarks;
   score: number;
 }
 
@@ -81,17 +74,25 @@ export interface DetectResult {
   faces: Face[];
 }
 
+/** A model that would not load. Not the caller's fault, and not a 400. */
+export class ModelLoadError extends Error {}
+
 /**
  * One session for the life of the process, created on the first request.
  *
  * Creating it costs far more than running it, so it is memoised as the promise
  * rather than the session: two requests arriving before the first create
- * settles must wait on the same create, not start a second one.
+ * settles must wait on the same create, not start a second one. A create that
+ * fails drops the memo again, so a transient failure at boot does not poison
+ * every request for the life of the container.
  */
 let session: Promise<ort.InferenceSession> | undefined;
 
 export function loadModel(): Promise<ort.InferenceSession> {
-  session ??= ort.InferenceSession.create(MODEL_PATH);
+  session ??= ort.InferenceSession.create(MODEL_PATH).catch((err: unknown) => {
+    session = undefined;
+    throw new ModelLoadError(`Could not load ${MODEL.file}: ${String(err)}`);
+  });
   return session;
 }
 
@@ -99,8 +100,6 @@ export function loadModel(): Promise<ort.InferenceSession> {
 export const isLoaded = () => session !== undefined;
 
 export const runtimeVersion = () => ort.env.versions.common;
-
-const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
 
 /**
  * Pack a raw RGB buffer as the tensor YuNet was trained to see.
@@ -164,14 +163,7 @@ function toFractions(face: DetectedFace, width: number, height: number): Face {
   };
 }
 
-export async function detectFaces(image: Buffer, options: DetectOptions = {}): Promise<DetectResult> {
-  const {
-    scoreThreshold = SCORE_THRESHOLD,
-    nmsThreshold = NMS_THRESHOLD,
-    topK = TOP_K,
-    longSide = LONG_SIDE,
-  } = options;
-
+export async function detectFaces(image: Buffer): Promise<DetectResult> {
   const meta = await sharp(image).metadata();
   if (!meta.width || !meta.height) {
     throw new Error("Could not read the image dimensions — is this really an image?");
@@ -185,7 +177,7 @@ export async function detectFaces(image: Buffer, options: DetectOptions = {}): P
 
   // Never upscale: a small photo gains no detail from being stretched, and the
   // extra grid cells are paid for at full price.
-  const scale = Math.min(1, longSide / Math.max(width, height));
+  const scale = Math.min(1, LONG_SIDE / Math.max(width, height));
   const fitWidth = Math.max(1, Math.round(width * scale));
   const fitHeight = Math.max(1, Math.round(height * scale));
   const padWidth = Math.ceil(fitWidth / DIM_MULTIPLE) * DIM_MULTIPLE;
@@ -193,7 +185,7 @@ export async function detectFaces(image: Buffer, options: DetectOptions = {}): P
 
   // Padding goes on the bottom and right only, which is what lets detections be
   // scaled straight back by the resize factor with no offset to undo.
-  const rgb = await sharp(image)
+  const { data: rgb, info } = await sharp(image)
     .rotate()
     .resize({ width: fitWidth, height: fitHeight, fit: "fill" })
     .extend({
@@ -203,7 +195,15 @@ export async function detectFaces(image: Buffer, options: DetectOptions = {}): P
     })
     .removeAlpha()
     .raw()
-    .toBuffer();
+    .toBuffer({ resolveWithObject: true });
+
+  // sharp converts to sRGB on the way through the pipeline, so a greyscale or
+  // CMYK photograph arrives here as three channels like everything else. That
+  // is what `toTensor` walks, and reading it with the wrong stride would not
+  // throw — it would return faces in the wrong places. Cheap to be sure.
+  if (info.channels !== 3) {
+    throw new Error(`Expected three channels after decoding, got ${String(info.channels)}.`);
+  }
 
   const model = await loadModel();
   const results = await model.run({ input: toTensor(rgb, padWidth, padHeight) });
@@ -211,9 +211,9 @@ export async function detectFaces(image: Buffer, options: DetectOptions = {}): P
   const faces = decodeYunet(gather(results), {
     padWidth,
     padHeight,
-    scoreThreshold,
-    nmsThreshold,
-    topK,
+    scoreThreshold: SCORE_THRESHOLD,
+    nmsThreshold: NMS_THRESHOLD,
+    topK: TOP_K,
   })
     // Detections land in the *resized* frame, so the resize is the only thing
     // between them and a fraction of the original.
