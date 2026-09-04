@@ -1,0 +1,178 @@
+/**
+ * Prove meco-faces finds the faces a human finds, and refuses the rest.
+ *
+ * A face detector is easy to write and easy to get subtly wrong: swap the two
+ * outer colour channels, offset the landmarks from the box centre instead of
+ * the cell corner, or forget that the padding goes on the bottom and right, and
+ * it still returns plausible-looking rectangles — just not around the faces.
+ * The only test that catches any of that is one that compares the output to
+ * boxes a person drew, on photographs with known contents.
+ *
+ * Drives the Hono app in-process — no port, no container. That is also what
+ * makes the token check testable here rather than only against a deployment.
+ */
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
+import { createFacesApp } from "../src/app.js";
+import { detectFaces, type Face } from "../src/detect.js";
+
+const FIXTURES = fileURLToPath(new URL("../../../fixtures/faces/", import.meta.url));
+
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface Expectation {
+  file: string;
+  note: string;
+  faces: { label: string; box: Box }[];
+}
+
+interface Expected {
+  tolerance: number;
+  images: Expectation[];
+}
+
+const expected = JSON.parse(await readFile(`${FIXTURES}expected.json`, "utf8")) as Expected;
+
+const checks: { ok: boolean; label: string; detail: string }[] = [];
+
+const check = (ok: boolean, label: string, detail = "") => {
+  checks.push({ ok, label, detail });
+};
+
+/** How far apart two boxes are, as the worst of their four coordinates. */
+const deviation = (a: Box, b: Box) =>
+  Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.w - b.w), Math.abs(a.h - b.h));
+
+// -------------------------------------------------------------- the fixtures
+
+for (const image of expected.images) {
+  const bytes = await readFile(`${FIXTURES}${image.file}`);
+  const result = await detectFaces(bytes);
+  const found = result.faces.length;
+  const want = image.faces.length;
+
+  check(
+    found === want,
+    `${image.file} face count`,
+    `expected ${String(want)}, found ${String(found)} — ${image.note}`,
+  );
+  if (found !== want) continue;
+
+  // Detections come back strongest first, not left to right, so each
+  // hand-marked face claims the detection nearest to it rather than the one at
+  // the same index. A detection may only be claimed once: two expectations
+  // collapsing onto one box is exactly the duplicate-suppression bug that would
+  // otherwise pass.
+  const unclaimed = new Set<Face>(result.faces);
+  for (const { label, box } of image.faces) {
+    let best: Face | undefined;
+    let bestBy = Infinity;
+    for (const face of unclaimed) {
+      const d = deviation(box, face.box);
+      if (d < bestBy) {
+        bestBy = d;
+        best = face;
+      }
+    }
+    if (best) unclaimed.delete(best);
+    check(
+      bestBy <= expected.tolerance,
+      `${image.file} ${label}`,
+      `worst coordinate off by ${bestBy.toFixed(4)} (allowed ${expected.tolerance.toFixed(2)})` +
+        `, score ${(best?.score ?? 0).toFixed(3)}`,
+    );
+  }
+
+  // The eyes drive the headroom rule a Crop applies, so a landmark that is
+  // merely somewhere on the face is not good enough: it has to be in the upper
+  // half of its own box, and the right eye has to be left of the left eye —
+  // "right" being the subject's right, which is the viewer's left.
+  for (const face of result.faces) {
+    const { rEye, lEye } = face.landmarks;
+    const inUpperHalf = (y: number) => y > face.box.y && y < face.box.y + face.box.h * 0.6;
+    check(
+      rEye.x < lEye.x && inUpperHalf(rEye.y) && inUpperHalf(lEye.y),
+      `${image.file} eye landmarks`,
+      `rEye ${rEye.x.toFixed(3)},${rEye.y.toFixed(3)} lEye ${lEye.x.toFixed(3)},${lEye.y.toFixed(3)}`,
+    );
+  }
+}
+
+// ------------------------------------------------------------------- the API
+
+const TOKEN = "detect-test-token";
+const app = createFacesApp(TOKEN);
+const photo = await readFile(`${FIXTURES}astronaut-portrait.jpg`);
+
+const post = (headers: Record<string, string>, path = "/detect") =>
+  app.fetch(
+    new Request(`http://local${path}`, {
+      method: "POST",
+      headers: { "content-type": "image/jpeg", ...headers },
+      body: new Uint8Array(photo),
+    }),
+  );
+
+const anonymous = await post({});
+check(anonymous.status === 401, "POST /detect without a token", `status ${String(anonymous.status)}`);
+
+const wrong = await post({ authorization: "Bearer not-the-token" });
+check(wrong.status === 401, "POST /detect with the wrong token", `status ${String(wrong.status)}`);
+
+const bearer = await post({ authorization: `Bearer ${TOKEN}` });
+check(bearer.status === 200, "POST /detect with a bearer token", `status ${String(bearer.status)}`);
+
+const direct = await post({ "x-auth-token": TOKEN });
+check(direct.status === 200, "POST /detect with x-auth-token", `status ${String(direct.status)}`);
+
+// Vercel's rewrite hands the path through unchanged, so the prefixed forms have
+// to behave exactly like the bare ones — token check included.
+const prefixed = await post({ authorization: `Bearer ${TOKEN}` }, "/faces/detect");
+check(prefixed.status === 200, "POST /faces/detect with a token", `status ${String(prefixed.status)}`);
+
+const prefixedAnonymous = await post({}, "/faces/detect");
+check(
+  prefixedAnonymous.status === 401,
+  "POST /faces/detect without a token",
+  `status ${String(prefixedAnonymous.status)}`,
+);
+
+const empty = await app.fetch(
+  new Request("http://local/detect", {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}` },
+  }),
+);
+check(empty.status === 400, "POST /detect with no body", `status ${String(empty.status)}`);
+
+const prefixedHealth = await app.fetch(new Request("http://local/faces/health"));
+check(prefixedHealth.status === 200, "GET /faces/health", `status ${String(prefixedHealth.status)}`);
+
+const health = await app.fetch(new Request("http://local/health"));
+const reported = (await health.json()) as {
+  models: { name: string }[];
+  onnxruntime: string;
+};
+check(
+  health.status === 200 &&
+    reported.models.some((m) => m.name === "yunet") &&
+    /^\d+\.\d+\.\d+/.test(reported.onnxruntime),
+  "GET /health names the models and the runtime",
+  `${reported.models.map((m) => m.name).join(", ")} on ONNX Runtime ${reported.onnxruntime}`,
+);
+
+// ------------------------------------------------------------------ the tally
+
+for (const c of checks) {
+  console.log(`${c.ok ? "ok    " : "FAIL  "} ${c.label.padEnd(38)} ${c.detail}`);
+}
+
+const failed = checks.filter((c) => !c.ok);
+console.log(`\n${String(checks.length)} checks, ${String(failed.length)} failed`);
+if (failed.length > 0) process.exitCode = 1;

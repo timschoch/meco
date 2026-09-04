@@ -1,5 +1,13 @@
+packages:
+  - packages/*
+
 allowBuilds:
   esbuild: true
   sharp: true
   "@takumi-rs/core": true
+  # onnxruntime-node's postinstall exists only to pull the CUDA 12 execution
+  # provider on linux/x64 from nuget.org. The CPU binaries meco-faces runs on
+  # ship inside the npm tarball, so blocking the script keeps a large download
+  # out of every install and out of the image.
+  onnxruntime-node: false
 enablePrePostScripts: true
