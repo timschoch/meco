@@ -37,7 +37,7 @@ set that header, `x-auth-token: <token>`.
 | `GET /v1/gallery` | every stored Render, Carousel and Crop, newest first; `?brand=` and `?placement=` filter |
 | `POST /v1/render` | render one Template at one or more Placements |
 | `POST /v1/carousel` | render Slides into one multi-page PDF, or N images |
-| `POST /v1/crop` | cut a Source Image to a shape; a solver frames it and the answer names what decided — `saliency`, `anchor` or `centre` |
+| `POST /v1/crop` | cut a Source Image to a shape; a solver frames it and the answer names what decided — `saliency`, `anchor` or `centre` — and a `subjectArea` says where in the result the Subject has to land |
 | `POST /mcp` | the same operations as MCP tools, streamable HTTP |
 | `POST /mcp/<token>` | the same, for clients that treat a 401 as a reason to start OAuth |
 
@@ -79,6 +79,29 @@ curl -X POST localhost:8787/v1/carousel -H 'content-type: application/json' -d '
     {"template":"laica-slide","data":{"kind":"point","index":1,"total":1,"title":"Marketing ist schwierig"}},
     {"template":"laica-slide","data":{"kind":"outro","title":"Schreib uns","cta":"Kontakt"}}
   ]
+}'
+```
+
+### Crop
+
+A `subjectArea` says which rectangle of the result the Subject has to fill, as
+fractions from the top-left. Without one the solver uses its golden-ratio grid.
+The answer carries `subjectAreaSatisfied`.
+
+How much the area can do depends on what the framing knows about the Subject.
+Every producer meco has today — saliency, Crop Anchor, centre — yields a point
+rather than a region, and a point cannot fill anything, so the area aims the
+framing without setting the zoom. Once a producer yields a real rectangle the
+zoom is solved from it as well, and a Source Image too small to fill the area at
+that shape is refused with a 400 naming the window it would have needed.
+
+```bash
+curl -X POST localhost:8787/v1/crop -H 'content-type: application/json' -d '{
+  "source": "https://example.com/photo.jpg",
+  "width": 1080,
+  "height": 1350,
+  "strategy": "attention",
+  "subjectArea": {"x":0.3,"y":0.15,"width":0.4,"height":0.5}
 }'
 ```
 

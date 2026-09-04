@@ -6,6 +6,10 @@
  * in fractions of the Source Image. One solver turns them into one crop window,
  * so a new detector adds a producer rather than a second way of framing.
  *
+ * Where the Subject then lands is the other half. A Subject Area names that
+ * rectangle outright; the golden grid is what this module aims at when nobody
+ * named one. Both are positioned the same way and both fall back the same way.
+ *
  * The solve is closed-form rather than a search over candidate windows. See
  * `docs/adr/0001-analytic-solver-over-search-based-crop.md` for why. The
  * practical consequence is this file: it imports no image library and touches no
@@ -64,12 +68,38 @@ export interface PixelSize {
   height: number;
 }
 
+/**
+ * The part of an Image Slot a Template requires the Subject to fill, as
+ * fractions of the output, 0..1 from the top-left. See CONTEXT.md.
+ *
+ * It lives here rather than next to the image library because it is the target
+ * the solver aims at: the golden grid is what the solver does when nobody names
+ * one, not a different way of framing.
+ */
+export interface SubjectArea {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface SolveOptions {
   /**
    * How tightly to crop around the anchor. 1 is the largest window of the
    * required shape that fits inside the Source Image; above 1 tightens it.
+   *
+   * Ignored when a Subject Area is given and the Subject has a size, because
+   * then the zoom is not a preference — it is whatever makes the Subject fill
+   * the area.
    */
   zoom?: number;
+  /**
+   * The rectangle of the output frame the Subject must fill. A Template
+   * declares one; a caller may name one for a single Crop. Given one, the
+   * solver derives the zoom from it and aims at its centre instead of at a
+   * golden line, and says in `subjectAreaSatisfied` whether it got there.
+   */
+  subjectArea?: SubjectArea;
 }
 
 /** Which rung of the ladder rescued a window that could not hold every Subject. */
@@ -86,6 +116,11 @@ export interface CropWindow {
   satisfied: boolean;
   /** Set only when `satisfied` is false. */
   fallback?: CropFallback;
+  /**
+   * The Subject landed inside the Subject Area. Set only when one was asked
+   * for — a Crop that named no area has no claim to report either way.
+   */
+  subjectAreaSatisfied?: boolean;
 }
 
 /** A rectangle in Source Image pixels. */
@@ -128,6 +163,18 @@ function union(rects: Rect[]): Rect {
   const right = Math.max(...rects.map((r) => r.left + r.width));
   const bottom = Math.max(...rects.map((r) => r.top + r.height));
   return { left, top, width: right - left, height: bottom - top };
+}
+
+/** A Subject Area has to be a real rectangle, and it has to be in the frame. */
+function insideFrame(area: SubjectArea): boolean {
+  return (
+    area.width > 0 &&
+    area.height > 0 &&
+    area.x >= 0 &&
+    area.y >= 0 &&
+    area.x + area.width <= 1 &&
+    area.y + area.height <= 1
+  );
 }
 
 function contains(window: Rect, inner: Rect): boolean {
@@ -194,6 +241,59 @@ function windowSize(source: PixelSize, aspect: number, zoom: number): PixelSize 
   const width =
     source.width / source.height > aspect ? source.height * aspect : source.width;
   return { width: width / zoom, height: width / aspect / zoom };
+}
+
+/** The Subject Area, projected off the output frame back onto a crop window. */
+function areaRect(window: Rect, area: SubjectArea): Rect {
+  return {
+    left: window.left + area.x * window.width,
+    top: window.top + area.y * window.height,
+    width: area.width * window.width,
+    height: area.height * window.height,
+  };
+}
+
+/**
+ * The zoom that makes the Subject fill the Subject Area.
+ *
+ * A Subject Area is a statement about proportions: a Subject `sw` wide filling a
+ * fraction `area.width` of the frame fixes the frame at `sw / area.width`. Both
+ * axes propose a window and the larger one wins, since the other then has room
+ * to spare. Expressing the answer as a zoom rather than as a window size is what
+ * lets the rest of the solver — where the window is put, and the fallback ladder
+ * that rescues it — stay one code path with or without an area.
+ *
+ * `null` when no window can be derived, which today is every request: a Subject
+ * Box from the saliency, anchor or centre producer is a bare point, and a point
+ * has no size to scale up. Then the area only says where to aim, and the zoom
+ * the caller asked for still stands. A producer that yields a real rectangle —
+ * a detected face — makes this bind.
+ */
+function areaZoom(
+  area: SubjectArea,
+  subject: Rect,
+  source: PixelSize,
+  aspect: number,
+  target: PixelSize,
+): number | null {
+  const needed = Math.max(subject.width / area.width, (subject.height / area.height) * aspect);
+  if (!(needed > 0)) return null;
+
+  // Refusing rather than fudging: a Subject that small in the Source Image
+  // cannot fill the area at this shape, and a Crop that quietly framed
+  // something else would be worse than a Crop that said so.
+  const cover = windowSize(source, aspect, 1);
+  if (needed > cover.width + SLACK_PX) {
+    const px = (n: number) => String(Math.round(n));
+    throw new Error(
+      `The Source Image is too small to fill the Subject Area at ${String(target.width)}x${String(target.height)}: ` +
+        `it needs a ${px(needed)}x${px(needed / aspect)} window, and the largest that fits this ` +
+        `${String(source.width)}x${String(source.height)} Source Image is ${px(cover.width)}x${px(cover.height)}.`,
+    );
+  }
+  // Never below 1: the half-pixel of slack the refusal above allows would
+  // otherwise ask for a window fractionally larger than the Source Image.
+  return Math.max(1, cover.width / needed);
 }
 
 /** Put `point` at `at` inside a window of `size`, then keep the window on the image. */
@@ -267,30 +367,63 @@ export function solveCrop(
       `Crop size must be positive, got ${String(target.width)}x${String(target.height)}.`,
     );
   }
+  const area = options.subjectArea;
+  if (area && !insideFrame(area)) {
+    throw new Error(
+      `A Subject Area must be a positive rectangle inside the frame, got ` +
+        `${String(area.width)}x${String(area.height)} at ${String(area.x)},${String(area.y)}.`,
+    );
+  }
 
   const aspect = target.width / target.height;
-  const asked = Math.max(1, options.zoom ?? 1);
   const { point, leader, tied } = anchorOf(boxes, source);
+
+  // What the composition is measured against: the Subjects that must survive,
+  // or every Subject when none of them was marked as having to.
+  const kept = boxes.filter((b) => b.keep);
+  const subject = union((kept.length > 0 ? kept : boxes).map((b) => toPixels(b, source)));
+
+  const startZoom =
+    (area ? areaZoom(area, subject, source, aspect, target) : null) ??
+    Math.max(1, options.zoom ?? 1);
 
   /**
    * The headroom rule. An eye line is the one place a portrait must not be
    * framed on its centre: put the eyes on the upper golden line and the head
    * sits where a photographer would have put it. A tie has no single face to
    * read the eyes off, so the rule only applies to a lone leader.
+   *
+   * A Subject Area turns it off. The rule is a convention for where a head looks
+   * best when nobody said; a Subject Area is somebody saying, about the whole
+   * Subject Box rather than about the eyes.
    */
-  const eyeY = !tied && leader.eyeY !== undefined ? leader.eyeY : undefined;
-  const anchor: FractionPoint =
-    eyeY === undefined ? point : { x: point.x, y: eyeY * source.height };
+  const eyeY = area === undefined && !tied && leader.eyeY !== undefined ? leader.eyeY : undefined;
 
-  const kept = boxes.filter((b) => b.keep);
+  /**
+   * The point the window is built around.
+   *
+   * Normally the leader's, because in a crowd the frame belongs to the Subject
+   * that matters. A Subject Area moves it to the centre of the whole union: the
+   * area was just used to size the window around that union, so anything else
+   * would put a window that exactly fits the Subjects off the Subjects.
+   */
+  const anchor: FractionPoint = area
+    ? { x: subject.left + subject.width / 2, y: subject.top + subject.height / 2 }
+    : eyeY === undefined
+      ? point
+      : { x: point.x, y: eyeY * source.height };
 
   const solve = (zoom: number, relax: number, subjects: SubjectBox[]) => {
     const size = windowSize(source, aspect, zoom);
     const natural = naturalPosition(anchor, size, source);
-    const wanted: FractionPoint = leader.framedAt ?? {
-      x: nearestPhiLine(natural.x),
-      y: eyeY === undefined ? nearestPhiLine(natural.y) : PHI_LINES[0],
-    };
+    // A Subject Area outranks a Crop Anchor: both are the caller speaking, but
+    // one names an exact rectangle and the other one of nine regions.
+    const wanted: FractionPoint = area
+      ? { x: area.x + area.width / 2, y: area.y + area.height / 2 }
+      : (leader.framedAt ?? {
+          x: nearestPhiLine(natural.x),
+          y: eyeY === undefined ? nearestPhiLine(natural.y) : PHI_LINES[0],
+        });
     // Relaxing slides the target towards the middle of the frame: the Subject
     // stays in shot and the composition degrades instead of the Crop failing.
     const at: FractionPoint = {
@@ -302,38 +435,49 @@ export function solveCrop(
     return { window, held };
   };
 
-  const done = (rect: Rect, fallback?: CropFallback): CropWindow => ({
-    ...round(rect, source),
-    resolvedBy: leader.producer,
-    satisfied: fallback === undefined,
-    ...(fallback ? { fallback } : {}),
-  });
+  const done = (rect: Rect, fallback?: CropFallback): CropWindow => {
+    const window = round(rect, source);
+    return {
+      ...window,
+      resolvedBy: leader.producer,
+      satisfied: fallback === undefined,
+      ...(fallback ? { fallback } : {}),
+      // Measured on the window actually cut, not on the one first asked for: a
+      // rung of the ladder can rescue the Subject and miss the area doing it,
+      // and that is exactly the case this flag exists to report. Measured
+      // against every Subject the Crop promised to keep, including one the
+      // `drop` rung then sacrificed — a sacrifice is a miss.
+      ...(area ? { subjectAreaSatisfied: contains(areaRect(window, area), subject) } : {}),
+    };
+  };
 
-  const first = solve(asked, 0, kept);
+  const first = solve(startZoom, 0, kept);
   if (first.held) return done(first.window);
 
   // The ladder, cheapest repair first. Every rung is reported, because a Crop
   // that silently gave up on a Subject is worse than one that says it did.
-  if (asked > 1) {
+  if (startZoom > 1) {
     const wider = solve(1, 0, kept);
     if (wider.held) return done(wider.window, "zoom-out");
   }
 
   for (const relax of [0.5, 1]) {
-    const relaxed = solve(asked, relax, kept);
+    const relaxed = solve(startZoom, relax, kept);
     if (relaxed.held) return done(relaxed.window, "relax");
   }
 
   const droppable = [...kept].sort((a, b) => a.priority - b.priority);
   for (let dropped = 1; dropped < droppable.length; dropped++) {
     const remaining = droppable.slice(dropped);
-    const smaller = solve(asked, 1, remaining);
+    const smaller = solve(startZoom, 1, remaining);
     if (smaller.held) return done(smaller.window, "drop");
   }
 
   // Nothing fits. Centre on what matters and accept the clipping, having said so.
   const size = windowSize(source, aspect, 1);
-  const all = union((kept.length > 0 ? kept : boxes).map((b) => toPixels(b, source)));
-  const centre = { x: all.left + all.width / 2, y: all.top + all.height / 2 };
+  const centre = {
+    x: subject.left + subject.width / 2,
+    y: subject.top + subject.height / 2,
+  };
   return done(place(centre, { x: 0.5, y: 0.5 }, size, source), "clip");
 }

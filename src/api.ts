@@ -150,12 +150,31 @@ export async function carousel(input: CarouselInput, storage: Storage) {
 
 // --------------------------------------------------------------------- crop
 
+/**
+ * The Subject Area as a caller may write it. Shared with the MCP tool schema so
+ * both surfaces refuse the same rectangles for the same reasons.
+ *
+ * Fractions of the output frame, which is why every bound is 0..1 — a Subject
+ * Area in pixels would stop meaning the same thing at the next Placement.
+ */
+export const subjectAreaShape = z
+  .object({
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().gt(0).max(1),
+    height: z.number().gt(0).max(1),
+  })
+  .refine((a) => a.x + a.width <= 1 && a.y + a.height <= 1, {
+    message: "A Subject Area must lie inside the frame: x + width and y + height must not exceed 1.",
+  });
+
 export const cropBody = z.object({
   source: z.string().url(),
   width: z.number().int().positive(),
   height: z.number().int().positive(),
   anchor: z.enum(CROP_ANCHORS).optional(),
   strategy: z.enum(["attention", "entropy"]).optional(),
+  subjectArea: subjectAreaShape.optional(),
   format: z.enum(["png", "jpeg", "webp"]).default("jpeg"),
   quality: z.number().int().min(1).max(100).optional(),
 });
@@ -170,6 +189,7 @@ export async function crop(input: CropInput, storage: Storage) {
     height: input.height,
     ...(input.anchor ? { anchor: input.anchor } : {}),
     ...(input.strategy ? { strategy: input.strategy } : {}),
+    ...(input.subjectArea ? { subjectArea: input.subjectArea } : {}),
     format: input.format,
     ...(input.quality === undefined ? {} : { quality: input.quality }),
   });
@@ -181,6 +201,9 @@ export async function crop(input: CropInput, storage: Storage) {
     resolvedBy: result.resolvedBy,
     satisfied: result.satisfied,
     ...(result.fallback ? { fallback: result.fallback } : {}),
+    ...(result.subjectAreaSatisfied === undefined
+      ? {}
+      : { subjectAreaSatisfied: result.subjectAreaSatisfied }),
     ...(result.anchor ? { anchor: result.anchor } : {}),
     ...stored,
   };
