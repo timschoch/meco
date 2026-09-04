@@ -406,12 +406,74 @@ const detectCalls: string[] = [];
  * produce the same one. Both are true of this, and neither needs ONNX Runtime in
  * this process. The real network is checked against PyTorch in
  * `packages/faces/scripts/embed-test.ts`.
+ *
+ * It is deliberately useless for *matching*: two photographs of one human seed
+ * two unrelated vectors, so nothing made up here can ever be recognised. That is
+ * what `realPrints` below is for.
  */
 function cannedPrint(landmarks: Record<string, { x: number; y: number }>): number[] {
   const seed = Object.values(landmarks).reduce((a, p) => a + p.x * 7919 + p.y * 104729, 1);
   const raw = Array.from({ length: 512 }, (_, i) => Math.sin(seed * (i + 1)));
   const norm = Math.hypot(...raw);
   return raw.map((v) => v / norm);
+}
+
+/**
+ * The real EdgeFace Face Prints of the fixture faces, for the faces that have
+ * one — `fixtures/faces/face-prints.json`, written by meco-faces' own ONNX path.
+ *
+ * A made-up print can carry a Person into the store and back out again, and that
+ * is all the enrolment tests ever needed. A *Match* is arithmetic on the
+ * numbers: recognising Person A in the group photograph is true only because
+ * 0.82 is a real cosine between two real embeddings of one human. Seeding those
+ * from landmarks would make every test below pass or fail on the properties of
+ * `Math.sin`.
+ *
+ * So the stand-in serves the recorded numbers where it has them and makes one up
+ * where it does not, and the join is by position: `face-prints.json` and
+ * `detected.json` describe the same faces of the same files, and
+ * `packages/faces/scripts/fixture-faces.ts` pairs a hand-marked label with a
+ * detection by sorting both left to right. The same sort here reaches the same
+ * pairing without importing the package that owns it.
+ */
+const facePrints = JSON.parse(await readFile(fixtures("face-prints.json"), "utf8")) as {
+  prints: { file: string; label: string; print: number[] }[];
+};
+const marks = JSON.parse(await readFile(fixtures("expected.json"), "utf8")) as {
+  images: { file: string; faces: { label: string; box: { x: number } }[] }[];
+};
+
+/** Real Face Prints by photograph hash, in that photograph's detection order. */
+const realPrints = new Map<string, number[][]>();
+
+function loadRealPrints(name: string, hash: string): void {
+  const detection = recorded.images[name];
+  const marked = marks.images.find((i) => i.file === name);
+  if (!detection || !marked || marked.faces.length !== detection.faces.length) return;
+
+  const byX = [...detection.faces].sort((a, b) => a.box.x - b.box.x);
+  const labels = [...marked.faces].sort((a, b) => a.box.x - b.box.x);
+
+  const prints: number[][] = [];
+  for (const [i, face] of byX.entries()) {
+    const label = labels[i]!.label;
+    const found = facePrints.prints.find((p) => p.file === name && p.label === label);
+    if (!found) return;
+    prints[detection.faces.indexOf(face)] = found.print;
+  }
+  realPrints.set(hash, prints);
+}
+
+/** Which face of a recorded detection this is, by its landmarks. -1 if none. */
+function faceIndexOf(
+  detection: Detection | undefined,
+  landmarks: Record<string, { x: number; y: number }>,
+): number {
+  if (!detection) return -1;
+  return detection.faces.findIndex(
+    (f) =>
+      f.landmarks.rEye.x === landmarks.rEye?.x && f.landmarks.lEye.y === landmarks.lEye?.y,
+  );
 }
 
 const facesService = createServer((req, res) => {
@@ -428,8 +490,18 @@ const facesService = createServer((req, res) => {
         const faces = JSON.parse(asked.searchParams.get("faces") ?? "[]") as {
           landmarks: Record<string, { x: number; y: number }>;
         }[];
+        const hash = sha(body);
+        const known = realPrints.get(hash);
+        const detection = canned.get(hash);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ prints: faces.map((f) => cannedPrint(f.landmarks)) }));
+        res.end(
+          JSON.stringify({
+            prints: faces.map((f) => {
+              const index = faceIndexOf(detection, f.landmarks);
+              return known?.[index] ?? cannedPrint(f.landmarks);
+            }),
+          }),
+        );
         return;
       }
       detectCalls.push(sha(body));
@@ -457,8 +529,14 @@ async function fixturePhoto(name: string): Promise<{ url: string; hash: string }
 
 const PORTRAIT = await fixturePhoto("astronaut-portrait.jpg");
 const GROUP = await fixturePhoto("artemis-2-crew.jpg");
+/** Person A among two strangers — the photograph Person matching is tested on. */
+const CREW = await fixturePhoto("soyuz-crew.jpg");
 canned.set(PORTRAIT.hash, recorded.images["astronaut-portrait.jpg"]!);
 canned.set(GROUP.hash, recorded.images["artemis-2-crew.jpg"]!);
+canned.set(CREW.hash, recorded.images["soyuz-crew.jpg"]!);
+loadRealPrints("astronaut-portrait.jpg", PORTRAIT.hash);
+loadRealPrints("artemis-2-crew.jpg", GROUP.hash);
+loadRealPrints("soyuz-crew.jpg", CREW.hash);
 
 for (const shape of [
   { label: "9:16", width: 1080, height: 1920 },
@@ -1549,6 +1627,394 @@ check(
   (await everyStoredKey()).filter((k) => k.startsWith("annotations/")).join(" "),
 );
 await del(`/v1/people/${grace.id}?brand=laica`);
+
+// ---------------------------------------------------------------- matching
+
+console.log("\nmatching");
+
+/**
+ * The whole point of People, end to end: a photograph of one enrolled human
+ * standing between two strangers.
+ *
+ * Every number under here is a real EdgeFace cosine — see `realPrints` above —
+ * so "Person A is recognised and the other two are not" is the model's answer
+ * and not a property of the test's arithmetic. What the fixture cannot show is a
+ * Brand with two People who look alike; the systematic sweep over every gallery
+ * lives in `scripts/match-calibration.ts`.
+ */
+const CREW_DETECTION = recorded.images["soyuz-crew.jpg"]!;
+const CREW_SIZE = { width: CREW_DETECTION.width, height: CREW_DETECTION.height };
+
+/** Person A's face: the leftmost of the three, per `expected.json`. */
+const KIM_INDEX = CREW_DETECTION.faces.indexOf(
+  [...CREW_DETECTION.faces].sort((a, b) => a.box.x - b.box.x)[0]!,
+);
+
+interface MatchJson extends Json {
+  personId: string;
+  name: string;
+  score: number;
+}
+const matchesOf = (body: Json) => (body.matches ?? []) as MatchJson[];
+
+// One Person per Brand, all three enrolled from the same portrait. Two Brands
+// knowing the same face is the only way "a Person of another Brand is never
+// matched" can be tested at all: with different faces the isolation would hold
+// by accident.
+const kim = (await post("/v1/people", { brand: "laica", name: "Person A" })).json as PersonJson;
+await post(`/v1/people/${kim.id}/photos`, {
+  brand: "laica",
+  source: PORTRAIT.url,
+  consent: true,
+});
+const twin = (await post("/v1/people", { brand: "hopefamily", name: "Someone Else" }))
+  .json as PersonJson;
+await post(`/v1/people/${twin.id}/photos`, {
+  brand: "hopefamily",
+  source: PORTRAIT.url,
+  consent: true,
+});
+// A second Person of the same Brand, so `persons` has something to exclude and
+// the runner-up has somebody to be.
+const other = (await post("/v1/people", { brand: "laica", name: "Person D" }))
+  .json as PersonJson;
+await post(`/v1/people/${other.id}/photos`, {
+  brand: "laica",
+  source: GROUP.url,
+  faceIndex: 0,
+  consent: true,
+});
+
+for (const shape of [
+  { label: "1:1", width: 1080, height: 1080 },
+  { label: "4:5", width: 1080, height: 1350 },
+  { label: "9:16", width: 1080, height: 1920 },
+]) {
+  const { status, json } = await post("/v1/crop", {
+    source: CREW.url,
+    brand: "laica",
+    width: shape.width,
+    height: shape.height,
+  });
+  cropKeys.add(String(json.key));
+  const found = matchesOf(json);
+  check(
+    `${shape.label} pins on the Person and names only them`,
+    status === 200 &&
+      json.resolvedBy === "person" &&
+      found.length === 1 &&
+      found[0]?.personId === kim.id,
+    `${String(json.resolvedBy)} · ${found.map((m) => `${m.name} ${m.score.toFixed(3)}`).join(", ")}`,
+  );
+}
+
+const noBrandCrop = await post("/v1/crop", {
+  source: CREW.url,
+  width: 1080,
+  height: 1080,
+});
+cropKeys.add(String(noBrandCrop.json.key));
+check(
+  "the same Crop with no Brand names nobody and falls back to the faces",
+  noBrandCrop.json.resolvedBy === "face" && noBrandCrop.json.matches === undefined,
+  `${String(noBrandCrop.json.resolvedBy)} matches=${JSON.stringify(noBrandCrop.json.matches)}`,
+);
+
+// ------------------------------------------------ a stranger is not blurred over
+
+/**
+ * Face Blur with a Person in the picture: two faces hidden, one left alone.
+ *
+ * Read off the pixels rather than off the count, because the count is the easy
+ * half. A rule that blurred the wrong two faces would report the same number.
+ *
+ * 16:9 because the photograph is 1400x679 and the three of them stand across
+ * two thirds of its width: a square window cannot hold all three, and a claim
+ * about "the faces minus the Matches" is only a claim when every face is in the
+ * picture. The narrow case has its own checks in the Face Blur section above.
+ */
+const WIDE = { width: 1920, height: 1080 };
+{
+  const shape = WIDE;
+  const plainCrop = await post("/v1/crop", { source: CREW.url, brand: "laica", ...shape, format: "png" });
+  const blurCrop = await post("/v1/crop", {
+    source: CREW.url,
+    brand: "laica",
+    ...shape,
+    format: "png",
+    blurUnknownFaces: true,
+  });
+  cropKeys.add(String(plainCrop.json.key));
+  cropKeys.add(String(blurCrop.json.key));
+
+  check(
+    "blurred equals the faces minus the Matches",
+    blurCrop.json.blurred === CREW_DETECTION.faces.length - 1,
+    `blurred=${String(blurCrop.json.blurred)} of ${String(CREW_DETECTION.faces.length)} faces`,
+  );
+
+  const raw = async (key: unknown) =>
+    sharp(join(root, String(key))).raw().toBuffer({ resolveWithObject: true });
+  const before = await raw(plainCrop.json.key);
+  const after = await raw(blurCrop.json.key);
+
+  const window = solveCrop(
+    faceSubjectBoxes(
+      CREW_DETECTION.faces,
+      CREW_DETECTION.faces.map((_, i) =>
+        i === KIM_INDEX ? { personId: kim.id, name: "Person A", score: 0.8, runnerUp: null } : null,
+      ),
+    ),
+    CREW_SIZE,
+    shape,
+    {},
+  );
+  const scaleX = shape.width / window.width;
+  const scaleY = shape.height / window.height;
+
+  /** How much of one face's rectangle in the frame changed between the two. */
+  const changedShare = (box: { x: number; y: number; width: number; height: number }) => {
+    const left = Math.max(0, Math.round((box.x * CREW_SIZE.width - window.left) * scaleX));
+    const top = Math.max(0, Math.round((box.y * CREW_SIZE.height - window.top) * scaleY));
+    const right = Math.min(
+      shape.width,
+      Math.round(((box.x + box.width) * CREW_SIZE.width - window.left) * scaleX),
+    );
+    const bottom = Math.min(
+      shape.height,
+      Math.round(((box.y + box.height) * CREW_SIZE.height - window.top) * scaleY),
+    );
+    if (right <= left || bottom <= top) return null;
+    let differing = 0;
+    for (let y = top; y < bottom; y++) {
+      for (let x = left; x < right; x++) {
+        const i = (y * before.info.width + x) * before.info.channels;
+        for (let c = 0; c < before.info.channels; c++) {
+          if (before.data[i + c] !== after.data[i + c]) {
+            differing++;
+            break;
+          }
+        }
+      }
+    }
+    return differing / ((right - left) * (bottom - top));
+  };
+
+  const shares = CREW_DETECTION.faces.map((f) => changedShare(f.box));
+  check(
+    "every face is in this window, so the pixels can speak about all three",
+    shares.every((s) => s !== null),
+    shares.map((s) => (s === null ? "out" : s.toFixed(3))).join(" "),
+  );
+  check(
+    "the matched Person's face is byte-identical — a Match is not blurred",
+    shares[KIM_INDEX] === 0,
+    `${String(shares[KIM_INDEX])} of that face's pixels changed`,
+  );
+  check(
+    "and both strangers' faces did change",
+    shares.every((s, i) => i === KIM_INDEX || (s !== null && s > 0.5)),
+    shares.map((s, i) => `${String(i)}:${s === null ? "out" : s.toFixed(3)}`).join(" "),
+  );
+}
+
+// ------------------------------------------------------- narrowing, and Brands
+
+{
+  const onlyKim = await post("/v1/crop", {
+    source: CREW.url,
+    brand: "laica",
+    persons: [kim.id],
+    width: 1080,
+    height: 1080,
+  });
+  cropKeys.add(String(onlyKim.json.key));
+  check(
+    "naming the Person who is in the picture still matches them",
+    matchesOf(onlyKim.json).length === 1 && matchesOf(onlyKim.json)[0]?.personId === kim.id,
+    JSON.stringify(onlyKim.json.matches),
+  );
+
+  const onlyOther = await post("/v1/crop", {
+    source: CREW.url,
+    brand: "laica",
+    persons: [other.id],
+    width: 1080,
+    height: 1080,
+  });
+  cropKeys.add(String(onlyOther.json.key));
+  check(
+    "naming a Person who is not in it matches nobody, rather than the nearest name",
+    matchesOf(onlyOther.json).length === 0 && onlyOther.json.resolvedBy === "face",
+    `${String(onlyOther.json.resolvedBy)} ${JSON.stringify(onlyOther.json.matches)}`,
+  );
+
+  // The isolation property. hopefamily has this exact face enrolled under
+  // another name, so a Crop for laica that leaked across Brands would say
+  // "Someone Else" and a Crop for swisshutless would say anything at all.
+  const foreign = await post("/v1/crop", {
+    source: CREW.url,
+    brand: "laica",
+    persons: [twin.id],
+    width: 1080,
+    height: 1080,
+  });
+  check(
+    "naming another Brand's Person is refused, not silently ignored",
+    foreign.status === 400 && JSON.stringify(foreign.json).includes(twin.id),
+    `${String(foreign.status)} ${JSON.stringify(foreign.json).slice(0, 140)}`,
+  );
+
+  const stranger = await post("/v1/crop", {
+    source: CREW.url,
+    brand: "swisshutless",
+    ...WIDE,
+    blurUnknownFaces: true,
+  });
+  cropKeys.add(String(stranger.json.key));
+  check(
+    "a Brand with no People of its own recognises nobody, though two other Brands know that face",
+    matchesOf(stranger.json).length === 0 &&
+      stranger.json.blurred === CREW_DETECTION.faces.length,
+    `${JSON.stringify(stranger.json.matches)} blurred=${String(stranger.json.blurred)}`,
+  );
+
+  const asHopefamily = await post("/v1/crop", {
+    source: CREW.url,
+    brand: "hopefamily",
+    width: 1080,
+    height: 1080,
+  });
+  cropKeys.add(String(asHopefamily.json.key));
+  check(
+    "and each Brand gets its own name for the same face",
+    matchesOf(asHopefamily.json)[0]?.personId === twin.id,
+    matchesOf(asHopefamily.json).map((m) => m.name).join(", "),
+  );
+}
+
+// -------------------------------------------------------------------- pinTo
+
+{
+  const asFaces = await post("/v1/crop", {
+    source: CREW.url,
+    brand: "laica",
+    pinTo: "faces",
+    ...WIDE,
+    blurUnknownFaces: true,
+  });
+  cropKeys.add(String(asFaces.json.key));
+  check(
+    "pinTo faces frames on a face rather than on the Person",
+    asFaces.json.resolvedBy === "face",
+    String(asFaces.json.resolvedBy),
+  );
+  check(
+    "but still recognises them, so Face Blur spares them either way",
+    matchesOf(asFaces.json).length === 1 && asFaces.json.blurred === 2,
+    `${JSON.stringify(asFaces.json.matches)} blurred=${String(asFaces.json.blurred)}`,
+  );
+
+  const asAttention = await post("/v1/crop", {
+    source: CREW.url,
+    brand: "laica",
+    pinTo: "attention",
+    width: 1080,
+    height: 1080,
+  });
+  cropKeys.add(String(asAttention.json.key));
+  check(
+    "pinTo attention steps over the faces entirely, with no strategy beside it",
+    asAttention.json.resolvedBy === "saliency",
+    String(asAttention.json.resolvedBy),
+  );
+
+  const pinNoBrand = await post("/v1/crop", {
+    source: CREW.url,
+    pinTo: "person",
+    width: 1080,
+    height: 1080,
+  });
+  check(
+    "pinning to a Person with no Brand is refused",
+    pinNoBrand.status === 400,
+    String(pinNoBrand.status),
+  );
+  const personsNoBrand = await post("/v1/crop", {
+    source: CREW.url,
+    persons: [kim.id],
+    width: 1080,
+    height: 1080,
+  });
+  check(
+    "and so is naming Persons with no Brand",
+    personsNoBrand.status === 400,
+    String(personsNoBrand.status),
+  );
+}
+
+// --------------------------------------------------------- find subjects
+
+{
+  const detectsBefore = detectCalls.length;
+  const seen = await post("/v1/subjects", { source: CREW.url, brand: "laica" });
+  const regions = (seen.json.ImageRegion ?? []) as { RegionId: string }[];
+  const found = matchesOf(seen.json) as (MatchJson & { regionId: string })[];
+  check(
+    "find subjects names the Match by the region it belongs to",
+    seen.status === 200 &&
+      found.length === 1 &&
+      regions.some((r) => r.RegionId === found[0]?.regionId),
+    JSON.stringify(seen.json.matches),
+  );
+  check(
+    "and matching cost no second detection — the Annotation is still the cached one",
+    detectCalls.length === detectsBefore,
+    `${String(detectCalls.length - detectsBefore)} detections`,
+  );
+
+  const unnamed = await post("/v1/subjects", { source: CREW.url });
+  check(
+    "without a Brand it says nothing about People at all",
+    unnamed.json.matches === undefined,
+    JSON.stringify(unnamed.json.matches),
+  );
+}
+
+// ------------------------------------------------------------------- over MCP
+
+{
+  const cropped = JSON.parse(
+    await callTool("crop_image", {
+      source: CREW.url,
+      brand: "laica",
+      pinTo: "person",
+      ...WIDE,
+      blurUnknownFaces: true,
+    }),
+  ) as Json;
+  cropKeys.add(String(cropped.key));
+  check(
+    "MCP crop_image carries the Brand, the Matches and the blur count",
+    cropped.resolvedBy === "person" &&
+      matchesOf(cropped).length === 1 &&
+      cropped.blurred === 2,
+    `${String(cropped.resolvedBy)} ${JSON.stringify(cropped.matches)} blurred=${String(cropped.blurred)}`,
+  );
+
+  const subjects = JSON.parse(
+    await callTool("find_subjects", { source: CREW.url, brand: "laica" }),
+  ) as Json;
+  check(
+    "MCP find_subjects carries them too",
+    matchesOf(subjects).length === 1 && matchesOf(subjects)[0]?.personId === kim.id,
+    JSON.stringify(subjects.matches),
+  );
+}
+
+await del(`/v1/people/${kim.id}?brand=laica`);
+await del(`/v1/people/${other.id}?brand=laica`);
+await del(`/v1/people/${twin.id}?brand=hopefamily`);
 
 // ------------------------------------------------------ a face service down
 

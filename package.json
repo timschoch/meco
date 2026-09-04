@@ -15,6 +15,7 @@
     "test:ui": "tsx scripts/ui-test.mjs",
     "test:mcp": "tsx scripts/mcp-probe.ts",
     "test:crop": "tsx scripts/crop-solver-test.ts",
+    "test:match": "tsx scripts/match-calibration.ts",
     "test:http": "tsx scripts/http-probe.ts",
     "test:storage": "tsx scripts/storage-contract.ts",
     "typecheck:faces": "pnpm --filter meco-faces typecheck",

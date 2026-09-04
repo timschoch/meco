@@ -296,6 +296,56 @@ for (const image of fixtures) {
   }
 }
 
+// ------------------------------- the committed Face Prints are still current
+
+/**
+ * `face-prints.json` is what meco calibrates its match threshold on, and meco
+ * cannot recompute it — the embedder is in this package, not that one. A stale
+ * copy would therefore not fail anywhere: meco's sweep would keep reporting a
+ * clean separation between numbers no deployed model produces any more. This is
+ * the only place that can notice, so it does.
+ *
+ * The bar is exact equality rather than a cosine, because the file is a
+ * recording of this code's output and not an independent measurement of it. The
+ * PyTorch comparison above is where tolerance belongs.
+ */
+{
+  const committed = JSON.parse(await readFile(`${FIXTURES}face-prints.json`, "utf8")) as {
+    prints: { name: string; person: string; print: number[] }[];
+  };
+  const byName = new Map(committed.prints.map((p) => [p.name, p]));
+
+  check(
+    committed.prints.length === prints.size,
+    "face-prints.json holds every fixture face",
+    `${String(committed.prints.length)} committed, ${String(prints.size)} embedded`,
+  );
+
+  let worst = 0;
+  let missing = "";
+  let mislabelled = "";
+  for (const [name, print] of prints) {
+    const stored = byName.get(name);
+    if (!stored) {
+      missing = name;
+      continue;
+    }
+    if (stored.person !== identity.get(name)) mislabelled = name;
+    for (let i = 0; i < print.length; i++) {
+      worst = Math.max(worst, Math.abs(print[i]! - stored.print[i]!));
+    }
+  }
+  check(
+    missing === "" && mislabelled === "" && worst === 0,
+    "face-prints.json is still what the embedder makes",
+    missing !== ""
+      ? `${missing} is not in it — run pnpm --filter meco-faces dump:prints`
+      : mislabelled !== ""
+        ? `${mislabelled} carries the wrong person letter`
+        : `worst float differs by ${String(worst)}`,
+  );
+}
+
 // ------------------------------------------- same person, and different people
 
 /**

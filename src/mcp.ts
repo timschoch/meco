@@ -12,7 +12,7 @@ import { z } from "zod";
 import * as api from "./api.js";
 import { BRANDS } from "./brands.js";
 import { CHANNELS, PLACEMENTS } from "./channels.js";
-import { CROP_ANCHORS, fetchSourceImage } from "./crop.js";
+import { CROP_ANCHORS, PIN_TO, fetchSourceImage } from "./crop.js";
 import * as people from "./people.js";
 import type { Storage } from "./storage.js";
 import { describeTemplates } from "./templates/registry.js";
@@ -199,15 +199,40 @@ export function createMecoMcpHandler(storage: Storage) {
       {
         description:
           "Cut a Source Image to an exact size. A face in the picture frames the " +
-          "Crop by itself, with the eye line on the upper golden line; otherwise " +
-          "give an anchor to choose the region yourself, or a strategy to let the " +
-          "image decide — 'attention' keeps the most salient area. Give a " +
-          "subjectArea to say where in the result the Subject has to land. Set " +
-          "blurUnknownFaces to hide the faces of people meco does not know.",
+          "Crop by itself, with the eye line on the upper golden line; name a " +
+          "brand and a Person the Brand has enrolled is recognised and framed on " +
+          "instead, whatever size their face is. Otherwise give an anchor to " +
+          "choose the region yourself, or a strategy to let the image decide — " +
+          "'attention' keeps the most salient area. Give a subjectArea to say " +
+          "where in the result the Subject has to land. Set blurUnknownFaces to " +
+          "hide every face that is not a recognised Person.",
         inputSchema: z.object({
           source: z.string().url().describe("URL of the Source Image."),
           width: z.number().int().positive(),
           height: z.number().int().positive(),
+          brand: brandId
+            .optional()
+            .describe(
+              "Recognise this Brand's People in the picture. Without it meco " +
+                "names nobody, and every face counts as unknown.",
+            ),
+          pinTo: z
+            .enum(PIN_TO)
+            .optional()
+            .describe(
+              "What to frame on: 'person' a recognised Person, falling back to " +
+                "the faces; 'faces' the largest face whoever it is; 'attention' " +
+                "the most salient area, ignoring the faces. Default 'person' " +
+                "with a brand, 'faces' without one.",
+            ),
+          persons: z
+            .array(z.string())
+            .min(1)
+            .optional()
+            .describe(
+              "Person ids from list_people. Only these may be recognised; " +
+                "any other face stays unknown. Needs brand.",
+            ),
           anchor: z.enum(CROP_ANCHORS).optional(),
           strategy: z.enum(["attention", "entropy"]).optional(),
           subjectArea: api.subjectAreaShape
@@ -221,9 +246,10 @@ export function createMecoMcpHandler(storage: Storage) {
             .boolean()
             .optional()
             .describe(
-              "Blur every face in the result that is not a known Person, " +
-                "behind an elliptical mask. Faces the crop left out are not " +
-                "touched and not counted. The answer says how many were hidden.",
+              "Blur every face in the result that is not a recognised Person, " +
+                "behind an elliptical mask. Without a brand that is every face. " +
+                "Faces the crop left out are not touched and not counted. The " +
+                "answer says how many were hidden.",
             ),
           format: z.enum(["png", "jpeg", "webp"]).optional(),
           quality: z.number().int().min(1).max(100).optional(),
@@ -243,11 +269,19 @@ export function createMecoMcpHandler(storage: Storage) {
       {
         description:
           "Find the Subjects in a Source Image without cropping it: every face, " +
-          "as a rectangle in fractions 0..1 from the top-left. Use it to see what " +
-          "a Crop would be framed on before choosing a size. The answer is cached " +
-          "under the image's own hash, so asking twice costs one detection.",
+          "as a rectangle in fractions 0..1 from the top-left. Name a brand and " +
+          "the answer also says which faces are People that Brand has enrolled, " +
+          "by region id. Use it to see what a Crop would be framed on before " +
+          "choosing a size. The rectangles are cached under the image's own " +
+          "hash, so asking twice costs one detection.",
         inputSchema: z.object({
           source: z.string().url().describe("URL of the Source Image."),
+          brand: brandId.optional().describe("Also recognise this Brand's People."),
+          persons: z
+            .array(z.string())
+            .min(1)
+            .optional()
+            .describe("Person ids to limit the recognition to. Needs brand."),
         }),
       },
       async (input) => {

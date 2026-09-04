@@ -348,6 +348,138 @@ check(
   faceTooSmall,
 );
 
+// ------------------------------------------------------------ a matched Person
+
+console.log("\na matched Person");
+
+/**
+ * A Match wins the anchor whatever size the face is, which is exactly the rule
+ * "the largest face leads" could not express and the reason it was a function of
+ * its own.
+ *
+ * The group photograph is the case: the faces are at four scales, and the test
+ * matches the *smallest* one. If the framing still lands on it, then size lost
+ * to a name — and if it lands on the largest, the Match was decorative.
+ */
+const CREW_PHOTO = recorded.images["soyuz-crew.jpg"]!;
+const CREW_SIZE: PixelSize = { width: CREW_PHOTO.width, height: CREW_PHOTO.height };
+
+const smallest = GROUP_PHOTO.faces.reduce((worst, f) =>
+  f.box.width * f.box.height < worst.box.width * worst.box.height ? f : worst,
+);
+const smallestIndex = GROUP_PHOTO.faces.indexOf(smallest);
+
+/** A Match of the given strength, in the shape the producer is handed them. */
+const matchOf = (score: number) => ({
+  personId: "p-1",
+  name: "Person A",
+  score,
+  runnerUp: null,
+});
+
+const oneMatched = GROUP_PHOTO.faces.map((_, i) =>
+  i === smallestIndex ? matchOf(0.82) : null,
+);
+const matchedBoxes = faceSubjectBoxes(GROUP_PHOTO.faces, oneMatched);
+const matchedLead = matchedBoxes.reduce((best, b) => (b.priority > best.priority ? b : best));
+
+check(
+  "the smallest face leads when it is the Match",
+  matchedLead.x === smallest.box.x && matchedLead.y === smallest.box.y,
+  `leader at ${String(matchedLead.x)},${String(matchedLead.y)} — largest is at ${String(largest.box.x)}`,
+);
+check(
+  "and it names itself person, which is what resolvedBy reports",
+  matchedLead.producer === "person" &&
+    solveCrop(matchedBoxes, GROUP_SIZE, { width: 1920, height: 1080 }).resolvedBy === "person",
+  matchedLead.producer,
+);
+check(
+  "only one box is a person, so a Match is a tier of its own",
+  matchedBoxes.filter((b) => b.producer === "person").length === 1,
+  matchedBoxes.map((b) => b.producer).join(","),
+);
+check(
+  "an unmatched face ranks below a matched one, so a stranger is dropped first",
+  matchedBoxes.every((b, i) =>
+    i === smallestIndex ? true : b.priority < matchedBoxes[smallestIndex]!.priority,
+  ),
+  matchedBoxes.map((b) => b.priority).join(","),
+);
+
+// Two Matches: the stronger leads, and the weaker is still a face rather than a
+// stranger. Framing has to settle on one of them, and the score is the only
+// thing about the two that does not depend on where they happened to stand.
+{
+  // The stronger Match is deliberately the *smaller* face of the two, so that
+  // "the stronger one leads" cannot be satisfied by the size rule underneath.
+  const largestIndex = GROUP_PHOTO.faces.indexOf(largest);
+  const two = GROUP_PHOTO.faces.map((_, i) =>
+    i === smallestIndex ? matchOf(0.9) : i === largestIndex ? matchOf(0.7) : null,
+  );
+  const boxes = faceSubjectBoxes(GROUP_PHOTO.faces, two);
+  const lead = boxes.reduce((best, b) => (b.priority > best.priority ? b : best));
+  check(
+    "with two Matches the stronger one leads, not the bigger one",
+    lead.x === smallest.box.x,
+    `leader at ${String(lead.x)}, the larger Match is at ${String(largest.box.x)}`,
+  );
+  check(
+    "and the weaker Match still outranks every stranger",
+    boxes[largestIndex]!.priority >
+      Math.max(
+        ...boxes
+          .filter((_, i) => i !== largestIndex && i !== smallestIndex)
+          .map((b) => b.priority),
+      ),
+    boxes.map((b) => b.priority).join(","),
+  );
+}
+
+check(
+  "no Match at all leaves the rule exactly as it was",
+  JSON.stringify(faceSubjectBoxes(GROUP_PHOTO.faces, GROUP_PHOTO.faces.map(() => null))) ===
+    JSON.stringify(groupBoxes),
+);
+
+/**
+ * The acceptance criterion, on the photograph it was written for: Person A among
+ * two strangers, at the three shapes, with the eye line on the upper golden line
+ * and their face whole.
+ *
+ * The strangers are in the picture as Subject Boxes throughout, so this is not
+ * "crop to the one face" — it is the leader taking the golden line while the
+ * ladder does what it can for the other two.
+ */
+const CREW_MATCH = CREW_PHOTO.faces.indexOf(
+  [...CREW_PHOTO.faces].sort((a, b) => a.box.x - b.box.x)[0]!,
+);
+const crewBoxes = faceSubjectBoxes(
+  CREW_PHOTO.faces,
+  CREW_PHOTO.faces.map((_, i) => (i === CREW_MATCH ? matchOf(0.82) : null)),
+);
+
+for (const shape of [
+  { label: "1:1", width: 1080, height: 1080 },
+  { label: "4:5", width: 1080, height: 1350 },
+  { label: "9:16", width: 1080, height: 1920 },
+]) {
+  const window = solveCrop(crewBoxes, CREW_SIZE, shape);
+  const eyes = crewBoxes[CREW_MATCH]!.eyeY! * CREW_SIZE.height;
+  const eyeAt = (eyes - window.top) / window.height;
+  check(
+    `a group at ${shape.label} puts the matched Person's eye line on the upper golden line`,
+    window.resolvedBy === "person" && Math.abs(eyeAt - PHI_LINES[0]) <= 0.02,
+    `${window.resolvedBy} · eyes at ${pct(eyeAt)}, wanted ${pct(PHI_LINES[0])}`,
+  );
+  check(
+    `a group at ${shape.label} keeps the matched Person's face whole`,
+    holds(window, CREW_PHOTO.faces[CREW_MATCH]!, CREW_SIZE),
+    `window=${String(window.width)}x${String(window.height)}@${String(window.left)},${String(window.top)}` +
+      ` fallback=${window.fallback ?? "none"}`,
+  );
+}
+
 // ---------------------------------------------------------- fallback ladder
 
 console.log("\nfallback ladder");

@@ -241,6 +241,197 @@ export async function referencePhotoBytes(
   return { bytes, contentType: contentTypeFor(photo.format) };
 }
 
+// ------------------------------------------------------------------- matching
+
+/**
+ * How alike two Face Prints are, from -1 to 1.
+ *
+ * Both are unit length — meco-faces normalises before it answers, and
+ * `PRINT_LENGTH` is asserted at that boundary — so this is the dot product and
+ * nothing else. No re-normalising here: a print that is not unit length is a
+ * fault upstream, and quietly rescaling it would hide the fault behind a
+ * plausible number.
+ */
+export function cosineSimilarity(a: readonly number[], b: readonly number[]): number {
+  if (a.length !== b.length) {
+    throw new Error(
+      `Cannot compare Face Prints of length ${String(a.length)} and ${String(b.length)}.`,
+    );
+  }
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += a[i]! * b[i]!;
+  return sum;
+}
+
+/**
+ * How alike a face must be to an enrolled one before meco will put a name on it.
+ *
+ * Calibrated on the committed fixture set in `fixtures/faces/`, not on
+ * photographs of anyone meco has enrolled — nobody is enrolled yet. Over that
+ * set the same person scores 0.73 at worst and two different people 0.29 at
+ * best, so every value between the two makes the same decisions; 0.50 is the
+ * middle of that interval, which is the point furthest from both mistakes.
+ * `pnpm test:match` re-measures it, and
+ * `docs/adr/0003-face-recognition-licence-consent-and-threshold.md` records
+ * where the number came from and when it has to be earned again.
+ */
+export const MATCH_THRESHOLD = 0.5;
+
+/**
+ * How far the best Person must beat the second-best before the answer is a name.
+ *
+ * The threshold answers "is this anyone?"; the margin answers "is this *this*
+ * one?". Two Persons of one Brand who look alike would otherwise be decided by
+ * the third decimal of a cosine, and the loser's face would be blurred while the
+ * winner's was published — a mistake with a person on the other end of it.
+ *
+ * Unlike the threshold this number is not measured, because the fixture set
+ * holds no pair of people who look alike and an honest calibration cannot be
+ * invented from a set that does not contain the case. It is a guard at the size
+ * of the run-to-run noise, and re-earning it needs real enrolled People. Said
+ * plainly in the ADR rather than implied by a decimal place.
+ */
+export const MATCH_MARGIN = 0.05;
+
+/** A detected face meco is willing to put a name on. See CONTEXT.md. */
+export interface Match {
+  personId: string;
+  /** The Person's name, so a caller never has to look one up to show a Match. */
+  name: string;
+  /** Cosine similarity against that Person's closest Face Print. */
+  score: number;
+  /**
+   * The best any *other* Person scored, or null when the Brand knows only one.
+   *
+   * Reported because it is the other half of the decision: a Match at 0.62 with
+   * a runner-up at 0.61 was refused, and a caller reading only `score` could not
+   * tell that from one with no competition at all.
+   */
+  runnerUp: number | null;
+}
+
+/**
+ * Which Person a face belongs to, or null — the open-set answer.
+ *
+ * "Nobody" is a valid and common result, so this is not a nearest-neighbour
+ * lookup with the winner returned. Two things have to hold: the best Person
+ * clears `MATCH_THRESHOLD` outright, and beats the runner-up by `MATCH_MARGIN`.
+ * A face that fails either is unknown, which is the answer that keeps a stranger
+ * out of a published post.
+ *
+ * The runner-up is the best *other Person*, never the second-best Face Print. A
+ * Person with four Reference Photos would otherwise be their own runner-up and
+ * could never clear the margin — the more meco knew about someone, the less it
+ * could recognise them.
+ *
+ * `persons` narrows the answer, and it narrows it at the end rather than at the
+ * start. Comparing against the Brand's whole gallery and then refusing a winner
+ * nobody asked for is strictly safer than comparing against a subset: a face
+ * that really belongs to an unlisted Person is caught by the margin instead of
+ * being handed to whichever listed Person happened to score highest.
+ */
+export function matchFacePrint(
+  print: readonly number[],
+  enrolled: readonly EnrolledPrint[],
+  persons?: readonly string[],
+): Match | null {
+  // The best score per Person, so that several Reference Photos of one Person
+  // count once and cannot become each other's runner-up.
+  const best = new Map<string, { name: string; score: number }>();
+  for (const record of enrolled) {
+    const score = cosineSimilarity(print, record.print);
+    const current = best.get(record.personId);
+    if (!current || score > current.score) {
+      best.set(record.personId, { name: record.personName, score });
+    }
+  }
+
+  const ranked = [...best.entries()].sort((a, b) => b[1].score - a[1].score);
+  const [winner, second] = ranked;
+  if (!winner) return null;
+
+  const [personId, { name, score }] = winner;
+  const runnerUp = second ? second[1].score : null;
+
+  if (score < MATCH_THRESHOLD) return null;
+  if (runnerUp !== null && score - runnerUp < MATCH_MARGIN) return null;
+  // Asked for named Persons and the face is somebody else: not this caller's
+  // Match, and not silently the runner-up's either.
+  if (persons && !persons.includes(personId)) return null;
+
+  return { personId, name, score, runnerUp };
+}
+
+export interface MatchInput {
+  brand: string;
+  /** The Source Image the faces were found in. `/embed` needs the pixels again. */
+  source: Buffer;
+  faces: readonly DetectedFace[];
+  /** Limit the answer to these Person ids. */
+  persons?: readonly string[];
+}
+
+export interface FaceMatches {
+  /** One entry per face, in the order they were given. `null` is "unknown". */
+  matches: (Match | null)[];
+  /** Empty unless something a caller should hear about went wrong. */
+  warnings: string[];
+}
+
+/**
+ * Every face in one Source Image, named where meco can name it.
+ *
+ * Scoped to one Brand and no further: the Face Prints come from
+ * `facePrintsFor`, which lists that Brand's prefix, so a Person of another Brand
+ * is not compared against and not merely filtered out afterwards. Data isolation
+ * between Brands is a property of which keys were read, which is the only place
+ * it can be a property rather than a promise.
+ *
+ * Embedding is skipped entirely when the Brand has enrolled nobody. Sending the
+ * photograph to `/embed` to compare against an empty gallery would be a network
+ * call whose answer is known, and this is the common case — most Brands have no
+ * People.
+ *
+ * A face service that fails yields no Matches and a warning rather than an
+ * error. A Crop still has to come out: framing on the largest face and blurring
+ * every face is the honest degradation, and it is what happens when meco cannot
+ * tell one face from another. Enrolment does not share this leniency — see
+ * `enrolReferencePhoto`, where there is nothing else to fall back to.
+ */
+export async function matchFaces(input: MatchInput, storage: Storage): Promise<FaceMatches> {
+  const brand = requireBrand(input.brand);
+  const none = { matches: input.faces.map(() => null), warnings: [] };
+  if (input.faces.length === 0) return { matches: [], warnings: [] };
+
+  const enrolled = await facePrintsFor(brand, storage);
+  if (input.persons) {
+    const known = new Set(enrolled.map((e) => e.personId));
+    const unknown = input.persons.filter((id) => !known.has(id));
+    if (unknown.length > 0) {
+      throw new Error(
+        `No enrolled Person in "${brand}" with id ${unknown.map((id) => `"${id}"`).join(", ")}. ` +
+          "Only a Person of this Brand with at least one Reference Photo can be matched.",
+      );
+    }
+  }
+  if (enrolled.length === 0) return none;
+
+  let prints: number[][];
+  try {
+    prints = await embedFaces(
+      input.source,
+      input.faces.map((face) => ({ landmarks: face.landmarks })),
+    );
+  } catch (err) {
+    return { ...none, warnings: [`No faces were named: ${(err as Error).message}`] };
+  }
+
+  return {
+    matches: prints.map((print) => matchFacePrint(print, enrolled, input.persons)),
+    warnings: [],
+  };
+}
+
 // ------------------------------------------------------------------- creating
 
 export const addPersonBody = z.object({

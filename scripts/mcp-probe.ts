@@ -263,6 +263,29 @@ console.log(
 );
 
 /**
+ * Person matching, on both tools that can do it.
+ *
+ * Without `brand` in the schema an agent cannot ask meco to recognise anyone at
+ * all, and the feature is unreachable over MCP however well it works over HTTP.
+ * `pinTo` and `persons` are the two ways of narrowing what it does with the
+ * answer, and neither is guessable from the description alone.
+ */
+const MATCHING = [
+  { name: "crop_image", needs: ["brand", "pinTo", "persons"] },
+  { name: "find_subjects", needs: ["brand", "persons"] },
+];
+let matchingOk = true;
+for (const wanted of MATCHING) {
+  const properties = tools.find((t) => t.name === wanted.name)?.inputSchema?.properties ?? {};
+  const missing = wanted.needs.filter((n) => properties[n] === undefined);
+  matchingOk &&= missing.length === 0;
+  console.log(
+    `${missing.length === 0 ? "ok    " : "FAIL  "} ${wanted.name} advertises ${wanted.needs.join(", ")}` +
+      (missing.length > 0 ? `  — missing ${missing.join(", ")}` : ""),
+  );
+}
+
+/**
  * The three People tools, which are what lets an agent enrol a Person without an
  * HTTP client. Only their shape is checked here — what they do is checked in
  * `scripts/http-probe.ts`, which has a face service and a store to do it against.
@@ -313,6 +336,7 @@ if (
   !advertisesBlur ||
   !rejected ||
   !findsSubjects ||
+  !matchingOk ||
   !peopleOk ||
   deletesPeople
 ) {

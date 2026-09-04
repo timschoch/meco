@@ -271,12 +271,17 @@ function stubFetch(url, init = {}) {
             RegionBoundary: { RbShape: "rectangle", RbUnit: "relative", RbX: 0.1, RbY: 0.3, RbW: 0.12, RbH: 0.14 },
           },
         ],
+        // Matching happens only when the request named a Brand, and then the
+        // answer is keyed by region — one of the two faces is somebody, the
+        // other is a stranger, which is what the overlay has to draw differently.
+        ...(body.brand ? { matches: [{ regionId: "face-2", personId: "p-ada", name: "Ada", score: 0.7412 }] } : {}),
       }
     : url === "/v1/crop" ? {
         width: body.width,
         height: body.height,
-        resolvedBy: "saliency",
+        resolvedBy: body.brand && body.pinTo !== "faces" ? "person" : "saliency",
         url: "https://blob.test/crop.jpg",
+        ...(body.brand ? { matches: [{ personId: "p-ada", name: "Ada", score: 0.7412 }] } : {}),
         ...(body.subjectArea ? { subjectAreaSatisfied: body.subjectArea.x < 0.5 } : {}),
         // The real endpoint counts only when it was asked to blur, so the stub
         // is just as quiet — otherwise the card can never be shown to stay clean
@@ -510,6 +515,115 @@ check(
 );
 check("each box is labelled with its region", drawn[0]?.querySelector("b")?.textContent === "Face 1");
 check("the count is stated in words too", doc.body.textContent.includes("2 subjects found."));
+
+check(
+  "with no Company chosen every box is drawn as a stranger",
+  [...drawn].every((b) => b.classList.contains("unknown")),
+  [...drawn].map((b) => b.className).join(" | "),
+);
+
+// ------------------------------------------------------- pinning to a Person
+
+/**
+ * The Crop tab's half of People: choose the company, and the Pin to select
+ * fills with the People it has enrolled by name.
+ *
+ * A name is personal data, so the page asks for none until a Company is chosen —
+ * which is why the select starts without them and this test watches them arrive.
+ */
+const brandBox = $('[name="brand"]');
+const pinBox = $('[name="pinTo"]');
+check("the Crop tab offers a Company select", brandBox?.tagName === "SELECT");
+check("the Crop tab offers a Pin to select", pinBox?.tagName === "SELECT");
+check(
+  "with no Company it names no People",
+  [...pinBox.options].every((o) => !o.value.startsWith("person:")),
+  [...pinBox.options].map((o) => o.value).join(","),
+);
+check(
+  "and it asked for none, because a name is personal data",
+  !calls.some((c) => c.url.startsWith("/v1/people")),
+  calls.filter((c) => c.url.startsWith("/v1/people")).map((c) => c.url).join(" "),
+);
+
+brandBox.value = "laica";
+brandBox.dispatchEvent(new window.Event("change"));
+await settle();
+
+check(
+  "choosing a Company asks for its People",
+  calls.some((c) => c.url === "/v1/people?brand=laica"),
+  calls.filter((c) => c.url.startsWith("/v1/people")).map((c) => c.url).join(" "),
+);
+check(
+  "and every one of them is offered by name",
+  people.laica.every((p) =>
+    [...pinBox.options].some((o) => o.value === "person:" + p.id && o.textContent === p.name)),
+  [...pinBox.options].map((o) => o.value + "=" + o.textContent).join(" | "),
+);
+
+pinBox.value = "person:p-ada";
+await submit();
+const pinned = calls.filter((c) => c.url === "/v1/crop").at(-1);
+check(
+  "pinning to one Person sends the Brand, pinTo person and that Person alone",
+  pinned?.body.brand === "laica" &&
+    pinned?.body.pinTo === "person" &&
+    JSON.stringify(pinned?.body.persons) === JSON.stringify(["p-ada"]),
+  JSON.stringify({ brand: pinned?.body.brand, pinTo: pinned?.body.pinTo, persons: pinned?.body.persons }),
+);
+check(
+  "the card names who was recognised, and how sure meco was",
+  doc.body.textContent.includes("person · Ada 0.74"),
+  $(".card .meta")?.textContent ?? "no card",
+);
+
+pinBox.value = "faces";
+await submit();
+const asFaces = calls.filter((c) => c.url === "/v1/crop").at(-1);
+check(
+  "pinning to the faces sends no Person, only the Brand",
+  asFaces?.body.pinTo === "faces" && asFaces?.body.persons === undefined,
+  JSON.stringify({ pinTo: asFaces?.body.pinTo, persons: asFaces?.body.persons }),
+);
+
+// The overlay is where a human checks meco's answer before publishing on the
+// strength of it, so the colour has to be a fact the test can read back.
+previewButton.click();
+await settle();
+const coloured = doc.querySelectorAll(".overlay .face");
+const matched = [...coloured].filter((b) => !b.classList.contains("unknown"));
+check(
+  "the preview draws exactly the recognised face as a Match",
+  matched.length === 1,
+  [...coloured].map((b) => b.className).join(" | "),
+);
+check(
+  "and labels it with the Person's name rather than the region's",
+  matched[0]?.querySelector("b")?.textContent === "Ada · 0.74",
+  matched[0]?.querySelector("b")?.textContent ?? "no label",
+);
+check(
+  "while the stranger stays grey and keeps its region name",
+  [...coloured].filter((b) => b.classList.contains("unknown")).length === 1 &&
+    [...coloured].find((b) => b.classList.contains("unknown"))?.querySelector("b")?.textContent === "Face 1",
+  [...coloured].map((b) => b.className + ":" + b.querySelector("b")?.textContent).join(" | "),
+);
+check(
+  "and the preview says who it recognised in words too",
+  doc.body.textContent.includes("Ada recognised."),
+  doc.querySelector(".note")?.textContent ?? "no note",
+);
+
+brandBox.value = "";
+brandBox.dispatchEvent(new window.Event("change"));
+await settle();
+check(
+  "dropping the Company drops the People it offered",
+  [...pinBox.options].every((o) => !o.value.startsWith("person:")),
+  [...pinBox.options].map((o) => o.value).join(","),
+);
+pinBox.value = "";
 
 
 // --------------------------------------------------------------- people tab
