@@ -342,7 +342,8 @@ function cropForm() {
         height: Number(height.value),
         ...(anchor.value ? { anchor: anchor.value } : { strategy: "attention" }),
       });
-      show([el("div", { className: "cards" }, card(res.url, res.width + "×" + res.height + " · " + res.resolvedBy))]);
+      const how = res.resolvedBy + (res.fallback ? " · fell back: " + res.fallback : "");
+      show([el("div", { className: "cards" }, card(res.url, res.width + "×" + res.height + " · " + how))]);
     } catch (err) { fail(err); } finally { go.disabled = false; }
   };
 }
