@@ -21,6 +21,7 @@ import {
   BlobStorage,
   LocalStorage,
   PRIVATE_PREFIX,
+  isPrivateKey,
   type Storage,
 } from "../src/storage.js";
 
@@ -57,7 +58,30 @@ const REWRITTEN = Buffer.from(JSON.stringify({ name: "Ada", photos: ["a"] }));
 /** Not a real image; the contract is about bytes, not about pixels. */
 const PHOTO = Buffer.from("a face photo stands in for itself here");
 
-const same = (a: Buffer, b: Buffer): boolean => a.equals(b);
+/**
+ * Which store a key goes to is decided by this one function, so it is worth
+ * pinning down on its own: it is what keeps a Reference Photo off a public URL,
+ * and it runs before any backend or credential is involved.
+ */
+function checkPrivateKeyRule(): void {
+  const cases: [string, boolean][] = [
+    [`${PRIVATE_PREFIX}/laica/ada/reference.png`, true],
+    [PRIVATE_PREFIX, true],
+    // A capital letter must not be a way out of the private store.
+    ["People/laica/ada/reference.png", true],
+    ["crops/3f2a.png", false],
+    ["renders/laica/instagram/post/3f2a.png", false],
+    // A different namespace that merely starts with the same letters.
+    ["peoples-choice/3f2a.png", false],
+  ];
+  for (const [key, expected] of cases) {
+    check(
+      "key rule",
+      `${expected ? "private" : "public"}: ${key}`,
+      isPrivateKey(key) === expected,
+    );
+  }
+}
 
 async function runContract(
   backend: string,
@@ -83,14 +107,8 @@ async function runContract(
     check(
       backend,
       "get returns the identical bytes",
-      read !== null && same(read.data, RECORD),
-      read === null ? "get returned null" : `${String(read.data.length)} bytes`,
-    );
-    check(
-      backend,
-      "get returns the content type it was stored with",
-      read?.contentType === "application/json",
-      `contentType=${read?.contentType ?? "—"}`,
+      read !== null && read.equals(RECORD),
+      read === null ? "get returned null" : `${String(read.length)} bytes`,
     );
 
     await storage.putAt(recordKey, REWRITTEN, "application/json");
@@ -98,8 +116,8 @@ async function runContract(
     check(
       backend,
       "putAt overwrites in place",
-      reread !== null && same(reread.data, REWRITTEN),
-      reread === null ? "get returned null" : reread.data.toString().slice(0, 40),
+      reread !== null && reread.equals(REWRITTEN),
+      reread === null ? "get returned null" : reread.toString().slice(0, 40),
     );
 
     const listed = await storage.list(RUN);
@@ -151,7 +169,7 @@ async function runContract(
       check(
         backend,
         "meco can read back what it stored privately",
-        readPhoto !== null && same(readPhoto.data, PHOTO),
+        readPhoto !== null && readPhoto.equals(PHOTO),
         photo.url,
       );
       await checkNotPublic(backend, photo.url);
@@ -193,7 +211,12 @@ async function runContract(
  */
 async function checkNotPublic(backend: string, url: string): Promise<void> {
   if (!url.startsWith("https://")) {
-    check(backend, "a private URL is not publicly readable", true, "n/a — no public URL locally");
+    skip(
+      backend,
+      "a private URL is not publicly readable",
+      "nothing is listening on a local URL here — the dev server mounts the " +
+        "three public kinds by name, so the People prefix has no route at all",
+    );
     return;
   }
   const res = await fetch(url);
@@ -233,6 +256,8 @@ async function attempt(backend: string, run: () => Promise<void>): Promise<void>
     check(backend, "the contract ran to the end", false, String(err));
   }
 }
+
+checkPrivateKeyRule();
 
 const root = await mkdtemp(join(tmpdir(), "meco-storage-"));
 const galleryRoot = await mkdtemp(join(tmpdir(), "meco-gallery-"));

@@ -8,8 +8,10 @@
  * body text and a logo has a few percent spread over several bands.
  */
 import { readdir, readFile } from "node:fs/promises";
-import { join, extname, relative } from "node:path";
+import { join, extname, relative, sep } from "node:path";
 import sharp from "sharp";
+
+import { isPrivateKey } from "../src/storage.js";
 
 const dir = process.argv[2] ?? "out";
 /** A render must have at least this share of non-background pixels. */
@@ -20,6 +22,8 @@ const MIN_BANDS = 2;
 async function* walk(d: string): AsyncGenerator<string> {
   for (const entry of await readdir(d, { withFileTypes: true })) {
     const p = join(d, entry.name);
+    // A Reference Photo is not a render, and this listing is read by people.
+    if (isPrivateKey(relative(dir, p).split(sep).join("/"))) continue;
     if (entry.isDirectory()) yield* walk(p);
     else if ([".png", ".jpg", ".jpeg", ".webp"].includes(extname(p))) yield p;
   }

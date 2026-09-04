@@ -23,9 +23,16 @@ import { dirname, join, posix, relative, resolve, sep } from "node:path";
  */
 export const PRIVATE_PREFIX = "people";
 
-/** True for a key whose bytes must not be readable from its URL alone. */
+/**
+ * True for a key whose bytes must not be readable from its URL alone.
+ *
+ * Case-insensitive, because this one string comparison is what stands between
+ * a face photo and an open URL: a key spelled `People/…` must not slip into
+ * the public store on a capital letter.
+ */
 export function isPrivateKey(key: string): boolean {
-  return key === PRIVATE_PREFIX || key.startsWith(`${PRIVATE_PREFIX}/`);
+  const lower = key.toLowerCase();
+  return lower === PRIVATE_PREFIX || lower.startsWith(`${PRIVATE_PREFIX}/`);
 }
 
 export interface StoredObject {
@@ -45,13 +52,6 @@ export interface StoredListing {
   createdAt: string;
 }
 
-/** The bytes behind one key, as `get` hands them back. */
-export interface StoredBytes {
-  key: string;
-  data: Buffer;
-  contentType: string;
-}
-
 export interface Storage {
   readonly kind: "local" | "vercel-blob";
   put(
@@ -65,8 +65,12 @@ export interface Storage {
    * records, where the caller owns the name and the newest version wins.
    */
   putAt(key: string, data: Buffer, contentType: string): Promise<StoredObject>;
-  /** The bytes at `key`, or null when nothing is stored there. */
-  get(key: string): Promise<StoredBytes | null>;
+  /**
+   * The bytes at `key`, or null when nothing is stored there. Bytes only: a
+   * content type is what the two backends cannot agree on, because local disk
+   * keeps no headers and would have to guess one back off the extension.
+   */
+  get(key: string): Promise<Buffer | null>;
   /** Remove `key`. A key that is not there is already gone, not an error. */
   delete(key: string): Promise<void>;
   /** Every stored object whose key starts with `prefix`, newest first. */
@@ -95,25 +99,6 @@ function assertKey(key: string): string {
     segments.some((s) => s === "" || s === "." || s === "..");
   if (escapes) throw new Error(`Not a valid storage key: "${key}"`);
   return key;
-}
-
-/**
- * Local disk keeps bytes, not headers, so the content type of a stored object
- * has to be read back off its extension. Only what meco writes is listed;
- * anything else is bytes to be handed over untouched.
- */
-const CONTENT_TYPES: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  webp: "image/webp",
-  pdf: "application/pdf",
-  json: "application/json",
-};
-
-function contentTypeOf(key: string): string {
-  const ext = key.slice(key.lastIndexOf(".") + 1).toLowerCase();
-  return CONTENT_TYPES[ext] ?? "application/octet-stream";
 }
 
 /** Writes under `out/`, and serves URLs from the local dev server. */
@@ -156,14 +141,16 @@ export class LocalStorage implements Storage {
     };
   }
 
-  async get(key: string): Promise<StoredBytes | null> {
+  async get(key: string): Promise<Buffer | null> {
     try {
-      const data = await readFile(this.file(key));
-      return { key, data, contentType: contentTypeOf(key) };
+      return await readFile(this.file(key));
     } catch (err) {
-      // A key that was never written is a miss, not a failure: callers ask
-      // before they know whether anything is there. Anything else is real.
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      // Nothing there is a miss, not a failure: callers ask before they know
+      // whether anything is stored. A key that names a directory is the same
+      // answer — Blob has no directories, and the two must agree. Anything
+      // else is a real fault and belongs to the caller.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "EISDIR") return null;
       throw err;
     }
   }
@@ -173,7 +160,7 @@ export class LocalStorage implements Storage {
   }
 
   async list(prefix: string): Promise<StoredListing[]> {
-    const dir = join(this.root, prefix);
+    const dir = join(this.root, assertKey(prefix));
     const items: StoredListing[] = [];
     // A prefix that was never written to is not an error here: it just means
     // nothing of that kind has been stored yet.
@@ -278,26 +265,23 @@ export class BlobStorage implements Storage {
     return { key, url: result.url, bytes: data.length, contentType };
   }
 
-  async get(key: string): Promise<StoredBytes | null> {
-    const { get, BlobNotFoundError } = await import("@vercel/blob");
-    let result;
-    try {
-      result = await get(assertKey(key), {
-        access: accessFor(key),
-        token: this.tokenFor(key),
-        // Reads go to origin. The CDN copy of a key that was just overwritten
-        // can still be the old bytes, and a record must read back what was
-        // last written to it.
-        useCache: false,
-      });
-    } catch (err) {
-      // A miss is an answer, not a failure; the SDK reports it as an error.
-      if (err instanceof BlobNotFoundError) return null;
-      throw err;
+  async get(key: string): Promise<Buffer | null> {
+    const { get } = await import("@vercel/blob");
+    const result = await get(assertKey(key), {
+      access: accessFor(key),
+      token: this.tokenFor(key),
+      // Reads go to origin. The CDN copy of a key that was just overwritten
+      // can still be the old bytes, and a record must read back what was last
+      // written to it.
+      useCache: false,
+    });
+    // Null is the miss. Anything else that goes wrong — a wrong token, no
+    // store — must not be dressed up as "nothing stored there".
+    if (!result) return null;
+    if (result.statusCode !== 200) {
+      throw new Error(`Unexpected ${String(result.statusCode)} reading "${key}"`);
     }
-    if (!result || result.statusCode !== 200) return null;
-    const data = Buffer.from(await new Response(result.stream).arrayBuffer());
-    return { key, data, contentType: result.blob.contentType };
+    return Buffer.from(await new Response(result.stream).arrayBuffer());
   }
 
   async delete(key: string): Promise<void> {
@@ -313,7 +297,7 @@ export class BlobStorage implements Storage {
     // hide everything older.
     do {
       const page = await list({
-        prefix: `${prefix}/`,
+        prefix: `${assertKey(prefix)}/`,
         token: this.tokenFor(prefix),
         limit: 1000,
         ...(cursor ? { cursor } : {}),

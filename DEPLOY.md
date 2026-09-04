@@ -113,8 +113,10 @@ writes to the store, under a run-scoped `contract-test/` prefix it deletes
 again. A missing token is a failure, not a skip: only one backend runs in
 production, so an untested one is where a difference hides.
 
-One check is skipped until the private store exists: that an unauthenticated
-GET of a Reference Photo's URL does not return the bytes.
+One check is skipped on each backend: that an unauthenticated GET of a
+Reference Photo's URL does not return the bytes. On Blob it needs the private
+store to exist; locally there is no public URL to ask, because the dev server
+mounts the three public kinds by name and the People prefix has no route.
 
 ## Gotchas
 
