@@ -445,7 +445,8 @@ export function solveCrop(
   // rule switch itself off in precisely the case a Person Match creates — a
   // group, where the faces stand wider apart than any window that gives one of
   // them headroom, so the eye line could never reach the golden line however far
-  // the ladder went on to sacrifice.
+  // the ladder went on to sacrifice. Recorded as an amendment to
+  // `docs/adr/0001-analytic-solver-over-search-based-crop.md`.
   const startZoom =
     (area ? areaZoom(area, subject, source, aspect, target) : null) ??
     Math.max(

@@ -288,31 +288,34 @@ export function faceSubjectBoxes(
   matches: readonly (Match | null)[] = [],
 ): SubjectBox[] {
   const lead = leadingFace(faces, matches);
-  return faces.map((face, i) => {
-    const matched = matches[i] != null;
-    const leading = i === lead;
-    return {
-      x: face.box.x,
-      y: face.box.y,
-      width: face.box.width,
-      height: face.box.height,
-      // Only the leading face of a matched Crop is a `person` box, because
-      // `resolvedBy` is read off whichever box won the anchor and a Crop framed
-      // on a Person is what that word has to mean. A second Match is still a
-      // face, and still ranks above a stranger so that a stranger is what the
-      // `drop` rung sacrifices first.
-      producer: leading && matched ? ("person" as const) : ("face" as const),
-      priority: leading
-        ? matched
-          ? PRIORITY.person
-          : PRIORITY.face
-        : matched
-          ? PRIORITY.face
-          : PRIORITY.face - SUPPORTING_FACE_STEP,
-      keep: true,
-      eyeY: (face.landmarks.rEye.y + face.landmarks.lEye.y) / 2,
-    };
-  });
+
+  /**
+   * The four kinds of face a photograph can hold, stated once.
+   *
+   * Only the leading face of a matched Crop is a `person` box, because
+   * `resolvedBy` is read off whichever box won the anchor and "framed on a
+   * Person" is what that word has to mean. A second Match is still a face — but
+   * a known one, so it outranks a stranger, and a stranger is what the `drop`
+   * rung sacrifices first.
+   */
+  const tierOf = (leading: boolean, matched: boolean) =>
+    leading
+      ? matched
+        ? { producer: "person" as const, priority: PRIORITY.person }
+        : { producer: "face" as const, priority: PRIORITY.face }
+      : matched
+        ? { producer: "face" as const, priority: PRIORITY.face }
+        : { producer: "face" as const, priority: PRIORITY.face - SUPPORTING_FACE_STEP };
+
+  return faces.map((face, i) => ({
+    x: face.box.x,
+    y: face.box.y,
+    width: face.box.width,
+    height: face.box.height,
+    ...tierOf(i === lead, matches[i] != null),
+    keep: true,
+    eyeY: (face.landmarks.rEye.y + face.landmarks.lEye.y) / 2,
+  }));
 }
 
 /**

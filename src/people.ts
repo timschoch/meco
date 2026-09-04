@@ -300,14 +300,6 @@ export interface Match {
   name: string;
   /** Cosine similarity against that Person's closest Face Print. */
   score: number;
-  /**
-   * The best any *other* Person scored, or null when the Brand knows only one.
-   *
-   * Reported because it is the other half of the decision: a Match at 0.62 with
-   * a runner-up at 0.61 was refused, and a caller reading only `score` could not
-   * tell that from one with no competition at all.
-   */
-  runnerUp: number | null;
 }
 
 /**
@@ -359,7 +351,7 @@ export function matchFacePrint(
   // Match, and not silently the runner-up's either.
   if (persons && !persons.includes(personId)) return null;
 
-  return { personId, name, score, runnerUp };
+  return { personId, name, score };
 }
 
 export interface MatchInput {

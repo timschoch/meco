@@ -425,7 +425,7 @@ function cannedPrint(landmarks: Record<string, { x: number; y: number }>): numbe
  * A made-up print can carry a Person into the store and back out again, and that
  * is all the enrolment tests ever needed. A *Match* is arithmetic on the
  * numbers: recognising Person A in the group photograph is true only because
- * 0.82 is a real cosine between two real embeddings of one human. Seeding those
+ * 0.82 is a real cosine between two real Face Prints of one human. Seeding those
  * from landmarks would make every test below pass or fail on the properties of
  * `Math.sin`.
  *
@@ -1762,7 +1762,7 @@ const WIDE = { width: 1920, height: 1080 };
     faceSubjectBoxes(
       CREW_DETECTION.faces,
       CREW_DETECTION.faces.map((_, i) =>
-        i === KIM_INDEX ? { personId: kim.id, name: "Person A", score: 0.8, runnerUp: null } : null,
+        i === KIM_INDEX ? { personId: kim.id, name: "Person A", score: 0.8 } : null,
       ),
     ),
     CREW_SIZE,
@@ -1979,6 +1979,30 @@ const WIDE = { width: 1920, height: 1080 };
     unnamed.json.matches === undefined,
     JSON.stringify(unnamed.json.matches),
   );
+
+  // `persons` narrows here too. Both routes take it, so both have to prove it —
+  // a Crop that refused a Person and a preview that showed them anyway would
+  // disagree about the same photograph on the same screen.
+  const narrowed = await post("/v1/subjects", {
+    source: CREW.url,
+    brand: "laica",
+    persons: [other.id],
+  });
+  check(
+    "find subjects narrows to the named Persons, and recognises nobody else",
+    matchesOf(narrowed.json).length === 0,
+    JSON.stringify(narrowed.json.matches),
+  );
+  const foreignSubjects = await post("/v1/subjects", {
+    source: CREW.url,
+    brand: "laica",
+    persons: [twin.id],
+  });
+  check(
+    "and refuses another Brand's Person by name, exactly as a Crop does",
+    foreignSubjects.status === 400 && JSON.stringify(foreignSubjects.json).includes(twin.id),
+    `${String(foreignSubjects.status)} ${JSON.stringify(foreignSubjects.json).slice(0, 100)}`,
+  );
 }
 
 // ------------------------------------------------------------------- over MCP
@@ -2009,6 +2033,19 @@ const WIDE = { width: 1920, height: 1080 };
     "MCP find_subjects carries them too",
     matchesOf(subjects).length === 1 && matchesOf(subjects)[0]?.personId === kim.id,
     JSON.stringify(subjects.matches),
+  );
+
+  const narrowedSubjects = JSON.parse(
+    await callTool("find_subjects", {
+      source: CREW.url,
+      brand: "laica",
+      persons: [other.id],
+    }),
+  ) as Json;
+  check(
+    "and narrows to the named Persons over MCP as well",
+    matchesOf(narrowedSubjects).length === 0,
+    JSON.stringify(narrowedSubjects.matches),
   );
 }
 

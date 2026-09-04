@@ -12,7 +12,7 @@ import { BRANDS } from "./brands.js";
 import { slidesToPdf } from "./carousel.js";
 import { PLACEMENTS, resolvePlacements, type PlacementId } from "./channels.js";
 import { CROP_ANCHORS, PIN_TO, cropImage, fetchSourceImage } from "./crop.js";
-import { FACES_URL } from "./faces.js";
+import { FACES_URL, type DetectedFace } from "./faces.js";
 import { matchFaces, type Match } from "./people.js";
 import { loadImages, renderImage, type ImageFormat } from "./render.js";
 import { isPrivateKey, type Storage } from "./storage.js";
@@ -172,14 +172,16 @@ export const subjectAreaShape = z
   });
 
 /**
- * Naming People without naming the Brand that owns them.
+ * True when this request can be answered — it named a Brand, or it asked
+ * nothing that needs one.
  *
  * A Person belongs to exactly one Brand, so `persons` and `pinTo: "person"` are
  * both unanswerable without one — and answering them as "nobody matched" would
  * look like the People were wrong rather than the request. Refused at the schema
- * so both surfaces refuse it the same way.
+ * so both surfaces refuse it the same way, and shared by both schemas so they
+ * cannot come to disagree about what "needs a Brand" means.
  */
-const needsBrand = (body: { brand?: string; pinTo?: string; persons?: string[] }) =>
+const brandGivenIfNeeded = (body: { brand?: string; pinTo?: string; persons?: string[] }) =>
   body.brand !== undefined || (body.pinTo !== "person" && body.persons === undefined);
 
 const NEEDS_BRAND =
@@ -201,9 +203,21 @@ export const cropBody = z
     format: z.enum(["png", "jpeg", "webp"]).default("jpeg"),
     quality: z.number().int().min(1).max(100).optional(),
   })
-  .refine(needsBrand, { message: NEEDS_BRAND });
+  .refine(brandGivenIfNeeded, { message: NEEDS_BRAND });
 
 export type CropInput = z.infer<typeof cropBody>;
+
+/**
+ * One Match, as a caller reads it.
+ *
+ * The score is rounded, because the fifth decimal of a cosine is noise from the
+ * decoder and a caller comparing two answers should not see it move.
+ */
+const reportMatch = (m: Match) => ({
+  personId: m.personId,
+  name: m.name,
+  score: +m.score.toFixed(4),
+});
 
 /**
  * The Matches, as a caller reads them.
@@ -213,14 +227,34 @@ export type CropInput = z.infer<typeof cropBody>;
  * one of them still says the other was recognised and left sharp. An unknown
  * face is simply absent: the list is who meco can name, and its length beside
  * the face count is how many it could not.
- *
- * The score is rounded, because the fifth decimal of a cosine is noise from the
- * decoder and a caller comparing two answers should not see it move.
  */
-function reportMatches(matches: readonly (Match | null)[]) {
-  return matches
-    .filter((m): m is Match => m !== null)
-    .map((m) => ({ personId: m.personId, name: m.name, score: +m.score.toFixed(4) }));
+const reportMatches = (matches: readonly (Match | null)[]) =>
+  matches.filter((m): m is Match => m !== null).map(reportMatch);
+
+/**
+ * The faces named, when the request named a Brand to name them from.
+ *
+ * Both `crop` and `findSubjects` do exactly this and then merge the warnings
+ * into their own, so it is one function: two copies could come to differ about
+ * whether a Brand is optional, or about what a face service outage does, and
+ * only one of the two would be tested.
+ */
+async function matchIfBrand(
+  input: { brand?: string; persons?: string[] },
+  source: Buffer,
+  faces: readonly DetectedFace[],
+  storage: Storage,
+) {
+  if (!input.brand) return { matches: [], warnings: [] };
+  return matchFaces(
+    {
+      brand: input.brand,
+      source,
+      faces,
+      ...(input.persons ? { persons: input.persons } : {}),
+    },
+    storage,
+  );
 }
 
 export async function crop(input: CropInput, storage: Storage) {
@@ -235,17 +269,7 @@ export async function crop(input: CropInput, storage: Storage) {
 
   // Matching needs the Brand, so a Crop without one frames on faces and blurs
   // every one of them — which is what a Crop did before Persons existed.
-  const named = input.brand
-    ? await matchFaces(
-        {
-          brand: input.brand,
-          source,
-          faces,
-          ...(input.persons ? { persons: input.persons } : {}),
-        },
-        storage,
-      )
-    : { matches: [], warnings: [] };
+  const named = await matchIfBrand(input, source, faces, storage);
   const warnings = [...(annotated?.warnings ?? []), ...named.warnings];
 
   const result = await cropImage({
@@ -305,7 +329,7 @@ export const subjectsBody = z
     brand: z.string().optional(),
     persons: z.array(z.string()).min(1).optional(),
   })
-  .refine((b) => b.brand !== undefined || b.persons === undefined, { message: NEEDS_BRAND });
+  .refine(brandGivenIfNeeded, { message: NEEDS_BRAND });
 
 export type SubjectsInput = z.infer<typeof subjectsBody>;
 
@@ -324,17 +348,12 @@ export async function findSubjects(input: SubjectsInput, storage: Storage) {
   // image alone, and which faces are Matches depends on the Brand that asked —
   // writing a name into it would hand the next Brand somebody else's answer.
   const regions = faceRegions(annotated.annotation);
-  const named = input.brand
-    ? await matchFaces(
-        {
-          brand: input.brand,
-          source,
-          faces: regions.map((r) => r.face),
-          ...(input.persons ? { persons: input.persons } : {}),
-        },
-        storage,
-      )
-    : { matches: [], warnings: [] };
+  const named = await matchIfBrand(
+    input,
+    source,
+    regions.map((r) => r.face),
+    storage,
+  );
   const warnings = [...annotated.warnings, ...named.warnings];
 
   return {
@@ -344,9 +363,7 @@ export async function findSubjects(input: SubjectsInput, storage: Storage) {
     ...(input.brand
       ? {
           matches: named.matches.flatMap((match, i) =>
-            match
-              ? [{ regionId: regions[i]!.region.RegionId, ...reportMatches([match])[0]! }]
-              : [],
+            match ? [{ regionId: regions[i]!.region.RegionId, ...reportMatch(match) }] : [],
           ),
         }
       : {}),

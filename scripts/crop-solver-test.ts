@@ -374,7 +374,6 @@ const matchOf = (score: number) => ({
   personId: "p-1",
   name: "Person A",
   score,
-  runnerUp: null,
 });
 
 const oneMatched = GROUP_PHOTO.faces.map((_, i) =>
