@@ -1,6 +1,6 @@
 # ADR-0002 — meco-faces as a separate service
 
-Status: **accepted, 4 Sep 2026**. Research: [`../research/subject-aware-cropping.md`](../research/subject-aware-cropping.md). Plan: [`../plans/faces-and-subject-aware-crop.md`](../plans/faces-and-subject-aware-crop.md) phase 2. Builds on [ADR-0001](0001-analytic-solver-over-search-based-crop.md), which made a detected face one producer of Subject Boxes among several.
+Status: **accepted, 4 Sep 2026**; extended with `POST /embed`, 4 Sep 2026. Research: [`../research/subject-aware-cropping.md`](../research/subject-aware-cropping.md). Plan: [`../plans/faces-and-subject-aware-crop.md`](../plans/faces-and-subject-aware-crop.md) phase 2. Builds on [ADR-0001](0001-analytic-solver-over-search-based-crop.md), which made a detected face one producer of Subject Boxes among several.
 
 ## Context
 
@@ -12,10 +12,14 @@ The detector is also the part most likely to be replaced. YuNet is a 230 KB MIT 
 
 ## Decision
 
-Face ML runs in **its own container image and its own service**, `meco-faces`, with two routes — `POST /detect` and `GET /health` — and no state at all.
+Face ML runs in **its own container image and its own service**, `meco-faces`, with three routes — `POST /detect`, `POST /embed` and `GET /health` — and no state at all.
 
 - **In: image bytes. Out: JSON.** It never reads Blob, never knows a Person, holds no secret but `MECO_TOKEN`, and returns every number as a fraction of the image so nothing it says depends on a resolution.
 - **A face's box is `{ x, y, width, height }`**, not the `{ x, y, w, h }` of the plan's shorthand. The plan is a sketch and the merged code is the authority: [ADR-0001](0001-analytic-solver-over-search-based-crop.md)'s `SubjectBox` in `src/crop-solver.ts` already spells it this way, and a detected face becomes a `SubjectBox` the moment meco reads it. Aligning the wire with the type it feeds means no rename at the boundary, and no response that carries `subjectArea.width` beside `faces[].box.w`. Do not "correct" it back to the plan.
+- **Detecting and embedding are two calls, not one.** `POST /embed` takes the image bytes again, plus the faces `/detect` already found as `?faces=<json>`, and answers `{ prints: [[512 floats]] }` in the caller's order. meco does not want a Face Print for every face in a photograph — it caches an Annotation per image and embeds only the faces that might be a Person — so a route that always did both would run the expensive half on faces nobody asked about. The faces ride in the query string because the body is the photograph; five landmarks for eight faces is well under two kilobytes of URL.
+- **A Face Print is unit length, and carries no identity.** meco-faces normalises so a comparison is a dot product and every Face Print is on the same scale, and it returns no name: the gallery a print is matched against lives in meco, and this service cannot see it.
+- **The EdgeFace weights are exported once, offline, and committed.** `packages/faces/scripts/export-edgeface.py` pins `otroshi/edgeface` at commit `ce86851c` and the checkpoint's SHA-256, and refuses to finish unless the ONNX output still matches the PyTorch output. The `.onnx` is in the repository and copied into the image, like YuNet: a container that downloads a model at boot is a container that fails when the download does. The weights are CC BY-NC-SA 4.0 against BSD-3 code — an accepted MVP risk, still owed its own ADR.
+- **Alignment is `sharp.affine()` and twenty lines of arithmetic, not OpenCV.** The five landmarks are fitted onto InsightFace's `arcface_dst` by a closed-form similarity transform. The one non-obvious part is that libvips sizes the output canvas from the linear part of the matrix alone and rounds that corner **to nearest** (`VIPS_ROUND_INT`), not down — using a floor puts the whole warp one pixel out whenever a rotation makes the corner land on a negative fraction. Measured after the fix: every landmark within **0.15 px** of its reference point, the eyes within **0.05 px**.
 - **meco stays the only public API.** meco calls meco-faces; nobody else does.
 - **Both services live in one Vercel project**, declared as two entries under `services` in `vercel.json` and separated by a rewrite: `/faces/(.*)` to `meco-faces`, `/(.*)` to `meco`. This closes the plan's open question 2, on a preview deployment rather than on the documentation: both services build, and `GET /faces/health` returns the model and the ONNX Runtime version while `GET /health` still answers from meco. The fallback of a second project with a `FACES_URL` env var is not needed.
 - **The rewrite passes the path through unchanged** — the deployment proves it, since `/faces/health` reaches the faces container still wearing the prefix. The faces app therefore mounts its routes at both `/` and `/faces`, and answers the same way behind the rewrite, behind a second project, or under plain `docker run`.
@@ -23,6 +27,7 @@ Face ML runs in **its own container image and its own service**, `meco-faces`, w
 ## Consequences
 
 - **meco's cold start is unchanged.** The face stack is only ever loaded by a container that was started to find a face. Measured: meco-faces answers a 12 MP photo 480 ms after `docker run`, 45 ms warm — see [`../../DEPLOY.md`](../../DEPLOY.md).
+- **A PyTorch environment is a prerequisite for changing the model, and only for that.** Nothing in the service, the tests or the image needs Python. The export needs a Python that PyTorch publishes wheels for, which a laptop on 3.14 does not have; the reference embeddings it writes to `fixtures/faces/edgeface-reference.json` are what let `pnpm test:embed` keep checking ONNX against PyTorch without one.
 - **Two images to build and keep green**, and a second `pnpm` workspace package. `pnpm deploy` is what keeps meco's own dependencies — takumi, react, pdf-lib — out of an image that renders nothing.
 - **A network hop per detection**, inside one project. The cost is bounded by the rule that every Source Image is analysed once and the Annotation is cached under the image's hash.
 - **The detector is replaceable behind two endpoints.** A different model, or a hosted API, is a change to one service and no change to meco.

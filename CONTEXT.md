@@ -73,3 +73,9 @@ _Avoid_: metadata, tags, detection result
 **Subject Area**:
 The part of an Image Slot that a Template requires the Subject to fill, given as fractions of the output. A Template declares it and a caller may name one for a single Crop; either way the Crop must satisfy it, and the answer says whether it did.
 _Avoid_: safe area, focus region, subject box
+
+### Faces
+
+**Face Print**:
+The 512 floats meco-faces returns for one face, on the unit sphere, from which two faces can be compared but no photograph can be recovered. Still a biometric template of a real person. meco-faces computes them and stores nothing.
+_Avoid_: embedding, descriptor, template, vector, encoding

@@ -7,7 +7,12 @@
     "and ear to ear. They are a human's answer, not a detector's — the point of",
     "the test is that the two agree.",
     "tolerance is the largest allowed difference in any single coordinate,",
-    "expressed as a fraction of the image, per the ticket's '3 %'."
+    "expressed as a fraction of the image, per the ticket's '3 %'.",
+    "person is which human is in the face, for the embed test: two faces sharing",
+    "a letter are the same person in two photographs, and two faces with",
+    "different letters are different people. It is a letter and not a name",
+    "because a fixture is not an enrolled Person and must not read like one.",
+    "The detect test ignores it."
   ],
   "tolerance": 0.03,
   "images": [
@@ -15,17 +20,24 @@
       "file": "artemis-2-crew.jpg",
       "note": "Four faces at four scales and two rows — the group case.",
       "faces": [
-        { "label": "back left", "box": { "x": 0.228, "y": 0.248, "width": 0.088, "height": 0.095 } },
-        { "label": "back centre", "box": { "x": 0.481, "y": 0.175, "width": 0.078, "height": 0.079 } },
-        { "label": "front centre", "box": { "x": 0.451, "y": 0.354, "width": 0.089, "height": 0.093 } },
-        { "label": "back right", "box": { "x": 0.719, "y": 0.27, "width": 0.085, "height": 0.087 } }
+        { "label": "back left", "person": "B", "box": { "x": 0.228, "y": 0.248, "width": 0.088, "height": 0.095 } },
+        { "label": "back centre", "person": "C", "box": { "x": 0.481, "y": 0.175, "width": 0.078, "height": 0.079 } },
+        { "label": "front centre", "person": "D", "box": { "x": 0.451, "y": 0.354, "width": 0.089, "height": 0.093 } },
+        { "label": "back right", "person": "E", "box": { "x": 0.719, "y": 0.27, "width": 0.085, "height": 0.087 } }
       ]
     },
     {
       "file": "astronaut-portrait.jpg",
       "note": "One large, well-lit face — the single-Subject case.",
       "faces": [
-        { "label": "centre", "box": { "x": 0.402, "y": 0.135, "width": 0.25, "height": 0.276 } }
+        { "label": "centre", "person": "A", "box": { "x": 0.402, "y": 0.135, "width": 0.25, "height": 0.276 } }
+      ]
+    },
+    {
+      "file": "astronaut-portrait-2.jpg",
+      "note": "Person A again, four years earlier: different photographer, clothing, lighting and background, and a face an eighth the width of the other portrait's. The same-person case the embed test needs.",
+      "faces": [
+        { "label": "centre", "person": "A", "box": { "x": 0.503, "y": 0.329, "width": 0.114, "height": 0.122 } }
       ]
     },
     {

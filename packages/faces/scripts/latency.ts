@@ -8,7 +8,8 @@
  * pass the command after `--` and the stopwatch begins with it.
  *
  * Warm is the median of the requests after that: one photo on a container that
- * is already up.
+ * is already up, timed twice — once for `/detect` and once for `/embed` on the
+ * faces that detect just found.
  *
  * ```
  * tsx scripts/latency.ts http://localhost:8788 10 -- \
@@ -54,19 +55,36 @@ console.log(`photo:  3000x4000 (12.0 MP), ${(photo.length / 1e6).toFixed(1)} MB 
 console.log(`target: ${base}`);
 console.log(`start:  ${command.length > 0 ? command.join(" ") : "(already running)"}\n`);
 
-async function detect(): Promise<{ ms: number; faces: number }> {
+const headers = {
+  "content-type": "image/jpeg",
+  ...(token ? { authorization: `Bearer ${token}` } : {}),
+};
+
+async function post(path: string): Promise<{ ms: number; body: unknown }> {
   const started = performance.now();
-  const res = await fetch(`${base}/detect`, {
+  const res = await fetch(`${base}${path}`, {
     method: "POST",
-    headers: {
-      "content-type": "image/jpeg",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
+    headers,
     body: new Uint8Array(photo),
   });
   if (!res.ok) throw new Error(`${String(res.status)} ${await res.text()}`);
-  const body = (await res.json()) as { faces: unknown[] };
-  return { ms: performance.now() - started, faces: body.faces.length };
+  const body: unknown = await res.json();
+  return { ms: performance.now() - started, body };
+}
+
+async function detect(): Promise<{ ms: number; faces: unknown[] }> {
+  const { ms, body } = await post("/detect");
+  return { ms, faces: (body as { faces: unknown[] }).faces };
+}
+
+/**
+ * Embedding costs what the *faces* cost, not what the photograph costs, so the
+ * faces `/detect` just found are sent straight back rather than a fixed number
+ * of them. One warp and one inference each, in a single batched run.
+ */
+async function embed(faces: unknown[]): Promise<{ ms: number; prints: number }> {
+  const { ms, body } = await post(`/embed?faces=${encodeURIComponent(JSON.stringify(faces))}`);
+  return { ms, prints: (body as { prints: unknown[] }).prints.length };
 }
 
 const t0 = performance.now();
@@ -94,19 +112,34 @@ while (cold === undefined) {
 }
 console.log(`cold  ${cold.toFixed(0).padStart(6)} ms   (${String(attempts)} attempts from t=0)`);
 
-const warm: number[] = [];
+const warmDetect: number[] = [];
+const warmEmbed: number[] = [];
+let embedded = 0;
 for (let i = 0; i < runs; i++) {
   const { ms, faces } = await detect();
-  warm.push(ms);
-  console.log(`warm  ${ms.toFixed(0).padStart(6)} ms   ${String(faces)} faces`);
+  warmDetect.push(ms);
+  const print = await embed(faces);
+  warmEmbed.push(print.ms);
+  embedded = print.prints;
+  console.log(
+    `warm  detect ${ms.toFixed(0).padStart(5)} ms   ` +
+      `embed ${print.ms.toFixed(0).padStart(5)} ms   ` +
+      `${String(faces.length)} faces`,
+  );
 }
 
-const sorted = [...warm].sort((a, b) => a - b);
-console.log(
-  `\nwarm median ${(sorted[Math.floor(sorted.length / 2)] ?? 0).toFixed(0)} ms, ` +
-    `min ${(sorted[0] ?? 0).toFixed(0)} ms, max ${(sorted.at(-1) ?? 0).toFixed(0)} ms ` +
-    `over ${String(runs)} runs`,
-);
+const report = (label: string, values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  console.log(
+    `warm ${label} median ${(sorted[Math.floor(sorted.length / 2)] ?? 0).toFixed(0)} ms, ` +
+      `min ${(sorted[0] ?? 0).toFixed(0)} ms, max ${(sorted.at(-1) ?? 0).toFixed(0)} ms ` +
+      `over ${String(runs)} runs`,
+  );
+};
+
+console.log();
+report("detect", warmDetect);
+report(`embed (${String(embedded)} faces)`, warmEmbed);
 
 // A spawned child keeps the event loop alive on its own, so the exit is
 // explicit. Killing `docker run` does not always stop the container it started —

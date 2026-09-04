@@ -161,8 +161,9 @@ That last line is the whole story: the directory at the end is the context, and
 and its basename has to be one of the two Vercel accepts. `Dockerfile.vercel` is
 meco's. A root-level `Containerfile` is what is left.
 
-`MECO_TOKEN` must be set on both services. `POST /faces/detect` requires it;
-`GET /faces/health` does not, so that a liveness probe does not need a secret.
+`MECO_TOKEN` must be set on both services. `POST /faces/detect` and
+`POST /faces/embed` require it; `GET /faces/health` does not, so that a liveness
+probe does not need a secret.
 
 ### Telling meco where the faces are
 
@@ -205,16 +206,35 @@ every number a fraction of the image. The box is spelled the way `SubjectBox` in
 `src/crop-solver.ts` is spelled, so a face needs no rename on its way into the
 solver.
 
+`POST /faces/embed` takes the same image bytes as the body and the faces
+`/detect` returned as a query parameter, and answers one Face Print per face, in
+the order they were given:
+
+```
+POST /faces/embed?faces=<url-encoded JSON array of the faces from /detect>
+
+{ "prints": [ [ 0.0271, -0.0483, … 512 floats … ] ] }
+```
+
+Only `landmarks` is read; the box and the score are ignored, because ArcFace
+alignment is defined by the five points alone. Each Face Print is L2-normalised,
+so comparing two is a dot product. No identity is returned — matching a Face
+Print to a Person happens in meco, against a gallery this service cannot see.
+
 ### Measured
 
 | | |
 |---|---|
-| Image, `linux/amd64` | **370 MB** on disk, of which 234 MB is the `node:24-slim` base; **123 MB** as the registry stores it |
-| Model | `face_detection_yunet_2026may.onnx`, 229,738 B, MIT, copied in at build time |
-| Cold, 12 MP photo | **480 ms** from `docker run` to a served detection |
-| Warm, 12 MP photo | **45 ms** median, 30–88 ms over 12 runs |
+| Image, `linux/amd64` | **377 MB** on disk, of which 234 MB is the `node:24-slim` base; **129 MB** as the registry stores it |
+| Image, delta for embed | **+7 MB** on disk, **+6 MB** in the registry — the EdgeFace model and nothing else |
+| Detection model | `face_detection_yunet_2026may.onnx`, 229,738 B, MIT, copied in at build time |
+| Recognition model | `edgeface_xs_gamma_06.onnx`, 7,277,244 B, weights CC BY-NC-SA 4.0, copied in at build time |
+| Cold, 12 MP photo | **~420 ms** from `docker run` to a served detection; 376–534 ms over six boots |
+| Warm detect, 12 MP photo | **39 ms** median, 30–60 ms over 12 runs |
+| Warm embed, 12 MP photo, one face | **62 ms** median, 47–104 ms over 12 runs |
+| Marginal cost of a further face | **~3 ms** — one warp and one row of a batched inference |
 
-The image size is the `linux/amd64` build, which is what Vercel runs. The two
+The image size is the `linux/amd64` build, which is what Vercel runs. The
 latency figures are local Docker on Apple silicon (`linux/arm64`), against the
 real image, and they are the service's own cost. Reproduce with:
 
@@ -229,6 +249,19 @@ docker rm -f faces-lat
 The 12 MP photo is a fixture enlarged to 3000×4000 at run time. What is being
 timed is a decode and a fixed-size resize, and neither cares whether the detail
 is real.
+
+**Embedding is mostly the decode.** In process, on a 12 MP group photograph:
+19 ms to decode it, 29 ms to embed one face, 37 ms to embed four. So the model
+and the warp together cost about 3 ms per face and everything else is reading
+the JPEG — which is why `/embed` takes the image again rather than a crop of it,
+and why the faces go in one batched inference rather than one call each.
+
+**Adding EdgeFace did not move the cold start.** Boots of the detect-only image
+on the same machine measured 400–592 ms against this image's 376–534 ms. The two
+model sessions are created one after the other rather than together: starting
+them concurrently costs the detector around 400 ms on a cold boot, and a cold
+boot is always woken by a detection, since nobody can ask for a Face Print
+before they know where the face is.
 
 **Against a deployment the same request takes about 1.1 s**, measured on a
 preview from Switzerland to `cle1`: 1420 ms first, 1068 ms median over twelve
@@ -254,6 +287,52 @@ from the hand-marked one in `fixtures/faces/expected.json`. It also checks that
 an unauthenticated request is refused and that `/health` names the model and the
 ONNX Runtime version.
 
+### Prove a Face Print still means what it meant
+
+```
+pnpm test:embed
+```
+
+Checks the three things that can be wrong with an embedder without anything
+throwing.
+
+- **The warp.** Five landmarks are placed by a known similarity transform, drawn
+  as markers, aligned, and their centroids measured in the 112×112 square. The
+  arrangement is the template's own, so the fit has no residual and the eyes
+  must land on `arcface_dst` exactly. Measured: every landmark within 0.15 px,
+  the eyes within 0.05 px.
+- **The export.** Face Prints computed through the whole service path are
+  compared with vectors PyTorch produced, committed in
+  `fixtures/faces/edgeface-reference.json`. Measured: cosine 1.000000 on all six
+  fixture faces, against a floor of 0.99.
+- **The meaning.** The same person in two photographs four years apart scores
+  **0.8689**; the worst of the fourteen different-people pairs scores **0.2644**.
+  Those are a sanity floor and not an operating point — the real match threshold
+  is calibrated on enrolled photographs in the matching ticket.
+
+### Change the recognition model
+
+`packages/faces/models/edgeface_xs_gamma_06.onnx` is committed, and
+`packages/faces/scripts/export-edgeface.py` is the only thing that may write it.
+It pins `otroshi/edgeface` at commit `ce86851c` and the checkpoint's SHA-256, and
+refuses to finish unless its own ONNX output still matches PyTorch.
+
+PyTorch has no wheels for every Python — 3.14 is not supported — so the export
+needs a pinned interpreter. Nothing else in the repository does; there is no
+Python in the image, the tests or CI.
+
+```
+uv venv --python 3.12 .temp/edgeface-venv
+uv pip install --python .temp/edgeface-venv/bin/python \
+  torch torchvision timm onnx onnxruntime numpy pillow
+pnpm --filter meco-faces dump:aligned          # the aligned squares, from the real warp
+.temp/edgeface-venv/bin/python packages/faces/scripts/export-edgeface.py
+```
+
+Run the two in that order. The first writes `fixtures/faces/aligned/`, the
+second embeds exactly those pixels — which is what makes the committed reference
+a statement about the input meco-faces really sends.
+
 ### Test locally
 
 ```
@@ -263,6 +342,15 @@ curl http://localhost:8788/health
 curl -X POST http://localhost:8788/detect \
   -H "authorization: Bearer <token>" \
   --data-binary @fixtures/faces/astronaut-portrait.jpg
+```
+
+`/embed` needs the faces alongside the bytes, so it is easier from the latency
+script — which now times a detect and an embed on every round — than from
+`curl`:
+
+```
+MECO_TOKEN=<token> pnpm --filter meco-faces exec tsx scripts/latency.ts \
+  http://localhost:8788 12
 ```
 
 ## Gotchas
