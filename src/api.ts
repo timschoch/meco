@@ -7,10 +7,12 @@
  */
 import { z } from "zod";
 
+import { annotate, facesOf } from "./annotations.js";
 import { BRANDS } from "./brands.js";
 import { slidesToPdf } from "./carousel.js";
 import { PLACEMENTS, resolvePlacements, type PlacementId } from "./channels.js";
 import { CROP_ANCHORS, cropImage, fetchSourceImage } from "./crop.js";
+import { FACES_URL } from "./faces.js";
 import { loadImages, renderImage, type ImageFormat } from "./render.js";
 import { isPrivateKey, type Storage } from "./storage.js";
 import { getTemplate } from "./templates/registry.js";
@@ -183,10 +185,19 @@ export type CropInput = z.infer<typeof cropBody>;
 
 export async function crop(input: CropInput, storage: Storage) {
   const source = await fetchSourceImage(input.source);
+
+  // Faces come before any pixel is cut, because they are what the framing is
+  // solved from. A deployment with no face service gets `null` and frames itself
+  // from its other producers; a face service that failed gets no faces and a
+  // warning, which is the difference between "nobody asked" and "we could not".
+  const annotated = await annotate(source, storage);
+  const faces = annotated ? facesOf(annotated.annotation) : [];
+
   const result = await cropImage({
     source,
     width: input.width,
     height: input.height,
+    ...(faces.length > 0 ? { faces } : {}),
     ...(input.anchor ? { anchor: input.anchor } : {}),
     ...(input.strategy ? { strategy: input.strategy } : {}),
     ...(input.subjectArea ? { subjectArea: input.subjectArea } : {}),
@@ -205,7 +216,45 @@ export async function crop(input: CropInput, storage: Storage) {
       ? {}
       : { subjectAreaSatisfied: result.subjectAreaSatisfied }),
     ...(result.anchor ? { anchor: result.anchor } : {}),
+    // A Crop that could not reach the face service still succeeds — it simply
+    // frames itself from saliency or the Crop Anchor instead. Saying so is the
+    // difference between a picture framed on a face and one that only looks as
+    // though it was.
+    ...(annotated && annotated.warnings.length > 0 ? { warnings: annotated.warnings } : {}),
     ...stored,
+  };
+}
+
+// ----------------------------------------------------------------- subjects
+
+/**
+ * What meco can find in a Source Image, without cropping it.
+ *
+ * The same Annotation a Crop is framed from, handed over on its own so the
+ * console can draw the boxes before anyone commits to a shape. Cached under the
+ * image's hash like every other lookup, so a preview followed by a Crop of the
+ * same photograph costs one detection between them.
+ */
+export const subjectsBody = z.object({
+  source: z.string().url(),
+});
+
+export type SubjectsInput = z.infer<typeof subjectsBody>;
+
+export async function findSubjects(input: SubjectsInput, storage: Storage) {
+  const source = await fetchSourceImage(input.source);
+  const annotated = await annotate(source, storage);
+  if (!annotated) {
+    // Not a failure of this request but of the deployment, and the only honest
+    // answer: a Crop has other producers to fall back on, `find subjects` has
+    // nothing else to be.
+    throw new ApiError(
+      `Face detection is not configured on this deployment — set ${FACES_URL}. See DEPLOY.md.`,
+    );
+  }
+  return {
+    ...annotated.annotation,
+    ...(annotated.warnings.length > 0 ? { warnings: annotated.warnings } : {}),
   };
 }
 
@@ -227,6 +276,11 @@ export const galleryQuery = z.object({
 
 export type GalleryInput = z.infer<typeof galleryQuery>;
 
+/**
+ * The three kinds of stored output. An allowlist rather than "everything in the
+ * store", because the store also holds records — a Person, an Annotation — and a
+ * record is never in the Gallery. See CONTEXT.md.
+ */
 const KINDS = ["renders", "carousels", "crops"] as const;
 
 export interface GalleryItem {

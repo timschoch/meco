@@ -153,6 +153,22 @@ export function createApp(storage: Storage): Hono {
     }
   });
 
+  // --------------------------------------------------------------- subjects
+
+  // The Annotation for a Source Image, without cropping it — what the console
+  // draws its "Preview subjects" overlay from.
+  app.post("/v1/subjects", async (c) => {
+    const parsed = api.subjectsBody.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
+    }
+    try {
+      return c.json(await api.findSubjects(parsed.data, storage));
+    } catch (err) {
+      return errorResponse(c, err);
+    }
+  });
+
   // -------------------------------------------------------------------- MCP
 
   // The same operations over MCP, so Claude Code and Claude Desktop reach them as

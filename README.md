@@ -37,7 +37,8 @@ set that header, `x-auth-token: <token>`.
 | `GET /v1/gallery` | every stored Render, Carousel and Crop, newest first; `?brand=` and `?placement=` filter |
 | `POST /v1/render` | render one Template at one or more Placements |
 | `POST /v1/carousel` | render Slides into one multi-page PDF, or N images |
-| `POST /v1/crop` | cut a Source Image to a shape; a solver frames it and the answer names what decided — `saliency`, `anchor` or `centre` — and a `subjectArea` says where in the result the Subject has to land |
+| `POST /v1/crop` | cut a Source Image to a shape; a solver frames it and the answer names what decided — `face`, `saliency`, `anchor` or `centre` — and a `subjectArea` says where in the result the Subject has to land |
+| `POST /v1/subjects` | the Annotation for a Source Image — every face as a rectangle — without cropping it |
 | `POST /mcp` | the same operations as MCP tools, streamable HTTP |
 | `POST /mcp/<token>` | the same, for clients that treat a 401 as a reason to start OAuth |
 
@@ -84,16 +85,29 @@ curl -X POST localhost:8787/v1/carousel -H 'content-type: application/json' -d '
 
 ### Crop
 
+A face in the Source Image frames the Crop by itself: the largest face wins the
+anchor, its eye line goes on the upper golden line, and the other faces are kept
+in frame while the shape allows it. Nothing has to be asked for — set `FACES_URL`
+and every Crop is framed that way, falling back to `strategy`, `anchor` and the
+centre when there is no face, no answer from the face service, or no face service
+at all. The answer names what decided in `resolvedBy`, and carries `warnings`
+when the faces could not be looked for.
+
+Each Source Image is analysed once. meco hashes the bytes, keeps the Annotation
+under that hash, and only calls the face service on a miss — so ten Placements of
+one photograph cost one detection. `POST /v1/subjects` hands that Annotation over
+on its own, which is what the console's "Preview subjects" button draws.
+
 A `subjectArea` says which rectangle of the result the Subject has to fill, as
 fractions from the top-left. Without one the solver uses its golden-ratio grid.
 The answer carries `subjectAreaSatisfied`.
 
 How much the area can do depends on what the framing knows about the Subject.
-Every producer meco has today — saliency, Crop Anchor, centre — yields a point
-rather than a region, and a point cannot fill anything, so the area aims the
-framing without setting the zoom. Once a producer yields a real rectangle the
-zoom is solved from it as well, and a Source Image too small to fill the area at
-that shape is refused with a 400 naming the window it would have needed.
+Saliency, Crop Anchor and centre each yield a point rather than a region, and a
+point cannot fill anything, so the area aims the framing without setting the
+zoom. A face is a real rectangle, so with one the zoom is solved from the area as
+well — and a Source Image too small to fill the area at that shape is refused
+with a 400 naming the window it would have needed.
 
 ```bash
 curl -X POST localhost:8787/v1/crop -H 'content-type: application/json' -d '{

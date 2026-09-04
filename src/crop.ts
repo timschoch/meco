@@ -4,10 +4,10 @@
  * A Crop is a sibling of a Render, not a kind of one: it involves no Template.
  * What it is not any more is a gravity string handed to the image library. Every
  * framing input — the Crop Anchor the caller named, the saliency point sharp
- * reads out of the picture, a matched face once there is one — becomes a Subject
- * Box, and `solveCrop` in `./crop-solver.js` turns the Subject Boxes into the
- * window. This file is the half that has to touch pixels; the framing itself
- * lives next door, where it can be tested without an image.
+ * reads out of the picture, the faces meco-faces found — becomes a Subject Box,
+ * and `solveCrop` in `./crop-solver.js` turns the Subject Boxes into the window.
+ * This file is the half that has to touch pixels; the framing itself lives next
+ * door, where it can be tested without an image.
  */
 import sharp from "sharp";
 
@@ -20,6 +20,7 @@ import {
   type SubjectArea,
   type SubjectBox,
 } from "./crop-solver.js";
+import type { DetectedFace } from "./faces.js";
 
 export type { SubjectArea };
 
@@ -61,15 +62,27 @@ const ANCHOR_AT: Record<CropAnchor, FractionPoint> = {
 /**
  * How the producers rank when several speak at once.
  *
- * Only one produces a box today, so the numbers do nothing yet — they are here
- * to say where a face and a matched Person will slot in, which is above all of
- * these.
+ * A found face outranks everything a caller or an image statistic can say: the
+ * saliency point is a guess at what a photograph is of, and a face is an answer.
+ * A matched Person will slot in above the face, which is the next number up.
  */
 const PRIORITY: Record<CropProducer, number> = {
+  face: 40,
   saliency: 30,
   anchor: 20,
   centre: 10,
 };
+
+/**
+ * How far below the leading face the other faces rank.
+ *
+ * They are still faces and still worth more than any other producer, so they sit
+ * one step down rather than at the bottom. The step is what makes the leader a
+ * tier of its own: the solver composes on the top tier alone and only consults
+ * the rest to check they survived, which is what "pin on this face, keep the
+ * others in frame when possible" means as an arithmetic.
+ */
+const SUPPORTING_FACE = 1;
 
 /** The short side of the resize sharp reads the saliency point from. */
 const SALIENCY_READ_PX = 32;
@@ -78,6 +91,15 @@ export interface CropRequest {
   source: Buffer;
   width: number;
   height: number;
+  /**
+   * The faces already found in this Source Image, from its Annotation.
+   *
+   * Passed in rather than looked up here, because finding them means a hash, a
+   * store and a network call, and this module is the half that touches pixels.
+   * `src/api.ts` owns that half. It also means a Crop can be solved from a face
+   * without any of it — which is what the tests do.
+   */
+  faces?: readonly DetectedFace[];
   anchor?: CropAnchor;
   /**
    * Let the picture decide instead of the caller. Either value selects the
@@ -168,12 +190,61 @@ async function saliencyPoint(
 }
 
 /**
+ * Which detected face the frame belongs to.
+ *
+ * The largest, because in a photograph the biggest face is almost always the one
+ * the photograph is of. That single sentence is the whole of the rule, and it is
+ * a function of its own because replacing it is exactly what Person matching
+ * does: a matched Person leads whatever size it is. Nothing else in the producer
+ * knows how the leader was picked.
+ */
+function leadingFace(faces: readonly DetectedFace[]): number {
+  const area = (f: DetectedFace) => f.box.width * f.box.height;
+  let lead = 0;
+  for (let i = 1; i < faces.length; i++) {
+    if (area(faces[i]!) > area(faces[lead]!)) lead = i;
+  }
+  return lead;
+}
+
+/**
+ * The detected faces as Subject Boxes.
+ *
+ * Every face is kept, so every face is in the containment test and the fallback
+ * ladder has to try to hold all of them; a face that is not leading is what the
+ * `drop` rung sacrifices first, because it ranks lower. That is "other faces are
+ * kept in frame when possible" stated as data rather than as a special case in
+ * the solver.
+ *
+ * The eye midpoint goes on every face, not only the leader. Reading it off each
+ * face costs nothing, and the solver takes it from whichever box wins the anchor
+ * — so the rule keeps working when the leader stops being the largest one.
+ *
+ * Exported because it is the whole of the face producer and it is arithmetic:
+ * `scripts/crop-solver-test.ts` frames real detections with it and reads the
+ * window back, which is how the eye line is held to 2 % without an image.
+ */
+export function faceSubjectBoxes(faces: readonly DetectedFace[]): SubjectBox[] {
+  const lead = leadingFace(faces);
+  return faces.map((face, i) => ({
+    x: face.box.x,
+    y: face.box.y,
+    width: face.box.width,
+    height: face.box.height,
+    producer: "face" as const,
+    priority: PRIORITY.face - (i === lead ? 0 : SUPPORTING_FACE),
+    keep: true,
+    eyeY: (face.landmarks.rEye.y + face.landmarks.lEye.y) / 2,
+  }));
+}
+
+/**
  * Every Subject Box this Crop has to go on, from the producers in order.
  *
- * Saliency first when the caller asked the picture to decide, then the Crop
- * Anchor the caller named, then the centre — the anchor nobody named. The first
- * producer that yields a box wins the framing; the rest have nothing to add
- * while every producer here yields a bare point.
+ * Faces first, because a face is the answer the others are guessing at. Then
+ * saliency when the caller asked the picture to decide, then the Crop Anchor the
+ * caller named, then the centre — the anchor nobody named. The first producer
+ * that yields a box wins the framing.
  */
 async function subjectBoxes(
   data: Buffer,
@@ -191,6 +262,8 @@ async function subjectBoxes(
     keep: true,
     ...(framed ? { framedAt: framed } : {}),
   });
+
+  if (req.faces && req.faces.length > 0) return faceSubjectBoxes(req.faces);
 
   if (req.strategy) {
     const found = await saliencyPoint(data, source, aspect, req.strategy);

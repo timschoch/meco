@@ -191,10 +191,11 @@ export function createMecoMcpHandler(storage: Storage) {
       "crop_image",
       {
         description:
-          "Cut a Source Image to an exact size. Give an anchor to choose the " +
-          "region yourself, or a strategy to let the image decide — 'attention' " +
-          "keeps the most salient area, which is what keeps a person in frame. " +
-          "Give a subjectArea to say where in the result the Subject has to land.",
+          "Cut a Source Image to an exact size. A face in the picture frames the " +
+          "Crop by itself, with the eye line on the upper golden line; otherwise " +
+          "give an anchor to choose the region yourself, or a strategy to let the " +
+          "image decide — 'attention' keeps the most salient area. Give a " +
+          "subjectArea to say where in the result the Subject has to land.",
         inputSchema: z.object({
           source: z.string().url().describe("URL of the Source Image."),
           width: z.number().int().positive(),
@@ -215,6 +216,27 @@ export function createMecoMcpHandler(storage: Storage) {
       async (input) => {
         try {
           return reply(await api.crop(api.cropBody.parse(input), storage));
+        } catch (err) {
+          return fail(err);
+        }
+      },
+    );
+
+    server.registerTool(
+      "find_subjects",
+      {
+        description:
+          "Find the Subjects in a Source Image without cropping it: every face, " +
+          "as a rectangle in fractions 0..1 from the top-left. Use it to see what " +
+          "a Crop would be framed on before choosing a size. The answer is cached " +
+          "under the image's own hash, so asking twice costs one detection.",
+        inputSchema: z.object({
+          source: z.string().url().describe("URL of the Source Image."),
+        }),
+      },
+      async (input) => {
+        try {
+          return reply(await api.findSubjects(api.subjectsBody.parse(input), storage));
         } catch (err) {
           return fail(err);
         }

@@ -7,7 +7,17 @@
  * held is reported rather than quietly lost — is a number this script can read
  * back. What it cannot check is whether sharp cut the right pixels; that is
  * `scripts/http-probe.ts`.
+ *
+ * The face producer is checked here too, for the same reason: turning a detected
+ * face into Subject Boxes is arithmetic, and the acceptance criterion it has to
+ * meet — the eye line within 2 % of the upper golden line at three shapes — is a
+ * number. It is fed real detections recorded in `fixtures/faces/detected.json`,
+ * so the claim is made about the faces the detector actually finds and not about
+ * a convenient rectangle.
  */
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
 import {
   PHI_LINES,
   solveCrop,
@@ -17,6 +27,8 @@ import {
   type SubjectArea,
   type SubjectBox,
 } from "../src/crop-solver.js";
+import { faceSubjectBoxes } from "../src/crop.js";
+import type { DetectedFace } from "../src/faces.js";
 
 const problems: string[] = [];
 
@@ -170,6 +182,170 @@ check(
   "an eye line lands on the upper golden line",
   Math.abs(eyeAt - PHI_LINES[0]) <= 0.02 || headroom.fallback !== undefined,
   `eyes at ${pct(eyeAt)}${headroom.fallback ? ` fallback=${headroom.fallback}` : ""}`,
+);
+
+// ------------------------------------------------------------ face producer
+
+console.log("\nthe face producer, on real detections");
+
+interface RecordedImage {
+  width: number;
+  height: number;
+  faces: DetectedFace[];
+}
+
+const recorded = JSON.parse(
+  await readFile(
+    fileURLToPath(new URL("../fixtures/faces/detected.json", import.meta.url)),
+    "utf8",
+  ),
+) as { images: Record<string, RecordedImage> };
+
+const PORTRAIT_PHOTO = recorded.images["astronaut-portrait.jpg"]!;
+const GROUP_PHOTO = recorded.images["artemis-2-crew.jpg"]!;
+
+/** A rectangle in Source Image pixels, from a face's fractions. */
+const facePixels = (face: DetectedFace, source: PixelSize) => ({
+  left: face.box.x * source.width,
+  top: face.box.y * source.height,
+  right: (face.box.x + face.box.width) * source.width,
+  bottom: (face.box.y + face.box.height) * source.height,
+});
+
+const holds = (window: CropWindow, face: DetectedFace, source: PixelSize) => {
+  const r = facePixels(face, source);
+  return (
+    r.left >= window.left - 1 &&
+    r.top >= window.top - 1 &&
+    r.right <= window.left + window.width + 1 &&
+    r.bottom <= window.top + window.height + 1
+  );
+};
+
+/**
+ * The acceptance criterion, at the three shapes it names.
+ *
+ * A portrait photograph is exactly the case with no vertical slack in a cover
+ * window, so every one of these only lands on the line because the eye line
+ * sized the window as well as placing it. The face has to survive that
+ * tightening whole, which is the other half of the criterion and the reason the
+ * headroom zoom has a floor.
+ */
+const PORTRAIT_SIZE: PixelSize = {
+  width: PORTRAIT_PHOTO.width,
+  height: PORTRAIT_PHOTO.height,
+};
+const soloFace = PORTRAIT_PHOTO.faces[0]!;
+const soloBoxes = faceSubjectBoxes(PORTRAIT_PHOTO.faces);
+
+check(
+  "a detected face names itself as the producer",
+  solveCrop(soloBoxes, PORTRAIT_SIZE, SHAPES[0]!).resolvedBy === "face",
+);
+
+for (const shape of [
+  { label: "9:16", width: 1080, height: 1920 },
+  { label: "4:5", width: 1080, height: 1350 },
+  { label: "1:1", width: 1080, height: 1080 },
+]) {
+  const window = solveCrop(soloBoxes, PORTRAIT_SIZE, shape);
+  const eyes = soloBoxes[0]!.eyeY! * PORTRAIT_SIZE.height;
+  const eyeAt = (eyes - window.top) / window.height;
+  check(
+    `a portrait at ${shape.label} puts the eye line on the upper golden line`,
+    Math.abs(eyeAt - PHI_LINES[0]) <= 0.02,
+    `eyes at ${pct(eyeAt)}, wanted ${pct(PHI_LINES[0])}`,
+  );
+  check(
+    `a portrait at ${shape.label} keeps the whole face in frame`,
+    holds(window, soloFace, PORTRAIT_SIZE) && window.satisfied,
+    `window=${String(window.width)}x${String(window.height)}@${String(window.left)},${String(window.top)}` +
+      ` satisfied=${String(window.satisfied)}`,
+  );
+}
+
+/**
+ * A group photograph. The largest face wins the anchor, and the others are kept
+ * when the shape allows it — so the claim is the two things the ticket asks for:
+ * the frame is pinned on one face, and the rest are not simply ignored.
+ */
+const GROUP_SIZE: PixelSize = { width: GROUP_PHOTO.width, height: GROUP_PHOTO.height };
+const groupBoxes = faceSubjectBoxes(GROUP_PHOTO.faces);
+const largest = GROUP_PHOTO.faces.reduce((best, f) =>
+  f.box.width * f.box.height > best.box.width * best.box.height ? f : best,
+);
+const leadBox = groupBoxes.reduce((best, b) => (b.priority > best.priority ? b : best));
+
+check(
+  "the largest face leads",
+  leadBox.x === largest.box.x && leadBox.y === largest.box.y,
+  `leader at ${String(leadBox.x)},${String(leadBox.y)}`,
+);
+check(
+  "only one face leads, so the eye line has a face to be read off",
+  groupBoxes.filter((b) => b.priority === leadBox.priority).length === 1,
+);
+check(
+  "a supporting face still outranks every other producer",
+  groupBoxes.every((b) => b.priority > 30),
+  groupBoxes.map((b) => b.priority).join(","),
+);
+
+/**
+ * A wide Crop has room for the whole group, and the solver has to use it. The
+ * eye line of the front face alone would push the back row out of shot, so this
+ * only passes because the ladder relaxed the composition instead of losing a
+ * face — which is precisely what "kept in frame when possible" costs.
+ */
+const wideGroup = solveCrop(groupBoxes, GROUP_SIZE, { width: 1920, height: 1080 });
+check(
+  "a wide Crop of a group holds every face",
+  GROUP_PHOTO.faces.every((f) => holds(wideGroup, f, GROUP_SIZE)),
+  `satisfied=${String(wideGroup.satisfied)} fallback=${wideGroup.fallback ?? "none"}`,
+);
+check(
+  "the composition it gave up to hold them is reported",
+  wideGroup.satisfied === (wideGroup.fallback === undefined),
+  `satisfied=${String(wideGroup.satisfied)} fallback=${wideGroup.fallback ?? "none"}`,
+);
+
+// The same four faces at 9:16. They cannot all fit, and the answer has to say
+// which rung of the ladder rescued the window rather than quietly losing one.
+const tallGroup = solveCrop(groupBoxes, GROUP_SIZE, { width: 1080, height: 1920 });
+check(
+  "a group that cannot fit a tall Crop reports it, and still holds the leader",
+  holds(tallGroup, largest, GROUP_SIZE) &&
+    (tallGroup.satisfied || tallGroup.fallback !== undefined),
+  `satisfied=${String(tallGroup.satisfied)} fallback=${tallGroup.fallback ?? "none"}`,
+);
+
+/**
+ * The face producer is the first with a size, so it is the first that can fill a
+ * Subject Area — and the first that can be told the Source Image is too small
+ * for one. Both halves of that are new here.
+ */
+const filledByFace = solveCrop(soloBoxes, PORTRAIT_SIZE, SHAPES[0]!, {
+  subjectArea: { x: 0.35, y: 0.1, width: 0.3, height: 0.5 },
+});
+check(
+  "a face fills a Subject Area, which no producer before it could",
+  filledByFace.subjectAreaSatisfied === true,
+  `${String(filledByFace.width)}x${String(filledByFace.height)}` +
+    ` satisfied=${String(filledByFace.subjectAreaSatisfied)}`,
+);
+
+let faceTooSmall = "";
+try {
+  solveCrop(soloBoxes, PORTRAIT_SIZE, SHAPES[0]!, {
+    subjectArea: { x: 0.4, y: 0.4, width: 0.05, height: 0.05 },
+  });
+} catch (err) {
+  faceTooSmall = (err as Error).message;
+}
+check(
+  "a Source Image too small to blow a face up that far is refused",
+  faceTooSmall.includes("too small") && faceTooSmall.includes("1120x1120"),
+  faceTooSmall,
 );
 
 // ---------------------------------------------------------- fallback ladder

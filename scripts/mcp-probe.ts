@@ -246,9 +246,21 @@ console.log(
   `${rejected ? "ok    " : "FAIL  "} crop_image refuses a Subject Area outside the frame`,
 );
 
+/**
+ * `find_subjects` has to be on the list, or an agent has no way to look at a
+ * photograph before cropping it. What it answers with is checked in
+ * `scripts/http-probe.ts`, which has a face service to answer from; here the
+ * claim is only that the tool is registered and takes a Source Image.
+ */
+const subjectsTool = tools.find((t) => t.name === "find_subjects");
+const findsSubjects = subjectsTool?.inputSchema?.properties?.source !== undefined;
+console.log(
+  `${findsSubjects ? "ok    " : "FAIL  "} find_subjects is listed and takes a source`,
+);
+
 const hung = probes.filter((p) => p.bodyMs === null);
 console.log(
   `\n${String(probes.length)} exchanges probed, ${String(hung.length)} never closed ` +
     `within ${String(BUDGET_MS)}ms`,
 );
-if (hung.length > 0 || !advertised || !rejected) process.exitCode = 1;
+if (hung.length > 0 || !advertised || !rejected || !findsSubjects) process.exitCode = 1;

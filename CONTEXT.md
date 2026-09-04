@@ -66,6 +66,10 @@ _Avoid_: gravity, focal point, position, alignment
 A place in a Template where a Source Image appears.
 _Avoid_: image field, photo placeholder, media area
 
+**Annotation**:
+What meco found in one Source Image, stored under the hash of its bytes and shaped as IPTC Image Regions. One machine region per detected face. A record, never a stored output, so the Gallery does not list it. The same photograph is analysed once however many Crops are cut from it.
+_Avoid_: metadata, tags, detection result
+
 **Subject Area**:
 The part of an Image Slot that a Template requires the Subject to fill, given as fractions of the output. A Template declares it and a caller may name one for a single Crop; either way the Crop must satisfy it, and the answer says whether it did.
 _Avoid_: safe area, focus region, subject box

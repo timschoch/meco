@@ -1,10 +1,11 @@
 /**
  * Framing a Crop, as arithmetic.
  *
- * Every producer of framing information — a Crop Anchor today, sharp's saliency
- * point, a matched face later — hands this module the same thing: Subject Boxes
- * in fractions of the Source Image. One solver turns them into one crop window,
- * so a new detector adds a producer rather than a second way of framing.
+ * Every producer of framing information — a Crop Anchor, sharp's saliency point,
+ * a detected face, a matched Person later — hands this module the same thing:
+ * Subject Boxes in fractions of the Source Image. One solver turns them into one
+ * crop window, so a new detector adds a producer rather than a second way of
+ * framing.
  *
  * Where the Subject then lands is the other half. A Subject Area names that
  * rectangle outright; the golden grid is what this module aims at when nobody
@@ -29,7 +30,7 @@ export const PHI_LINES = [1 - PHI_INV, PHI_INV] as const;
 const SLACK_PX = 0.5;
 
 /** Who decided the framing. Ordered as the producers are consulted. */
-export const CROP_PRODUCERS = ["saliency", "anchor", "centre"] as const;
+export const CROP_PRODUCERS = ["face", "saliency", "anchor", "centre"] as const;
 
 export type CropProducer = (typeof CROP_PRODUCERS)[number];
 
@@ -263,11 +264,11 @@ function areaRect(window: Rect, area: SubjectArea): Rect {
  * lets the rest of the solver — where the window is put, and the fallback ladder
  * that rescues it — stay one code path with or without an area.
  *
- * `null` when no window can be derived, which today is every request: a Subject
- * Box from the saliency, anchor or centre producer is a bare point, and a point
- * has no size to scale up. Then the area only says where to aim, and the zoom
- * the caller asked for still stands. A producer that yields a real rectangle —
- * a detected face — makes this bind.
+ * `null` when no window can be derived: a Subject Box from the saliency, anchor
+ * or centre producer is a bare point, and a point has no size to scale up. Then
+ * the area only says where to aim, and the zoom the caller asked for still
+ * stands. The face producer is the one that yields a real rectangle, so it is
+ * the one that makes this bind — including the refusal below.
  */
 function areaZoom(
   area: SubjectArea,
@@ -294,6 +295,42 @@ function areaZoom(
   // Never below 1: the half-pixel of slack the refusal above allows would
   // otherwise ask for a window fractionally larger than the Source Image.
   return Math.max(1, cover.width / needed);
+}
+
+/**
+ * The zoom that gives an eye line room to reach the upper golden line.
+ *
+ * A cover window touches the Source Image on one axis by construction, and for a
+ * portrait photograph cut to a taller shape that axis is the vertical one: the
+ * window is already the full height of the picture, so nothing can slide it and
+ * the eyes stay wherever the photographer left them. Tightening the window is the
+ * only thing that buys the vertical slack back — and tightening is what a person
+ * cutting a portrait into a story would do anyway.
+ *
+ * The two bounds are the two edges of the window: `PHI_LINES[0]` of its height has
+ * to fit above the eyes and the remainder below. The smaller of the two wins. The
+ * answer is a zoom rather than a size so that the rest of the solve, and the
+ * ladder that rescues it, stay one code path.
+ *
+ * Never below 1, because this is a convention about where a head looks best and
+ * not a licence to widen a Crop the caller asked to be tight. Never so tight that
+ * the Subject would not fit either: headroom that cropped the face off would be
+ * the exact opposite of the point.
+ */
+function headroomZoom(
+  eyes: number,
+  subject: Rect,
+  source: PixelSize,
+  aspect: number,
+): number {
+  const cover = windowSize(source, aspect, 1);
+  const room = Math.min(eyes / PHI_LINES[0], (source.height - eyes) / PHI_LINES[1]);
+  // The window still has to hold the Subject, and the required shape ties the two
+  // axes together, so the height the Subject needs is the larger of what each
+  // axis asks for.
+  const floor = Math.max(subject.height, subject.width / aspect);
+  const height = Math.max(floor, Math.min(cover.height, room));
+  return height > 0 ? Math.max(1, cover.height / height) : 1;
 }
 
 /** Put `point` at `at` inside a window of `size`, then keep the window on the image. */
@@ -383,10 +420,6 @@ export function solveCrop(
   const kept = boxes.filter((b) => b.keep);
   const subject = union((kept.length > 0 ? kept : boxes).map((b) => toPixels(b, source)));
 
-  const startZoom =
-    (area ? areaZoom(area, subject, source, aspect, target) : null) ??
-    Math.max(1, options.zoom ?? 1);
-
   /**
    * The headroom rule. An eye line is the one place a portrait must not be
    * framed on its centre: put the eyes on the upper golden line and the head
@@ -398,6 +431,17 @@ export function solveCrop(
    * Subject Box rather than about the eyes.
    */
   const eyeY = area === undefined && !tied && leader.eyeY !== undefined ? leader.eyeY : undefined;
+
+  // An eye line also sizes the window, because at the shapes a portrait is most
+  // often cut to there is no vertical slack left to place it in otherwise. The
+  // caller's own zoom still wins when it asks for more.
+  const startZoom =
+    (area ? areaZoom(area, subject, source, aspect, target) : null) ??
+    Math.max(
+      1,
+      options.zoom ?? 1,
+      eyeY === undefined ? 1 : headroomZoom(eyeY * source.height, subject, source, aspect),
+    );
 
   /**
    * The point the window is built around.
