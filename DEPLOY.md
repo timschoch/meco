@@ -118,6 +118,73 @@ Reference Photo's URL does not return the bytes. On Blob it needs the private
 store to exist; locally there is no public URL to ask, because the dev server
 mounts the three public kinds by name and the People prefix has no route.
 
+## meco-faces
+
+A second container service in the **same** Vercel project, not a second project.
+`vercel.json` declares both under `services` and separates them by rewrite:
+`/faces/(.*)` goes to `meco-faces`, `/(.*)` to `meco`. The rewrites are ordered
+and meco's catches everything, so the faces rule has to stay above it.
+
+A rewrite whose destination is a service passes the path through unchanged, so
+meco-faces mounts its routes at both `/` and `/faces` and answers the same way
+behind the rewrite, behind a second project, or under plain `docker run`. That
+also keeps the documented fallback — a separate `meco-faces` project reached by a
+`FACES_URL` env var — a configuration change rather than a code change. Why the
+service is separate at all: `docs/adr/0002-meco-faces-as-a-separate-service.md`.
+
+`MECO_TOKEN` must be set on both services. `POST /faces/detect` requires it;
+`GET /faces/health` does not, so that a liveness probe does not need a secret.
+
+### Measured
+
+| | |
+|---|---|
+| Image, `linux/amd64` | **370 MB** on disk, of which 234 MB is the `node:24-slim` base; **123 MB** as the registry stores it |
+| Model | `face_detection_yunet_2026may.onnx`, 229,738 B, MIT, copied in at build time |
+| Cold, 12 MP photo | **480 ms** from `docker run` to a served detection |
+| Warm, 12 MP photo | **45 ms** median, 30–88 ms over 12 runs |
+
+Measured on local Docker (Apple silicon, `linux/arm64`) against the real image,
+not against the deployment: a preview URL sits behind Vercel's own routing and
+scheduling, which would measure the platform rather than the service. A cold
+start on Vercel is this number plus whatever the platform spends provisioning an
+instance. Reproduce with:
+
+```
+docker build -f Dockerfile.faces -t meco-faces .
+MECO_TOKEN=local-token pnpm --filter meco-faces exec tsx scripts/latency.ts \
+  http://localhost:8788 12 -- \
+  docker run --rm --name faces-lat -p 8788:80 -e PORT=80 -e MECO_TOKEN=local-token meco-faces
+docker rm -f faces-lat
+```
+
+The 12 MP photo is a fixture enlarged to 3000×4000 at run time. What is being
+timed is a decode and a fixed-size resize, and neither cares whether the detail
+is real.
+
+### Prove the detector still finds faces
+
+```
+pnpm test:detect
+```
+
+Runs `POST /detect` in-process over three public-domain photographs — four
+faces, one face, none — and fails if a box moves more than 3 % of the image away
+from the hand-marked one in `fixtures/faces/expected.json`. It also checks that
+an unauthenticated request is refused and that `/health` names the model and the
+ONNX Runtime version.
+
+### Test locally
+
+```
+docker build -f Dockerfile.faces -t meco-faces .
+docker run --rm -p 8788:80 -e PORT=80 -e MECO_TOKEN=<token> meco-faces
+curl http://localhost:8788/health
+curl -X POST http://localhost:8788/detect \
+  -H "authorization: Bearer <token>" \
+  --data-binary @fixtures/faces/astronaut-portrait.jpg
+```
+
 ## Gotchas
 
 - Never `docker cp` a macOS-built `node_modules` into the image — `sharp` and
@@ -125,6 +192,12 @@ mounts the three public kinds by name and the People prefix has no route.
   always runs a fresh `pnpm install` inside the container; keep it that way.
 - Image must stay under 15 GB total / 500 MB per layer (Vercel Container
   Registry limit).
+- `onnxruntime-node` unpacks to ~280 MB because it ships prebuilt binaries for
+  all five platforms it supports, and its postinstall downloads CUDA provider
+  binaries on `linux/x64` and nowhere else. `Dockerfile.faces` sets
+  `ONNXRUNTIME_NODE_INSTALL=skip` and deletes every `bin/napi-v6` directory but
+  the one `$TARGETARCH` needs. Keep both; either one alone leaves most of that
+  weight in the image.
 - Never advertise an MCP capability meco cannot honour. `tools.listChanged` is
   declared `false` on purpose: advertising it invites `subscriptions/listen`,
   which the SDK serves as an SSE stream held open for an event meco never
