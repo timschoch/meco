@@ -202,13 +202,27 @@ export async function facePrintsFor(
     for (const photo of person.photos) {
       const stored = await storage.get(printKey(brand, person.id, photo.photoId));
       // A photo whose print is missing is a half-written enrolment, not a face
-      // that matches nothing. Skipped rather than counted as an empty vector.
+      // that matches nothing. Skipped rather than counted as an empty Face Print.
       if (!stored) continue;
       const record = JSON.parse(stored.toString("utf8")) as StoredFacePrint;
       prints.push({ ...record, personName: person.name });
     }
   }
   return prints;
+}
+
+/**
+ * The Reference Photo the record names, or a refusal.
+ *
+ * Every key for a photograph is built from a photoId the caller passed in, so
+ * this is what stands between that and a key the Person does not own.
+ */
+function requirePhoto(person: Person, photoId: string): ReferencePhoto {
+  const photo = person.photos.find((p) => p.photoId === photoId);
+  if (!photo) {
+    throw new Error(`No such Reference Photo for "${person.name}": "${photoId}"`);
+  }
+  return photo;
 }
 
 /** The bytes of one Reference Photo, with the type to serve them as. */
@@ -219,12 +233,7 @@ export async function referencePhotoBytes(
   storage: Storage,
 ): Promise<{ bytes: Buffer; contentType: string }> {
   const person = await getPerson(brand, personId, storage);
-  // Only what the record names: the key is built from the caller's photoId, so
-  // anything else would let a caller ask for a key the Person does not own.
-  const photo = person.photos.find((p) => p.photoId === photoId);
-  if (!photo) {
-    throw new Error(`No such Reference Photo for "${person.name}": "${photoId}"`);
-  }
+  const photo = requirePhoto(person, photoId);
   const bytes = await storage.get(photoKey(brand, personId, photoId, photo.format));
   if (!bytes) {
     throw new Error(`The Reference Photo "${photoId}" is on the record but not in the store.`);
@@ -434,10 +443,7 @@ export async function deleteReferencePhoto(
   storage: Storage,
 ): Promise<Person> {
   const person = await getPerson(requireBrand(brand), personId, storage);
-  const photo = person.photos.find((p) => p.photoId === photoId);
-  if (!photo) {
-    throw new Error(`No such Reference Photo for "${person.name}": "${photoId}"`);
-  }
+  const photo = requirePhoto(person, photoId);
   await storage.delete(photoKey(brand, personId, photoId, photo.format));
   await storage.delete(printKey(brand, personId, photoId));
   person.photos = person.photos.filter((p) => p.photoId !== photoId);

@@ -157,7 +157,7 @@ export async function detectFaces(image: Buffer): Promise<Detection> {
   return parsed.data;
 }
 
-// ------------------------------------------------------------------- embedding
+// ---------------------------------------------------------------- face prints
 
 /**
  * A Face Print: 512 floats on the unit sphere. Fixed by the network.

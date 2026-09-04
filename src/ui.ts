@@ -73,10 +73,15 @@ export const UI_HTML = String.raw`<!doctype html>
     background: var(--accent); color: #06281a; font-size: 11px; line-height: 1.5;
     border-radius: 3px 3px 0 0; white-space: nowrap; font-weight: 600;
   }
-  /* A Person card: the thumbnails sit in a row under the name, each one an
+  /* A Person card: the Reference Photos sit in a row under the name, each one an
      overlay of its own so the enrolled face can be outlined on it. */
   .photos { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 10px 10px; }
   .photos .overlay { width: 92px; }
+  .drop {
+    border: 1px dashed var(--line); border-radius: 8px; padding: 16px;
+    margin: 0 0 12px; text-align: center; color: var(--dim); font-size: 13px;
+  }
+  .drop.over { border-color: var(--accent); color: var(--ink); }
   .face.pick { cursor: pointer; border-color: var(--dim); }
   .face.pick:hover { border-color: var(--accent); }
   .pickable { max-width: 520px; }
@@ -580,6 +585,37 @@ function peopleForm() {
   enrol.append(field("Person", who));
   const files = el("input", { name: "files", type: "file", multiple: true, accept: "image/*" });
   enrol.append(field("Photographs", files, "several at once"));
+
+  /**
+   * Dropped photographs, kept beside the file input rather than in it.
+   *
+   * A file input is read-only to script — a browser will not let a page put a
+   * File into one — so a drop zone that fed the input is not a thing that can be
+   * built. The two lists are joined when the form is sent.
+   */
+  let dropped = [];
+  const dropZone = el("div", {
+    className: "drop",
+    textContent: "or drop photographs here",
+    dataset: { role: "drop" },
+  });
+  const sayDropped = () => {
+    dropZone.textContent = dropped.length === 0
+      ? "or drop photographs here"
+      : dropped.length + (dropped.length === 1 ? " photograph" : " photographs") + " ready";
+  };
+  // preventDefault on dragover as well as on drop: without it the browser
+  // navigates to the dropped file and the page is simply gone.
+  dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add("over"); };
+  dropZone.ondragleave = () => { dropZone.classList.remove("over"); };
+  dropZone.ondrop = (e) => {
+    e.preventDefault();
+    dropZone.classList.remove("over");
+    dropped = [...(e.dataTransfer?.files ?? [])];
+    sayDropped();
+  };
+  enrol.append(dropZone);
+
   const photoUrl = el("input", { name: "photoUrl", type: "url", placeholder: "https://" });
   enrol.append(field("or a URL", photoUrl));
 
@@ -638,7 +674,7 @@ function peopleForm() {
         img.src = await privateImage(
           "/v1/people/" + person.id + "/photos/" + photo.photoId + query());
       } catch {
-        // A thumbnail that will not load must not take the card with it: the
+        // A picture that will not load must not take the card with it: the
         // Person and their photo count are still worth showing.
         wrap.append(note("photo unavailable"));
       }
@@ -705,6 +741,8 @@ function peopleForm() {
     show([note("Looking for a face …")]);
     try {
       const res = await send("/v1/people/" + who.value + "/photos", "POST", body);
+      dropped = [];
+      sayDropped();
       await report(res, sources);
     } catch (err) { fail(err); } finally { enrolGo.disabled = false; }
   }
@@ -758,7 +796,7 @@ function peopleForm() {
   };
 
   enrolGo.onclick = () => {
-    const sources = [...files.files].map((f) => ({ name: f.name, file: f }));
+    const sources = [...files.files, ...dropped].map((f) => ({ name: f.name, file: f }));
     const link = photoUrl.value.trim();
     if (link) sources.push({ name: link, url: link });
     if (!sources.length) {

@@ -1280,6 +1280,36 @@ check(
   uploadJson.results.map((r) => r.name).join(" "),
 );
 
+/**
+ * A face index belongs to one photograph.
+ *
+ * The console never sends one with a batch — it re-sends the picked photograph
+ * on its own — but the HTTP API is reachable without the console, and an index
+ * that means face 2 in a group photograph means nobody in a portrait.
+ */
+const batchWithIndex = new FormData();
+batchWithIndex.set("brand", "laica");
+batchWithIndex.set("faceIndex", "1");
+for (const name of ["astronaut-portrait.jpg", "artemis-2-crew.jpg"]) {
+  batchWithIndex.append(
+    "file",
+    new File([new Uint8Array(await readFile(fixtures(name)))], name, { type: "image/jpeg" }),
+  );
+}
+const refusedBatch = await app.fetch(
+  new Request(`http://local${photosPath}`, {
+    method: "POST",
+    headers: { "x-auth-token": TOKEN },
+    body: batchWithIndex,
+  }),
+);
+check(
+  "a face index sent with several photographs at once is refused",
+  refusedBatch.status === 400 &&
+    String(((await refusedBatch.json()) as Json).error).includes("on its own"),
+  String(refusedBatch.status),
+);
+
 // -------------------------------------------------------------- what is kept
 
 const withPhotos = await get(`/v1/people?brand=laica`);
@@ -1314,12 +1344,6 @@ check(
     return true;
   })(),
   peopleKeys.filter((k) => k.endsWith(".print.json")).join(" "),
-);
-check(
-  "enrolling a Reference Photo writes no Annotation, so nothing about a Person is filed outside the People prefix",
-  !(await everyStoredKey()).some(
-    (k) => k.startsWith("annotations/") && k.includes(sha(tinyBytes)),
-  ),
 );
 check(
   "no answer about a Person carries a storage URL for a Reference Photo",
@@ -1432,6 +1456,51 @@ check(
   "deleting a Person who is already gone is refused rather than silently accepted",
   (await del(`/v1/people/${ada.id}?brand=laica`)).status === 400,
 );
+
+/**
+ * Enrolling files nothing outside the People prefix.
+ *
+ * A Crop caches an Annotation under the hash of the Source Image; enrolling
+ * deliberately does not, because a Reference Photo must leave no trace outside
+ * `people/`. The photograph here is made for this check and cropped nowhere, so
+ * an `annotations/` entry for it could only have come from the enrolment.
+ */
+const freshUrl = await photo(900, 700);
+const freshBytes = Buffer.from(freshUrl.slice("data:image/jpeg;base64,".length), "base64");
+canned.set(sha(freshBytes), {
+  width: 900,
+  height: 700,
+  faces: [
+    {
+      box: { x: 0.35, y: 0.2, width: 0.2, height: 0.26 },
+      landmarks: {
+        rEye: point(0.4, 0.28),
+        lEye: point(0.5, 0.28),
+        nose: point(0.45, 0.33),
+        rMouth: point(0.41, 0.39),
+        lMouth: point(0.49, 0.39),
+      },
+      score: 0.98,
+    },
+  ],
+});
+const grace = (await post("/v1/people", { brand: "laica", name: "Grace Hopper" }))
+  .json as PersonJson;
+const graceEnrolled = await post(`/v1/people/${grace.id}/photos`, {
+  brand: "laica",
+  source: freshUrl,
+});
+check(
+  "a photograph never cropped enrols",
+  (graceEnrolled.json as EnrolJson).results[0]?.status === "enrolled",
+  JSON.stringify(graceEnrolled.json).slice(0, 140),
+);
+check(
+  "and enrolling it wrote no Annotation, so nothing about a Person is filed outside the People prefix",
+  !(await everyStoredKey()).includes(`annotations/${sha(freshBytes)}.json`),
+  (await everyStoredKey()).filter((k) => k.startsWith("annotations/")).join(" "),
+);
+await del(`/v1/people/${grace.id}?brand=laica`);
 
 // ------------------------------------------------------ a face service down
 

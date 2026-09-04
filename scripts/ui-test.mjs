@@ -212,7 +212,10 @@ function stubFetch(url, init = {}) {
   const body = form
     ? Object.fromEntries([...form.entries()])
     : init.body ? JSON.parse(init.body) : undefined;
-  calls.push({ url, method, headers: init.headers ?? {}, body, multipart: !!form });
+  // Files travel under one repeated name, which `fromEntries` would collapse to
+  // the last of them — so they are read out separately.
+  const files = form ? form.getAll("file").map((f) => f.name) : undefined;
+  calls.push({ url, method, headers: init.headers ?? {}, body, files, multipart: !!form });
 
   if (url.startsWith("/v1/people")) {
     const answer = peopleRoute(url, method, body);
@@ -606,6 +609,51 @@ check(
   "a photograph with no face is reported to the user",
   ($(".err")?.textContent ?? "").includes("No face was found"),
   $(".err")?.textContent ?? "no error shown",
+);
+
+/**
+ * Dropping photographs, which is how the console is meant to be used and the one
+ * path a file input cannot cover: a browser will not let a page put a File into
+ * an input, so dropped files are kept beside it and joined when the form is sent.
+ * jsdom has no DataTransfer, so the event carries a stand-in with the one field
+ * the page reads.
+ */
+$('[name="photoUrl"]').value = "";
+const dropZone = $('[data-role="drop"]');
+check("the enrol form offers somewhere to drop photographs", !!dropZone);
+
+const dropEvent = new window.Event("drop", { bubbles: true, cancelable: true });
+dropEvent.dataTransfer = {
+  files: [
+    new window.File(["one"], "first.jpg", { type: "image/jpeg" }),
+    new window.File(["two"], "second.jpg", { type: "image/jpeg" }),
+  ],
+};
+dropZone.dispatchEvent(dropEvent);
+await tick();
+check(
+  "dropped photographs are counted before anything is sent",
+  dropZone.textContent === "2 photographs ready",
+  dropZone.textContent,
+);
+check(
+  "and dropping sends nothing by itself",
+  calls.filter((c) => c.url.endsWith("/photos") && c.method === "POST").at(-1)?.body.source
+    === EMPTY,
+);
+
+enrolButton.click();
+await settle();
+const droppedCall = calls.filter((c) => c.url.endsWith("/photos") && c.method === "POST").at(-1);
+check(
+  "enrolling sends the dropped photographs as files",
+  droppedCall?.multipart === true && droppedCall.files?.join(",") === "first.jpg,second.jpg",
+  String(droppedCall?.files),
+);
+check(
+  "and the queue is emptied, so the next enrolment does not send them again",
+  dropZone.textContent === "or drop photographs here",
+  dropZone.textContent,
 );
 
 // Deleting: irreversible, so it takes two clicks.

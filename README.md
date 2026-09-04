@@ -42,7 +42,7 @@ set that header, `x-auth-token: <token>`.
 | `GET /v1/people?brand=` | the People a Brand has enrolled, with their Reference Photos |
 | `POST /v1/people` | create a Person under a Brand |
 | `DELETE /v1/people/:id?brand=` | remove a Person and every Reference Photo and Face Print of them |
-| `POST /v1/people/:id/photos` | enrol Reference Photos: multipart upload (several at once) or a JSON body naming a URL |
+| `POST /v1/people/:id/photos` | enrol Reference Photos: multipart (several files at once) or a JSON body naming a URL |
 | `GET /v1/people/:id/photos/:photoId?brand=` | the bytes of one Reference Photo — private, token only |
 | `DELETE /v1/people/:id/photos/:photoId?brand=` | remove one Reference Photo and its Face Print |
 | `POST /mcp` | the same operations as MCP tools, streamable HTTP |
@@ -131,7 +131,13 @@ A Brand can enrol the People it wants recognised. Create a Person by name, then
 add Reference Photos — several at once as a multipart upload, or one at a time by
 URL. meco finds the faces: one face enrols by itself, several come back as a list
 for the caller to choose from with `faceIndex`, and a photograph with no face, or
-a face under 40 px, is refused. The Face Print is computed by meco-faces and
+a face under 40 px, is refused. A `faceIndex` may only accompany a single
+photograph — an index means something different in every picture — so the answer
+to "which face?" is that photograph sent again on its own.
+
+Each photograph in a batch is judged on its own, so one unusable file does not
+throw away the ones beside it; the request is a 400 only when nothing in it could
+succeed. The Face Print is computed by meco-faces and
 stored beside the photograph, with a consent timestamp when the caller says the
 Person agreed.
 

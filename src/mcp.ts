@@ -17,6 +17,15 @@ import * as people from "./people.js";
 import type { Storage } from "./storage.js";
 import { describeTemplates } from "./templates/registry.js";
 
+/**
+ * The Brands, as a schema a client can read.
+ *
+ * Written out rather than derived from `BRANDS`, because `z.enum` needs literals
+ * to type itself and a tool schema is a contract a client caches. One const so
+ * that adding a Brand is one edit rather than five.
+ */
+const brandId = z.enum(["laica", "hopefamily", "swisshutless"]);
+
 /** MCP wants text; the caller wants the URLs. JSON carries both. */
 function reply(payload: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] };
@@ -83,10 +92,7 @@ export function createMecoMcpHandler(storage: Storage) {
           "satisfy. Call this before rendering: it is the only place the " +
           "required fields of a Template are written down.",
         inputSchema: z.object({
-          brand: z
-            .enum(["laica", "hopefamily", "swisshutless"])
-            .optional()
-            .describe("Only Templates belonging to this Brand."),
+          brand: brandId.optional().describe("Only Templates belonging to this Brand."),
         }),
       },
       async ({ brand }) => {
@@ -270,13 +276,14 @@ export function createMecoMcpHandler(storage: Storage) {
           "each has. A Person is a named individual the Brand wants recognised; " +
           "they belong to exactly one Brand.",
         inputSchema: z.object({
-          brand: z
-            .enum(["laica", "hopefamily", "swisshutless"])
-            .describe("The Brand whose People to list."),
+          brand: brandId.describe("The Brand whose People to list."),
         }),
       },
       async ({ brand }) => {
         try {
+          // A summary, where the HTTP route hands back the whole record: the
+          // console draws every Reference Photo and needs them all, an agent
+          // needs the roster and a count. Two views, not two copies.
           const enrolled = await people.listPeople(brand, storage);
           return reply({
             brand,
@@ -300,7 +307,7 @@ export function createMecoMcpHandler(storage: Storage) {
           "Create a Person under a Brand. Returns the Person id to enrol " +
           "Reference Photos against. Creating a Person stores nothing but a name.",
         inputSchema: z.object({
-          brand: z.enum(["laica", "hopefamily", "swisshutless"]),
+          brand: brandId,
           name: z.string().describe("The Person's name, as a human would write it."),
         }),
       },
@@ -323,7 +330,7 @@ export function createMecoMcpHandler(storage: Storage) {
           "with faceIndex; a photograph with no face, or a face under 40 px, is " +
           "refused. Only enrol people who agreed to it, and say so with consent.",
         inputSchema: z.object({
-          brand: z.enum(["laica", "hopefamily", "swisshutless"]),
+          brand: brandId,
           personId: z.string().describe("Person id from list_people or add_person."),
           source: z.string().url().describe("URL of the photograph."),
           faceIndex: z

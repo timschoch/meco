@@ -228,6 +228,10 @@ export function createApp(storage: Storage): Hono {
    * nothing in it could succeed — no photograph enrolled and none waiting on a
    * face to be picked.
    *
+   * A `faceIndex` may only accompany a single photograph: an index means
+   * something different in every picture, so one index across a batch would ask
+   * for face 2 of a portrait that has one face.
+   *
    * The platform caps a request body at 100 MB, which meco does not narrow: the
    * limit that matters is the one the request will actually meet, and inventing a
    * second one here would refuse photographs the platform would have carried.
@@ -235,22 +239,22 @@ export function createApp(storage: Storage): Hono {
   app.post("/v1/people/:id/photos", async (c) => {
     try {
       const personId = c.req.param("id");
-      const uploads = await readUploads(c);
-      const person = await people.getPerson(uploads.brand, personId, storage);
+      const request = await readEnrolmentRequest(c);
+      const person = await people.getPerson(request.brand, personId, storage);
 
       const results: PhotoResult[] = [];
       // Kept beside the list so a request where nothing worked can say why in the
       // one field every other failure in this API uses.
       let firstRejection = "";
-      for (const one of uploads.photos) {
+      for (const one of request.photos) {
         try {
           const enrolment = await people.enrolReferencePhoto(
             {
-              brand: uploads.brand,
+              brand: request.brand,
               personId,
               source: one.bytes,
-              ...(uploads.faceIndex === undefined ? {} : { faceIndex: uploads.faceIndex }),
-              consent: uploads.consent,
+              ...(request.faceIndex === undefined ? {} : { faceIndex: request.faceIndex }),
+              consent: request.consent,
             },
             storage,
           );
@@ -402,16 +406,17 @@ type PhotoResult =
   | { name: string; status: "rejected"; error: string };
 
 /** One photograph on its way in, with something to call it in the answer. */
-interface Upload {
+interface IncomingPhoto {
   name: string;
   bytes: Buffer;
 }
 
-interface Uploads {
+/** One request to enrol photographs, whichever way they arrived. */
+interface EnrolmentRequest {
   brand: string;
   faceIndex?: number;
   consent: boolean;
-  photos: Upload[];
+  photos: IncomingPhoto[];
 }
 
 /**
@@ -422,7 +427,7 @@ interface Uploads {
  * into the same shape here and the route below never learns which it was. A
  * browser can only upload; an MCP client can only name a URL; both have to work.
  */
-async function readUploads(c: Context): Promise<Uploads> {
+async function readEnrolmentRequest(c: Context): Promise<EnrolmentRequest> {
   const type = c.req.header("content-type") ?? "";
 
   if (!type.startsWith("multipart/form-data")) {
@@ -449,12 +454,12 @@ async function readUploads(c: Context): Promise<Uploads> {
   const brand = field("brand");
   if (!brand) throw new Error("Name the Brand this Person belongs to: a `brand` field.");
 
-  const photos: Upload[] = [];
+  const photos: IncomingPhoto[] = [];
   const files = form["file"];
   for (const one of Array.isArray(files) ? files : files ? [files] : []) {
     if (typeof one === "string") continue;
     photos.push({
-      name: one.name || "upload",
+      name: one.name || "photograph",
       bytes: Buffer.from(await one.arrayBuffer()),
     });
   }
@@ -470,6 +475,14 @@ async function readUploads(c: Context): Promise<Uploads> {
 
   const index = field("faceIndex");
   const consent = field("consent");
+  // A face index means something different in every photograph, so it cannot
+  // ride along with a batch: face 2 of a group is nobody in a portrait. The
+  // console sends the picked photograph on its own for exactly this reason.
+  if (index !== undefined && index !== "" && photos.length > 1) {
+    throw new Error(
+      "A face index belongs to one photograph. Send that photograph on its own.",
+    );
+  }
   return {
     brand,
     ...(index === undefined || index === "" ? {} : { faceIndex: Number(index) }),

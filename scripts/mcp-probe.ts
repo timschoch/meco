@@ -295,7 +295,9 @@ for (const wanted of PEOPLE_TOOLS) {
  * takes every Reference Photo and Face Print with it, and it belongs behind a
  * hand on a console rather than behind a sentence an agent decided to act on.
  */
-const deletesPeople = tools.some((t) => t.name.includes("delete"));
+const deletesPeople = tools.some(
+  (t) => /person|people|photo/.test(t.name) && /delete|remove|forget/.test(t.name),
+);
 console.log(
   `${deletesPeople ? "FAIL  " : "ok    "} no tool deletes a Person over MCP`,
 );
