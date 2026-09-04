@@ -119,7 +119,7 @@ function stubFetch(url, init = {}) {
       ? (body.output === "images"
           ? { placement: body.channel, slides: body.slides.map((_, i) => ({ url: "https://blob.test/s" + i + ".png" })) }
           : { placement: body.channel, pages: body.slides.length, url: "https://blob.test/c.pdf" })
-    : url === "/v1/crop" ? { width: body.width, height: body.height, resolvedBy: "strategy", url: "https://blob.test/crop.jpg" }
+    : url === "/v1/crop" ? { width: body.width, height: body.height, resolvedBy: "saliency", url: "https://blob.test/crop.jpg" }
     : null;
   if (!json) throw new Error("test stub has no route for " + url);
   return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(json) });
@@ -222,6 +222,7 @@ await tick();
 await tick();
 const crop = calls.find((c) => c.url === "/v1/crop");
 check("crop posted numeric size", crop?.body.width === 1080 && crop?.body.height === 1920);
+check("crop card named the producer that framed it", doc.body.textContent.includes("1080×1920 · saliency"));
 
 // ------------------------------------------------------------ gallery tab
 

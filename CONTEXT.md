@@ -50,6 +50,10 @@ _Avoid_: input image, original, upload, asset
 The part of a Source Image that must survive a Crop — a face, a person, a product.
 _Avoid_: foreground, region of interest, focal subject
 
+**Subject Box**:
+One rectangle in a Source Image, in fractions 0..1, with a priority and a `keep` flag. Every producer of framing — the Crop Anchor, saliency, later a face or a Person — yields Subject Boxes, and the solver consumes them. A producer that knows a point rather than a region yields a box of zero extent.
+_Avoid_: region, bbox, focal point
+
 **Crop**:
 A stored image cut from a Source Image to a required shape, reachable at a stable URL. A sibling of a Render: both are stored outputs, but a Crop involves no Template.
 _Avoid_: resize, thumbnail, transform, variant

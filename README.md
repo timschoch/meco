@@ -37,7 +37,7 @@ set that header, `x-auth-token: <token>`.
 | `GET /v1/gallery` | every stored Render, Carousel and Crop, newest first; `?brand=` and `?placement=` filter |
 | `POST /v1/render` | render one Template at one or more Placements |
 | `POST /v1/carousel` | render Slides into one multi-page PDF, or N images |
-| `POST /v1/crop` | cut a Source Image to a shape by Crop Anchor |
+| `POST /v1/crop` | cut a Source Image to a shape; a solver frames it and the answer names what decided — `saliency`, `anchor` or `centre` |
 | `POST /mcp` | the same operations as MCP tools, streamable HTTP |
 | `POST /mcp/<token>` | the same, for clients that treat a 401 as a reason to start OAuth |
 
@@ -134,3 +134,10 @@ Deployment is in [`DEPLOY.md`](./DEPLOY.md).
 the dominant background, and how far down the canvas it spreads. Entropy would
 be the obvious metric and is the wrong one: a deliberately flat, minimal slide
 scores as low as an empty canvas.
+
+| Script | Proves |
+|---|---|
+| `pnpm test:crop` | the crop solver puts a Subject on a golden line, and names the fallback when it cannot |
+| `pnpm test:http` | the HTTP API in-process: crop and Gallery against a temp directory, no port and no network |
+| `pnpm test:mcp` | every MCP exchange over `/mcp` ends instead of holding the container open |
+| `pnpm test:ui` | the demo console in jsdom, every tab clicked |

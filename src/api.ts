@@ -179,6 +179,8 @@ export async function crop(input: CropInput, storage: Storage) {
     width: result.width,
     height: result.height,
     resolvedBy: result.resolvedBy,
+    satisfied: result.satisfied,
+    ...(result.fallback ? { fallback: result.fallback } : {}),
     ...(result.anchor ? { anchor: result.anchor } : {}),
     ...stored,
   };
