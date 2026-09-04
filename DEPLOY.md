@@ -38,11 +38,32 @@ Out-of-band deploys from the working tree: `vercel deploy` (preview),
    backstop for any request that fails to end on its own; 60 s is well above any
    real render. Takes effect on the next deployment.
 
+## One-time setup (still to do)
+
+A second Blob store, private, for People. Only the account owner can create it.
+
+```
+vercel blob create-store meco-people --access private --yes
+vercel env add BLOB_PEOPLE_READ_WRITE_TOKEN production   # and preview, development
+```
+
+The second command takes the new store's read/write token on stdin, under the
+name meco reads. `create-store` writes its own token into the project env under
+whatever name it picks, and the first store already holds `BLOB_READ_WRITE_TOKEN`.
+
+Vercel Blob sets public or private **per store, not per object**: a private
+write to the public store is refused by the API. Everything under the `people/`
+prefix — Person records, Reference Photos, Face Prints — is personal data and
+belongs in the private store. Until the store exists, meco refuses any write to
+that prefix rather than putting a face photo of a named person on an open URL.
+Nothing else changes: `renders/`, `carousels/` and `crops/` stay public.
+
 ## Env vars
 
 | Var | Set by | Purpose |
 |---|---|---|
-| `BLOB_READ_WRITE_TOKEN` | `vercel blob create-store` | Vercel Blob read/write access |
+| `BLOB_READ_WRITE_TOKEN` | `vercel blob create-store` | Vercel Blob read/write access, public store |
+| `BLOB_PEOPLE_READ_WRITE_TOKEN` | you (`vercel env add`) | read/write access to the private People store |
 | `MECO_TOKEN` | you (`vercel env add`) | bearer token the server checks on incoming requests |
 | `PORT` | Vercel platform | container listen port; default 80, do not set manually |
 
@@ -77,6 +98,23 @@ pnpm test:mcp
 Drives every MCP exchange shape in-process and exits non-zero if any response
 body is still open after five seconds. A body that never closes bills the
 container until the platform kills it, so this is the guard on that.
+
+## Prove both storage backends agree
+
+```
+pnpm test:storage
+```
+
+Runs one contract — write at a key, read the same bytes back, overwrite,
+delete, ask for what is not there — against local disk and against Vercel Blob,
+and checks that the Gallery never lists the People prefix. The Blob half needs
+`BLOB_READ_WRITE_TOKEN` (it reads `.env.local` when there is one) and really
+writes to the store, under a run-scoped `contract-test/` prefix it deletes
+again. A missing token is a failure, not a skip: only one backend runs in
+production, so an untested one is where a difference hides.
+
+One check is skipped until the private store exists: that an unauthenticated
+GET of a Reference Photo's URL does not return the bytes.
 
 ## Gotchas
 
