@@ -100,6 +100,31 @@ async function storedSize(key: unknown): Promise<string> {
   return `${String(meta.width)}x${String(meta.height)}`;
 }
 
+/**
+ * The share of an image that is the bright block the fixture calls its Subject.
+ *
+ * This is the only check here that looks at pixels, and it is the one that
+ * catches a producer reading a coordinate in the wrong space: such a Crop still
+ * returns 200 at the right size and still names a producer, and simply frames
+ * empty background. Nothing but the pixels says so.
+ */
+async function subjectShare(image: Buffer): Promise<number> {
+  const { data, info } = await sharp(image)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let bright = 0;
+  for (let i = 0; i < data.length; i += info.channels) {
+    if (data[i]! > 200 && data[i + 1]! > 160) bright++;
+  }
+  return bright / (info.width * info.height);
+}
+
+/** What the Subject is worth in the whole photograph, before any cropping. */
+const SUBJECT_IN_SOURCE = await subjectShare(
+  Buffer.from(LANDSCAPE.slice("data:image/jpeg;base64,".length), "base64"),
+);
+
 // --------------------------------------------------------------------- crops
 
 console.log("crop");
@@ -109,6 +134,8 @@ interface CropCase {
   body: Json;
   resolvedBy: string;
   anchor?: string;
+  /** A producer that looks for the Subject must not frame the background. */
+  keepsSubject?: boolean;
 }
 
 const CASES: CropCase[] = [
@@ -122,11 +149,13 @@ const CASES: CropCase[] = [
     label: "attention",
     body: { source: LANDSCAPE, width: 1080, height: 1920, strategy: "attention" },
     resolvedBy: "saliency",
+    keepsSubject: true,
   },
   {
     label: "entropy",
     body: { source: LANDSCAPE, width: 1080, height: 1080, strategy: "entropy" },
     resolvedBy: "saliency",
+    keepsSubject: true,
   },
   {
     label: "neither",
@@ -141,6 +170,18 @@ const CASES: CropCase[] = [
   },
   // An exact-aspect request leaves libvips nothing to crop, so no saliency point
   // comes back and the Crop Anchor has to answer instead.
+  {
+    label: "attention at a fourth shape",
+    body: { source: LANDSCAPE, width: 1080, height: 1350, strategy: "attention" },
+    resolvedBy: "saliency",
+    keepsSubject: true,
+  },
+  {
+    label: "attention at a wide shape",
+    body: { source: LANDSCAPE, width: 1920, height: 1080, strategy: "attention" },
+    resolvedBy: "saliency",
+    keepsSubject: true,
+  },
   {
     label: "attention with nothing to crop",
     body: { source: EXACT_9_16, width: 1080, height: 1920, strategy: "attention", anchor: "left" },
@@ -180,6 +221,16 @@ for (const one of CASES) {
   );
   if (one.anchor) {
     check(`${one.label} echoed the Crop Anchor`, json.anchor === one.anchor);
+  }
+  if (one.keepsSubject) {
+    // At least as prominent as in the whole photograph: a Crop that went looking
+    // for the Subject must end up with more of it, never less.
+    const share = await subjectShare(await readFile(join(root, String(json.key))));
+    check(
+      `${one.label} framed the Subject rather than the background`,
+      share >= SUBJECT_IN_SOURCE,
+      `${(share * 100).toFixed(2)}% of the Crop, ${(SUBJECT_IN_SOURCE * 100).toFixed(2)}% of the Source Image`,
+    );
   }
 }
 

@@ -52,7 +52,7 @@ export interface SubjectArea {
  * top-left corner of the frame. That is what makes the anchor a Subject Box
  * like any other instead of a special case inside the solver.
  */
-const ANCHOR_POSITION: Record<CropAnchor, FractionPoint> = {
+const ANCHOR_AT: Record<CropAnchor, FractionPoint> = {
   "top-left": { x: 0, y: 0 },
   top: { x: 0.5, y: 0 },
   "top-right": { x: 1, y: 0 },
@@ -77,8 +77,8 @@ const PRIORITY: Record<CropProducer, number> = {
   centre: 10,
 };
 
-/** The short side of the probe sharp reads the saliency point from. */
-const PROBE_PX = 32;
+/** The short side of the resize sharp reads the saliency point from. */
+const SALIENCY_READ_PX = 32;
 
 export interface CropRequest {
   source: Buffer;
@@ -86,9 +86,9 @@ export interface CropRequest {
   height: number;
   anchor?: CropAnchor;
   /**
-   * Let the picture decide instead of the caller. Selects the saliency producer:
-   * `attention` takes sharp's attention point, `entropy` the centre of the
-   * window its entropy strategy would have chosen.
+   * Let the picture decide instead of the caller. Either value selects the
+   * saliency producer; they differ only in which window sharp is asked for, the
+   * one its attention map picks or the one its entropy map does.
    */
   strategy?: "attention" | "entropy";
   format?: "png" | "jpeg" | "webp";
@@ -113,14 +113,27 @@ export interface CropResult {
 /**
  * The saliency point, in fractions of the Source Image, or null.
  *
- * sharp exposes this only as a side effect of actually cropping, so the read is
- * a throwaway resize down to a 32-pixel short side — three kilobytes of pixels
- * instead of a full-size crop nobody keeps. The shape has to match the shape the
- * Crop is for, since that is the window the strategy is choosing.
+ * sharp will only say where it is looking as a side effect of actually cropping,
+ * so the read is a throwaway resize down to a 32-pixel short side — three
+ * kilobytes of pixels instead of a full-size crop nobody keeps. The shape has to
+ * match the shape the Crop is for, since that is the window the strategy is
+ * choosing.
  *
- * It can legitimately answer nothing: a request whose shape already matches the
- * Source Image needs no crop, libvips skips the whole block, and no point comes
- * back. That is a fall-through to the next producer, not an error.
+ * The answer is read off `cropOffsetLeft/Top`, the window the strategy picked,
+ * and not off `attentionX/Y`. The research note claims that field is rescaled
+ * back to Source Image pixels; measured against sharp 0.35 it is not. On a
+ * 1600×1000 photograph whose Subject sits at 0.68 of the width, a 32-pixel probe
+ * reports `attentionX` 33 for a PNG and 264 for the same picture as a JPEG — the
+ * resized-probe coordinate multiplied by whatever shrink-on-load the decoder
+ * chose, which is not a factor sharp exposes. The window offset needs only the
+ * resize scale undone and reads 0.645 at every probe size and in both formats.
+ * Since libvips centres that window on the attention point, its centre is the
+ * point back again, give or take the clamping at the edge of the picture.
+ *
+ * Both strategies answer the same way, so both go through here. It can also
+ * legitimately answer nothing: a request whose shape already matches the Source
+ * Image needs no crop, libvips skips the block, and no offset comes back. That
+ * is a fall-through to the next producer, not an error.
  */
 async function saliencyPoint(
   data: Buffer,
@@ -130,8 +143,8 @@ async function saliencyPoint(
 ): Promise<FractionPoint | null> {
   const probe =
     aspect >= 1
-      ? { width: Math.max(1, Math.round(PROBE_PX * aspect)), height: PROBE_PX }
-      : { width: PROBE_PX, height: Math.max(1, Math.round(PROBE_PX / aspect)) };
+      ? { width: Math.max(1, Math.round(SALIENCY_READ_PX * aspect)), height: SALIENCY_READ_PX }
+      : { width: SALIENCY_READ_PX, height: Math.max(1, Math.round(SALIENCY_READ_PX / aspect)) };
 
   const { info } = await sharp(data)
     .resize(probe.width, probe.height, {
@@ -141,16 +154,8 @@ async function saliencyPoint(
     .raw()
     .toBuffer({ resolveWithObject: true });
 
-  if (strategy === "attention") {
-    // Already rescaled back to Source Image pixels by sharp itself.
-    const { attentionX, attentionY } = info;
-    if (attentionX === undefined || attentionY === undefined) return null;
-    return { x: attentionX / source.width, y: attentionY / source.height };
-  }
-
-  // The entropy strategy reports no point, only where it put the window — and
-  // it reports that as a negated offset in the resized image rather than in the
-  // Source Image, so both have to be undone before the centre means anything.
+  // Negated, and in the resized image rather than the Source Image, so both have
+  // to be undone before the centre of the window means anything.
   const { cropOffsetLeft, cropOffsetTop } = info;
   if (cropOffsetLeft === undefined || cropOffsetTop === undefined) return null;
   const scale = Math.max(probe.width / source.width, probe.height / source.height);
@@ -182,7 +187,7 @@ async function subjectBoxes(
     producer,
     priority: PRIORITY[producer],
     keep: true,
-    ...(framed ? { framePosition: framed } : {}),
+    ...(framed ? { framedAt: framed } : {}),
   });
 
   if (req.strategy) {
@@ -190,19 +195,16 @@ async function subjectBoxes(
     if (found) return [point("saliency", found)];
   }
   if (req.anchor) {
-    const at = ANCHOR_POSITION[req.anchor];
+    const at = ANCHOR_AT[req.anchor];
     return [point("anchor", at, at)];
   }
-  const centre = ANCHOR_POSITION.center;
+  const centre = ANCHOR_AT.center;
   return [point("centre", centre, centre)];
 }
 
 export async function cropImage(req: CropRequest): Promise<CropResult> {
   const { source, width, height, anchor, format = "jpeg", quality = 88 } = req;
 
-  if (width <= 0 || height <= 0) {
-    throw new Error(`Crop size must be positive, got ${width}x${height}.`);
-  }
   if (anchor !== undefined && !CROP_ANCHORS.includes(anchor)) {
     throw new Error(
       `Unknown Crop Anchor "${anchor}". Use one of: ${CROP_ANCHORS.join(", ")}.`,

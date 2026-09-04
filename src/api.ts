@@ -1,7 +1,7 @@
 /**
  * What meco does, with no transport attached.
  *
- * The HTTP routes in `server.ts` and the MCP tools in `mcp.ts` are both thin
+ * The HTTP routes in `app.ts` and the MCP tools in `mcp.ts` are both thin
  * shells over these three functions, so a Template added once is reachable
  * from both without a second registration.
  */

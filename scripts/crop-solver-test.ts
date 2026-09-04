@@ -119,7 +119,7 @@ for (const shape of SHAPES) {
 console.log("\nproducers");
 
 const anchored = solveCrop(
-  [box({ producer: "anchor", priority: 20, x: 0, y: 0, width: 0, height: 0, framePosition: { x: 0, y: 0 } })],
+  [box({ producer: "anchor", priority: 20, x: 0, y: 0, width: 0, height: 0, framedAt: { x: 0, y: 0 } })],
   SOURCE,
   { width: 1080, height: 1920 },
 );
@@ -131,7 +131,7 @@ check(
 );
 
 const centred = solveCrop(
-  [box({ producer: "centre", priority: 10, x: 0.5, y: 0.5, width: 0, height: 0, framePosition: { x: 0.5, y: 0.5 } })],
+  [box({ producer: "centre", priority: 10, x: 0.5, y: 0.5, width: 0, height: 0, framedAt: { x: 0.5, y: 0.5 } })],
   SOURCE,
   { width: 1080, height: 1920 },
 );

@@ -54,7 +54,7 @@ export interface SubjectBox {
    * so it names one. A found Subject leaves it open and takes the golden line
    * nearest to where the photographer already had it.
    */
-  framePosition?: FractionPoint;
+  framedAt?: FractionPoint;
   /** Eye midpoint, fraction of the Source Image height. Drives headroom. */
   eyeY?: number;
 }
@@ -287,7 +287,7 @@ export function solveCrop(
   const solve = (zoom: number, relax: number, subjects: SubjectBox[]) => {
     const size = windowSize(source, aspect, zoom);
     const natural = naturalPosition(anchor, size, source);
-    const wanted: FractionPoint = leader.framePosition ?? {
+    const wanted: FractionPoint = leader.framedAt ?? {
       x: nearestPhiLine(natural.x),
       y: eyeY === undefined ? nearestPhiLine(natural.y) : PHI_LINES[0],
     };
