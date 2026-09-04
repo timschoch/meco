@@ -12,10 +12,10 @@
  * any of them failed.
  */
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CLIENT_CAPABILITIES_META_KEY,
@@ -28,7 +28,8 @@ import { createApp } from "../src/app.js";
 import { CROP_PRODUCERS, solveCrop } from "../src/crop-solver.js";
 import { faceSubjectBoxes } from "../src/crop.js";
 import { FACES_URL, type Detection } from "../src/faces.js";
-import { LocalStorage } from "../src/storage.js";
+import { MIN_FACE_PX, facePrintsFor } from "../src/people.js";
+import { LocalStorage, isPrivateKey } from "../src/storage.js";
 
 const problems: string[] = [];
 
@@ -394,8 +395,24 @@ const sha = (data: Buffer) => createHash("sha256").update(data).digest("hex");
 
 /** Recorded detections, keyed by the hash of the photograph they belong to. */
 const canned = new Map<string, Detection>();
-/** One entry per request the stand-in was asked to serve. */
+/** One entry per detection the stand-in was asked to serve. */
 const detectCalls: string[] = [];
+
+/**
+ * A Face Print the stand-in can make up, seeded from the face it was given.
+ *
+ * Not EdgeFace and not pretending to be: what enrolment needs from a print is
+ * that it is 512 numbers on the unit sphere and that two different faces do not
+ * produce the same one. Both are true of this, and neither needs ONNX Runtime in
+ * this process. The real network is checked against PyTorch in
+ * `packages/faces/scripts/embed-test.ts`.
+ */
+function cannedPrint(landmarks: Record<string, { x: number; y: number }>): number[] {
+  const seed = Object.values(landmarks).reduce((a, p) => a + p.x * 7919 + p.y * 104729, 1);
+  const raw = Array.from({ length: 512 }, (_, i) => Math.sin(seed * (i + 1)));
+  const norm = Math.hypot(...raw);
+  return raw.map((v) => v / norm);
+}
 
 const facesService = createServer((req, res) => {
   const chunks: Buffer[] = [];
@@ -403,6 +420,18 @@ const facesService = createServer((req, res) => {
   req.on("end", () => {
     void (async () => {
       const body = Buffer.concat(chunks);
+      const asked = new URL(req.url ?? "/", "http://local");
+      // `/embed` turns faces the caller already found into Face Prints. It is a
+      // second route on the same service, so the stand-in has to be one too, or
+      // enrolment would be tested against a shape meco-faces does not have.
+      if (asked.pathname === "/embed") {
+        const faces = JSON.parse(asked.searchParams.get("faces") ?? "[]") as {
+          landmarks: Record<string, { x: number; y: number }>;
+        }[];
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ prints: faces.map((f) => cannedPrint(f.landmarks)) }));
+        return;
+      }
       detectCalls.push(sha(body));
       const known = canned.get(sha(body));
       // An image nobody recorded is a photograph with no faces in it, answered
@@ -1020,6 +1049,388 @@ check(
   "a photograph with no face in it reports zero blurred, not nothing",
   blurredNobody.status === 200 && blurredNobody.json.blurred === 0,
   `${String(blurredNobody.status)} blurred=${String(blurredNobody.json.blurred)}`,
+);
+
+// -------------------------------------------------------------------- people
+
+console.log("\npeople");
+
+/**
+ * Enrolment is the one path that uses both halves of meco-faces, so this is
+ * where the whole of it is driven: detect to find the faces, embed to turn the
+ * chosen one into a Face Print, and the private store to keep both.
+ *
+ * The claims that matter here are not really about the happy path. They are that
+ * a Reference Photo never leaves the People prefix, that no answer about a Person
+ * carries a storage URL, and that deleting a Person leaves nothing behind
+ * anywhere in the store. Those are data-protection properties, and a property is
+ * only a property if something checks it.
+ */
+async function del(path: string): Promise<{ status: number; json: Json }> {
+  const res = await app.fetch(
+    new Request(`http://local${path}`, { method: "DELETE", headers: { "x-auth-token": TOKEN } }),
+  );
+  return { status: res.status, json: (await res.json()) as Json };
+}
+
+/** Every key under the temp store, so a claim about "nothing left" can be made. */
+async function everyStoredKey(): Promise<string[]> {
+  const entries = await readdir(root, { withFileTypes: true, recursive: true });
+  return entries
+    .filter((e) => e.isFile())
+    .map((e) => relative(root, join(e.parentPath, e.name)).split(sep).join("/"));
+}
+
+interface PersonJson extends Json {
+  id: string;
+  photoCount: number;
+  photos: { photoId: string; face: Json; consentAt?: string }[];
+}
+
+const created = await post("/v1/people", { brand: "laica", name: "Ada Lovelace" });
+const ada = created.json as PersonJson;
+check(
+  "a Person is created under a Brand with no photographs",
+  created.status === 200 && ada.brand === "laica" && ada.photoCount === 0,
+  JSON.stringify(created.json).slice(0, 160),
+);
+
+const unknownBrand = await post("/v1/people", { brand: "nobody", name: "Ada" });
+check("a Person under a Brand that does not exist is refused", unknownBrand.status === 400);
+
+const forLaica = await get("/v1/people?brand=laica");
+check(
+  "and appears in that Brand's People",
+  ((forLaica.json.people ?? []) as PersonJson[]).some((p) => p.id === ada.id),
+);
+const forOthers = await get("/v1/people?brand=hopefamily");
+check(
+  "but not in another Brand's — a Person belongs to exactly one",
+  ((forOthers.json.people ?? []) as PersonJson[]).length === 0,
+);
+const noBrand = await get("/v1/people");
+check("listing People without naming a Brand is refused", noBrand.status === 400);
+
+// ------------------------------------------------------------------ enrolling
+
+const photosPath = `/v1/people/${ada.id}/photos`;
+
+const oneFace = await post(photosPath, {
+  brand: "laica",
+  source: PORTRAIT.url,
+  consent: true,
+});
+interface EnrolJson extends Json {
+  results: {
+    name: string;
+    status: string;
+    error?: string;
+    photo?: { photoId: string; face: { width: number }; consentAt?: string };
+    faces?: { index: number; box: { x: number; width: number }; pixels: number }[];
+  }[];
+}
+const enrolled = (oneFace.json as EnrolJson).results[0];
+check(
+  "a photograph with one face enrols by itself",
+  oneFace.status === 200 && enrolled?.status === "enrolled",
+  JSON.stringify(oneFace.json).slice(0, 200),
+);
+check(
+  "the enrolled face is kept as a rectangle, so the console can outline it",
+  (enrolled?.photo?.face.width ?? 0) > 0,
+  JSON.stringify(enrolled?.photo?.face),
+);
+check(
+  "a ticked consent box is recorded as a timestamp on the photograph",
+  typeof enrolled?.photo?.consentAt === "string",
+  String(enrolled?.photo?.consentAt),
+);
+
+const groupAsked = await post(photosPath, { brand: "laica", source: GROUP.url });
+const asking = (groupAsked.json as EnrolJson).results[0];
+check(
+  "a photograph with several faces comes back asking which one",
+  groupAsked.status === 200 && asking?.status === "pick-a-face" &&
+    asking.faces?.length === recorded.images["artemis-2-crew.jpg"]!.faces.length,
+  `${String(groupAsked.status)} ${String(asking?.status)} ${String(asking?.faces?.length)}`,
+);
+check(
+  "and it says how big each face is, which is what makes a choice informed",
+  (asking?.faces ?? []).every((f) => f.pixels > 0 && f.index >= 0),
+  JSON.stringify(asking?.faces?.[0]),
+);
+
+const picked = await post(photosPath, { brand: "laica", source: GROUP.url, faceIndex: 2 });
+const pickedPhoto = (picked.json as EnrolJson).results[0];
+check(
+  "naming the face enrols that one",
+  picked.status === 200 && pickedPhoto?.status === "enrolled",
+  JSON.stringify(picked.json).slice(0, 200),
+);
+check(
+  "and the box it stored is the face that was named, not the first one",
+  pickedPhoto?.photo?.face.width ===
+    recorded.images["artemis-2-crew.jpg"]!.faces[2]!.box.width,
+  JSON.stringify(pickedPhoto?.photo?.face),
+);
+check(
+  "a consent box left unticked records no consent, rather than inventing one",
+  pickedPhoto?.photo?.consentAt === undefined,
+  String(pickedPhoto?.photo?.consentAt),
+);
+
+const outOfRange = await post(photosPath, { brand: "laica", source: GROUP.url, faceIndex: 9 });
+check(
+  "a face index the photograph does not have is refused",
+  outOfRange.status === 400 && String(outOfRange.json.error).includes("no face 9"),
+  `${String(outOfRange.status)} ${String(outOfRange.json.error)}`,
+);
+
+const noFace = await post(photosPath, { brand: "laica", source: FACELESS.url });
+check(
+  "a photograph with no face in it is refused",
+  noFace.status === 400 && String(noFace.json.error).includes("No face was found"),
+  `${String(noFace.status)} ${String(noFace.json.error).slice(0, 120)}`,
+);
+
+/**
+ * A face too small to enrol.
+ *
+ * EdgeFace is trained on 112x112 crops; below `MIN_FACE_PX` what comes back is a
+ * Face Print of the upsampling rather than of the person. The stand-in is the
+ * injection point, so a photograph with a tiny face is a recorded detection
+ * rather than a photograph that had to be found.
+ */
+const tinyUrl = await photo(800, 600);
+const tinyBytes = Buffer.from(tinyUrl.slice("data:image/jpeg;base64,".length), "base64");
+const point = (x: number, y: number) => ({ x, y });
+canned.set(sha(tinyBytes), {
+  width: 800,
+  height: 600,
+  faces: [
+    {
+      box: { x: 0.3, y: 0.3, width: 0.03, height: 0.04 },
+      landmarks: {
+        rEye: point(0.305, 0.31),
+        lEye: point(0.32, 0.31),
+        nose: point(0.312, 0.32),
+        rMouth: point(0.306, 0.33),
+        lMouth: point(0.319, 0.33),
+      },
+      score: 0.9,
+    },
+  ],
+});
+const tooSmallFace = await post(photosPath, { brand: "laica", source: tinyUrl });
+check(
+  `a face under ${String(MIN_FACE_PX)} px is refused, and the refusal says how big it was`,
+  tooSmallFace.status === 400 &&
+    String(tooSmallFace.json.error).includes("24 px") &&
+    String(tooSmallFace.json.error).includes(String(MIN_FACE_PX)),
+  `${String(tooSmallFace.status)} ${String(tooSmallFace.json.error).slice(0, 140)}`,
+);
+
+// ------------------------------------------------------------------ multipart
+
+/**
+ * The upload path, which is the only one a browser has.
+ *
+ * Two photographs in one request, because that is what the console sends when
+ * several files are dropped at once — and one of them needs a face picked, so
+ * this also proves that one unusable photograph does not throw away the one
+ * beside it. Vercel caps a request body at 100 MB; meco does not narrow that.
+ */
+const form = new FormData();
+form.set("brand", "laica");
+form.set("consent", "true");
+form.append(
+  "file",
+  new File([new Uint8Array(await readFile(fixtures("astronaut-portrait.jpg")))], "portrait.jpg", {
+    type: "image/jpeg",
+  }),
+);
+form.append(
+  "file",
+  new File([new Uint8Array(await readFile(fixtures("artemis-2-crew.jpg")))], "crew.jpg", {
+    type: "image/jpeg",
+  }),
+);
+const uploaded = await app.fetch(
+  new Request(`http://local${photosPath}`, {
+    method: "POST",
+    headers: { "x-auth-token": TOKEN },
+    body: form,
+  }),
+);
+const uploadJson = (await uploaded.json()) as EnrolJson;
+check(
+  "several photographs upload in one multipart request",
+  uploaded.status === 200 && uploadJson.results.length === 2,
+  `${String(uploaded.status)} ${JSON.stringify(uploadJson).slice(0, 160)}`,
+);
+check(
+  "each is judged on its own — one enrolled, one waiting for a face to be picked",
+  uploadJson.results[0]?.status === "enrolled" &&
+    uploadJson.results[1]?.status === "pick-a-face",
+  uploadJson.results.map((r) => `${r.name}=${r.status}`).join(" "),
+);
+check(
+  "and each result names the file it belongs to",
+  uploadJson.results[0]?.name === "portrait.jpg" && uploadJson.results[1]?.name === "crew.jpg",
+  uploadJson.results.map((r) => r.name).join(" "),
+);
+
+// -------------------------------------------------------------- what is kept
+
+const withPhotos = await get(`/v1/people?brand=laica`);
+const stored = ((withPhotos.json.people ?? []) as PersonJson[]).find((p) => p.id === ada.id);
+check(
+  "the Person now counts every Reference Photo enrolled",
+  stored?.photoCount === 2 && stored.photos.length === 2,
+  `photoCount=${String(stored?.photoCount)}`,
+);
+
+const peopleKeys = (await everyStoredKey()).filter((k) => k.startsWith("people/"));
+check(
+  "every Reference Photo and Face Print is under the People prefix",
+  peopleKeys.length > 0 && peopleKeys.every((k) => isPrivateKey(k)),
+  `${String(peopleKeys.length)} keys`,
+);
+check(
+  "and each of them is filed under the Brand and the Person",
+  peopleKeys.every((k) => k.startsWith(`people/laica/${ada.id}/`)),
+  peopleKeys.slice(0, 3).join(" "),
+);
+check(
+  "a Face Print is stored beside each photograph, 512 floats on the unit sphere",
+  await (async () => {
+    const printKeys = peopleKeys.filter((k) => k.endsWith(".print.json"));
+    if (printKeys.length !== stored?.photos.length) return false;
+    for (const key of printKeys) {
+      const record = JSON.parse(await readFile(join(root, key), "utf8")) as { print: number[] };
+      const length = Math.hypot(...record.print);
+      if (record.print.length !== 512 || Math.abs(length - 1) > 1e-6) return false;
+    }
+    return true;
+  })(),
+  peopleKeys.filter((k) => k.endsWith(".print.json")).join(" "),
+);
+check(
+  "enrolling a Reference Photo writes no Annotation, so nothing about a Person is filed outside the People prefix",
+  !(await everyStoredKey()).some(
+    (k) => k.startsWith("annotations/") && k.includes(sha(tinyBytes)),
+  ),
+);
+check(
+  "no answer about a Person carries a storage URL for a Reference Photo",
+  !JSON.stringify(withPhotos.json).includes("people/") &&
+    !JSON.stringify(withPhotos.json).includes("http://local"),
+  JSON.stringify(withPhotos.json).slice(0, 160),
+);
+
+/**
+ * People are personal data and never a stored output, so the Gallery leaves them
+ * out. Asked here rather than in the gallery section below, because here there
+ * are Reference Photos and Face Prints in the store for it to leave out.
+ */
+const galleryWithPeople = await get("/v1/gallery");
+check(
+  "the Gallery lists no Person, no Reference Photo and no Face Print",
+  ((galleryWithPeople.json.items ?? []) as { key: string }[]).every((i) => !isPrivateKey(i.key)),
+  ((galleryWithPeople.json.items ?? []) as { key: string }[]).map((i) => i.key).join(" "),
+);
+
+/** The seam #14 matches against: every Face Print this Brand has enrolled. */
+const brandPrints = await facePrintsFor("laica", storage);
+check(
+  "every Face Print of a Brand is reachable through one lookup",
+  brandPrints.length === stored?.photos.length &&
+    brandPrints.every((p) => p.personId === ada.id && p.personName === "Ada Lovelace"),
+  `${String(brandPrints.length)} prints`,
+);
+
+// ------------------------------------------------- serving a Reference Photo
+
+const firstPhotoId = stored!.photos[0]!.photoId;
+const bytesPath = `/v1/people/${ada.id}/photos/${firstPhotoId}?brand=laica`;
+const servedRes = await app.fetch(
+  new Request(`http://local${bytesPath}`, { headers: { "x-auth-token": TOKEN } }),
+);
+check(
+  "a Reference Photo is served by meco itself, as an image",
+  servedRes.status === 200 && (servedRes.headers.get("content-type") ?? "").startsWith("image/"),
+  `${String(servedRes.status)} ${String(servedRes.headers.get("content-type"))}`,
+);
+check(
+  "and never from a shared cache",
+  (servedRes.headers.get("cache-control") ?? "").includes("no-store"),
+  String(servedRes.headers.get("cache-control")),
+);
+const servedAnonymously = await app.fetch(new Request(`http://local${bytesPath}`));
+check(
+  "a Reference Photo is not served to a caller with no token",
+  servedAnonymously.status === 401,
+  String(servedAnonymously.status),
+);
+
+// --------------------------------------------------------------- deleting
+
+const removed = await del(bytesPath);
+check(
+  "removing one Reference Photo leaves the Person standing",
+  removed.status === 200 && (removed.json as PersonJson).photoCount === 1,
+  JSON.stringify(removed.json).slice(0, 140),
+);
+/**
+ * Scoped to the People prefix on purpose.
+ *
+ * A photoId is the first 32 hex of the SHA-256 of the photograph, and an
+ * Annotation of the same photograph is filed under the whole 64 — so a bare
+ * substring search matches the Annotation of a Crop made earlier in this run and
+ * would fail on a name rather than on anything left behind.
+ */
+const leftBehind = (await everyStoredKey()).filter(
+  (k) => k.startsWith("people/") && k.includes(firstPhotoId),
+);
+check(
+  "and takes that photograph's Face Print with it",
+  leftBehind.length === 0,
+  leftBehind.join(" "),
+);
+
+/**
+ * The cascade, which is the whole reason a Person's things live under one prefix.
+ *
+ * Checked against the store rather than against the record: the record is what a
+ * half-finished enrolment could be missing an entry from, and personal data left
+ * behind that nothing points at is the one outcome this must not have.
+ */
+const before = await everyStoredKey();
+check(
+  "before deleting, the store does hold this Person's things",
+  before.some((k) => k.includes(ada.id)),
+  `${String(before.filter((k) => k.includes(ada.id)).length)} keys`,
+);
+const gone = await del(`/v1/people/${ada.id}?brand=laica`);
+check("deleting a Person is accepted", gone.status === 200, JSON.stringify(gone.json));
+check(
+  "and leaves nothing of them anywhere in the store, under any prefix",
+  !(await everyStoredKey()).some((k) => k.includes(ada.id)),
+  (await everyStoredKey()).filter((k) => k.includes(ada.id)).join(" "),
+);
+check(
+  "the Brand's People no longer name them",
+  !(((await get("/v1/people?brand=laica")).json.people ?? []) as PersonJson[]).some(
+    (p) => p.id === ada.id,
+  ),
+);
+check(
+  "and their Face Prints are gone from the Brand's lookup too",
+  (await facePrintsFor("laica", storage)).length === 0,
+);
+check(
+  "deleting a Person who is already gone is refused rather than silently accepted",
+  (await del(`/v1/people/${ada.id}?brand=laica`)).status === 400,
 );
 
 // ------------------------------------------------------ a face service down

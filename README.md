@@ -39,6 +39,12 @@ set that header, `x-auth-token: <token>`.
 | `POST /v1/carousel` | render Slides into one multi-page PDF, or N images |
 | `POST /v1/crop` | cut a Source Image to a shape; a solver frames it and the answer names what decided — `face`, `saliency`, `anchor` or `centre` — and a `subjectArea` says where in the result the Subject has to land |
 | `POST /v1/subjects` | the Annotation for a Source Image — every face as a rectangle — without cropping it |
+| `GET /v1/people?brand=` | the People a Brand has enrolled, with their Reference Photos |
+| `POST /v1/people` | create a Person under a Brand |
+| `DELETE /v1/people/:id?brand=` | remove a Person and every Reference Photo and Face Print of them |
+| `POST /v1/people/:id/photos` | enrol Reference Photos: multipart upload (several at once) or a JSON body naming a URL |
+| `GET /v1/people/:id/photos/:photoId?brand=` | the bytes of one Reference Photo — private, token only |
+| `DELETE /v1/people/:id/photos/:photoId?brand=` | remove one Reference Photo and its Face Print |
 | `POST /mcp` | the same operations as MCP tools, streamable HTTP |
 | `POST /mcp/<token>` | the same, for clients that treat a 401 as a reason to start OAuth |
 
@@ -118,6 +124,29 @@ curl -X POST localhost:8787/v1/crop -H 'content-type: application/json' -d '{
   "subjectArea": {"x":0.3,"y":0.15,"width":0.4,"height":0.5}
 }'
 ```
+
+### People
+
+A Brand can enrol the People it wants recognised. Create a Person by name, then
+add Reference Photos — several at once as a multipart upload, or one at a time by
+URL. meco finds the faces: one face enrols by itself, several come back as a list
+for the caller to choose from with `faceIndex`, and a photograph with no face, or
+a face under 40 px, is refused. The Face Print is computed by meco-faces and
+stored beside the photograph, with a consent timestamp when the caller says the
+Person agreed.
+
+```bash
+curl -X POST localhost:8787/v1/people -H 'content-type: application/json' \
+  -d '{"brand":"laica","name":"Ada Lovelace"}'
+
+curl -X POST localhost:8787/v1/people/<id>/photos \
+  -F brand=laica -F consent=true -F file=@portrait.jpg -F file=@second.jpg
+```
+
+Every Person route names the Brand, because a Person belongs to exactly one and
+the record is filed under it. Reference Photos and Face Prints are personal data:
+they live in a private store, never appear in the Gallery, have no public URL,
+and go away entirely when the Person does. See [DEPLOY.md](DEPLOY.md#people).
 
 ## Templates
 

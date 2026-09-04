@@ -156,3 +156,85 @@ export async function detectFaces(image: Buffer): Promise<Detection> {
   }
   return parsed.data;
 }
+
+// ------------------------------------------------------------------- embedding
+
+/**
+ * A Face Print: 512 floats on the unit sphere. Fixed by the network.
+ *
+ * Declared here rather than taken on trust from the answer, because a print of
+ * the wrong length compares against every stored print without failing — it
+ * would simply never match, and nothing downstream could say why.
+ */
+export const PRINT_LENGTH = 512;
+
+/** All `/embed` needs: the five points. The box is not part of the alignment. */
+export interface FaceToEmbed {
+  landmarks: FaceLandmarks;
+}
+
+const prints = z.object({
+  prints: z.array(z.array(z.number()).length(PRINT_LENGTH)),
+});
+
+/**
+ * The Face Print of every face named, in the order they were named.
+ *
+ * The faces ride in the query string, because the body is the photograph.
+ * meco-faces measured 443 encoded bytes per face when only the landmarks are
+ * sent, against Node's 16 KB of request line and headers — about 37 faces. A
+ * Reference Photo enrols one face, so the ceiling is nowhere near; it is
+ * recorded because a future caller with a crowd will meet it.
+ *
+ * Throws on anything that went wrong. Enrolling a Person is not a Crop: there is
+ * no other producer to fall back to, so a failure here is a failure of the
+ * request and is reported as one.
+ */
+export async function embedFaces(image: Buffer, faces: FaceToEmbed[]): Promise<number[][]> {
+  const base = facesBaseUrl();
+  if (!base) {
+    throw new Error(`${FACES_URL} is not set — meco cannot reach meco-faces.`);
+  }
+
+  // Only the landmarks travel. Passing the box through as well would double the
+  // query for a field `/embed` deliberately ignores.
+  const query = encodeURIComponent(
+    JSON.stringify(faces.map((f) => ({ landmarks: f.landmarks }))),
+  );
+
+  const token = process.env.MECO_TOKEN;
+  let res: Response;
+  try {
+    res = await fetch(`${base}/embed?faces=${query}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        ...(token ? { "x-auth-token": token } : {}),
+      },
+      body: new Uint8Array(image),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new Error(`meco-faces at ${base} did not answer: ${(err as Error).message}`);
+  }
+
+  if (!res.ok) {
+    throw new Error(
+      `meco-faces at ${base} answered ${String(res.status)}: ${(await res.text()).slice(0, 200)}`,
+    );
+  }
+
+  const parsed = prints.safeParse(await res.json());
+  if (!parsed.success) {
+    throw new Error(
+      `meco-faces at ${base} answered something that is not a list of Face Prints.`,
+    );
+  }
+  if (parsed.data.prints.length !== faces.length) {
+    throw new Error(
+      `meco-faces returned ${String(parsed.data.prints.length)} Face Prints for ` +
+        `${String(faces.length)} faces.`,
+    );
+  }
+  return parsed.data.prints;
+}

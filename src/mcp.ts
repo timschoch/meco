@@ -12,7 +12,8 @@ import { z } from "zod";
 import * as api from "./api.js";
 import { BRANDS } from "./brands.js";
 import { CHANNELS, PLACEMENTS } from "./channels.js";
-import { CROP_ANCHORS } from "./crop.js";
+import { CROP_ANCHORS, fetchSourceImage } from "./crop.js";
+import * as people from "./people.js";
 import type { Storage } from "./storage.js";
 import { describeTemplates } from "./templates/registry.js";
 
@@ -246,6 +247,112 @@ export function createMecoMcpHandler(storage: Storage) {
       async (input) => {
         try {
           return reply(await api.findSubjects(api.subjectsBody.parse(input), storage));
+        } catch (err) {
+          return fail(err);
+        }
+      },
+    );
+
+    // ---------------------------------------------------------------- people
+
+    /**
+     * People are personal data, so these three tools are deliberately the whole
+     * of what MCP can do with them: list, create, enrol. Deleting a Person is
+     * not offered here — it is irreversible, it takes every Reference Photo and
+     * Face Print with it, and it belongs behind a hand on a console rather than
+     * behind a sentence an agent decided to act on.
+     */
+    server.registerTool(
+      "list_people",
+      {
+        description:
+          "List the People a Brand has enrolled, with how many Reference Photos " +
+          "each has. A Person is a named individual the Brand wants recognised; " +
+          "they belong to exactly one Brand.",
+        inputSchema: z.object({
+          brand: z
+            .enum(["laica", "hopefamily", "swisshutless"])
+            .describe("The Brand whose People to list."),
+        }),
+      },
+      async ({ brand }) => {
+        try {
+          const enrolled = await people.listPeople(brand, storage);
+          return reply({
+            brand,
+            people: enrolled.map((p) => ({
+              id: p.id,
+              name: p.name,
+              createdAt: p.createdAt,
+              photoCount: p.photos.length,
+            })),
+          });
+        } catch (err) {
+          return fail(err);
+        }
+      },
+    );
+
+    server.registerTool(
+      "add_person",
+      {
+        description:
+          "Create a Person under a Brand. Returns the Person id to enrol " +
+          "Reference Photos against. Creating a Person stores nothing but a name.",
+        inputSchema: z.object({
+          brand: z.enum(["laica", "hopefamily", "swisshutless"]),
+          name: z.string().describe("The Person's name, as a human would write it."),
+        }),
+      },
+      async (input) => {
+        try {
+          return reply(await people.createPerson(people.addPersonBody.parse(input), storage));
+        } catch (err) {
+          return fail(err);
+        }
+      },
+    );
+
+    server.registerTool(
+      "add_reference_photo",
+      {
+        description:
+          "Enrol a photograph as a Reference Photo of one Person: meco finds the " +
+          "faces, computes the Face Print and stores both privately. One face is " +
+          "enrolled by itself; several come back as a list for you to choose from " +
+          "with faceIndex; a photograph with no face, or a face under 40 px, is " +
+          "refused. Only enrol people who agreed to it, and say so with consent.",
+        inputSchema: z.object({
+          brand: z.enum(["laica", "hopefamily", "swisshutless"]),
+          personId: z.string().describe("Person id from list_people or add_person."),
+          source: z.string().url().describe("URL of the photograph."),
+          faceIndex: z
+            .number()
+            .int()
+            .min(0)
+            .optional()
+            .describe("Which face to enrol, when a previous call returned several."),
+          consent: z
+            .boolean()
+            .optional()
+            .describe("True when this Person agreed to be enrolled. Stored as a timestamp."),
+        }),
+      },
+      async ({ personId, ...rest }) => {
+        try {
+          const input = people.addReferencePhotoBody.parse(rest);
+          return reply(
+            await people.enrolReferencePhoto(
+              {
+                brand: input.brand,
+                personId,
+                source: await fetchSourceImage(input.source),
+                ...(input.faceIndex === undefined ? {} : { faceIndex: input.faceIndex }),
+                consent: input.consent === true,
+              },
+              storage,
+            ),
+          );
         } catch (err) {
           return fail(err);
         }

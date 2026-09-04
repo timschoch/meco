@@ -73,6 +73,13 @@ export const UI_HTML = String.raw`<!doctype html>
     background: var(--accent); color: #06281a; font-size: 11px; line-height: 1.5;
     border-radius: 3px 3px 0 0; white-space: nowrap; font-weight: 600;
   }
+  /* A Person card: the thumbnails sit in a row under the name, each one an
+     overlay of its own so the enrolled face can be outlined on it. */
+  .photos { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 10px 10px; }
+  .photos .overlay { width: 92px; }
+  .face.pick { cursor: pointer; border-color: var(--dim); }
+  .face.pick:hover { border-color: var(--accent); }
+  .pickable { max-width: 520px; }
   .row { display: flex; gap: 8px; align-items: center; }
   .row .go { flex: 1; }
   .err { color: var(--bad); white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; }
@@ -87,6 +94,7 @@ export const UI_HTML = String.raw`<!doctype html>
     <button class="tab" role="tab" data-panel="render" aria-selected="true">Render</button>
     <button class="tab" role="tab" data-panel="carousel" aria-selected="false">Carousel</button>
     <button class="tab" role="tab" data-panel="crop" aria-selected="false">Crop</button>
+    <button class="tab" role="tab" data-panel="people" aria-selected="false">People</button>
     <button class="tab" role="tab" data-panel="gallery" aria-selected="false">Gallery</button>
   </div>
   <div class="grow"></div>
@@ -113,6 +121,7 @@ let panel = "render";
 // Survives a tab switch, so coming back to the Gallery keeps the filters.
 let galleryBrand = "";
 let galleryPlacement = "";
+let peopleBrand = "";
 
 // ------------------------------------------------------------------ plumbing
 
@@ -140,6 +149,48 @@ async function call(path, body) {
     throw err;
   }
   return json;
+}
+
+/**
+ * A request that is not a JSON POST: a multipart upload, or a delete.
+ *
+ * Kept beside "call" rather than folded into it, because the one thing this must
+ * not do is set a content type. A FormData body carries a boundary the browser
+ * generates, and naming the type by hand overwrites it with one that has no
+ * boundary in it — the request then arrives as a form with no parts.
+ */
+async function send(path, method, body) {
+  const token = tokenBox.value.trim();
+  const res = await fetch(path, {
+    method,
+    headers: { ...(token ? { authorization: "Bearer " + token } : {}) },
+    ...(body ? { body } : {}),
+  });
+  const json = await res.json().catch(() => ({ error: res.status + " " + res.statusText }));
+  if (!res.ok) {
+    const err = new Error(json.error ?? JSON.stringify(json, null, 2));
+    err.status = res.status;
+    throw err;
+  }
+  return json;
+}
+
+/**
+ * A picture that has no public URL, as one the page can show.
+ *
+ * A Reference Photo is private in the store, so nothing serves it from its own
+ * address: meco hands the bytes over only to a caller carrying the token, and an
+ * "img" tag cannot carry a header. So the page fetches the bytes itself and
+ * points the tag at an object URL — which keeps the token out of the address bar
+ * and out of any log, where a token in a query string would end up.
+ */
+async function privateImage(path) {
+  const token = tokenBox.value.trim();
+  const res = await fetch(path, {
+    headers: { ...(token ? { authorization: "Bearer " + token } : {}) },
+  });
+  if (!res.ok) throw new Error("Could not load the Reference Photo: " + res.status);
+  return URL.createObjectURL(await res.blob());
 }
 
 function el(tag, attrs = {}, ...kids) {
@@ -220,6 +271,36 @@ function card(url, caption, isPdf) {
 
 function fail(err) {
   show([el("p", { className: "err", textContent: err.message })]);
+}
+
+function note(text) {
+  return el("p", { className: "note", textContent: text });
+}
+
+/**
+ * A fraction as a per cent, rounded before it is written: 0.28 * 100 is
+ * 28.000000000000004 in binary floating point, and a stylesheet should not
+ * carry that.
+ */
+function pc(n) {
+  return +(n * 100).toFixed(4) + "%";
+}
+
+/**
+ * One outlined box over a picture, positioned in fractions of it.
+ *
+ * Per cent rather than a canvas, for the same reason the Crop tab's overlay uses
+ * it: a box is already a fraction, so it stays right at whatever width the
+ * picture is shown at, and it is a real element the jsdom test can count.
+ */
+function faceBox(box, label, className) {
+  const node = el("div", {
+    className: className ? "face " + className : "face",
+    style: "left:" + pc(box.x) + ";top:" + pc(box.y) + ";"
+      + "width:" + pc(box.width) + ";height:" + pc(box.height),
+  });
+  if (label) node.append(el("b", { textContent: label }));
+  return node;
 }
 
 // --------------------------------------------------------------------- forms
@@ -406,10 +487,6 @@ function cropForm() {
    * them, which it could not do with pixels painted into a canvas.
    */
   function overlay(url, regions) {
-    // A fraction as a per cent, rounded before it is written: 0.28 * 100 is
-    // 28.000000000000004 in binary floating point, and a stylesheet should not
-    // carry that.
-    const pc = (n) => +(n * 100).toFixed(4) + "%";
     const wrap = el("div", { className: "overlay" });
     wrap.append(el("img", { src: url }));
     for (const region of regions) {
@@ -466,6 +543,233 @@ function cropForm() {
       show([el("div", { className: "cards" }, card(res.url, res.width + "×" + res.height + " · " + how))]);
     } catch (err) { fail(err); } finally { go.disabled = false; }
   };
+}
+
+/**
+ * The People tab: who a Brand wants recognised, and the photographs it knows
+ * them by.
+ *
+ * Everything here handles personal data, which is why it looks different from
+ * the other tabs. Reference Photos are fetched rather than linked, because they
+ * have no public address. Deleting takes two clicks, because it takes every
+ * photograph and Face Print with it and there is no undo. And consent is a box
+ * on the enrol form rather than a rule in a document, so the answer is recorded
+ * against the photograph it belongs to.
+ */
+function peopleForm() {
+  const form = $("#form");
+  form.replaceChildren();
+
+  const brand = el("select", { name: "peopleBrand", dataset: { role: "control" } });
+  for (const b of brands) brand.append(el("option", { value: b.id, textContent: b.name }));
+  brand.value = peopleBrand || brands[0]?.id || "";
+  peopleBrand = brand.value;
+  form.append(field("Company", brand, "a Person belongs to exactly one"));
+
+  const add = el("fieldset");
+  add.append(el("legend", { textContent: "Add a Person" }));
+  const personName = el("input", { name: "personName", type: "text", placeholder: "Name" });
+  add.append(field("Name", personName));
+  const addGo = el("button", { className: "go", type: "button", textContent: "Add person" });
+  add.append(addGo);
+  form.append(add);
+
+  const enrol = el("fieldset");
+  enrol.append(el("legend", { textContent: "Add Reference Photos" }));
+  const who = el("select", { name: "person" });
+  enrol.append(field("Person", who));
+  const files = el("input", { name: "files", type: "file", multiple: true, accept: "image/*" });
+  enrol.append(field("Photographs", files, "several at once"));
+  const photoUrl = el("input", { name: "photoUrl", type: "url", placeholder: "https://" });
+  enrol.append(field("or a URL", photoUrl));
+
+  const consentRow = el("div", { className: "checks" });
+  const consent = el("input", { name: "consent", type: "checkbox" });
+  const consentLabel = el("label");
+  consentLabel.append(consent, document.createTextNode("This Person agreed to be enrolled"));
+  consentRow.append(consentLabel);
+  enrol.append(consentRow);
+
+  const enrolGo = el("button", { className: "go", type: "button", textContent: "Enrol photos" });
+  enrol.append(enrolGo);
+  form.append(enrol);
+
+  form.append(note(
+    "Enrol only people who agreed to it. meco stores the photograph and a Face Print — "
+    + "512 numbers a face can be compared against, from which no photograph can be "
+    + "recovered. Neither is ever public and neither appears in the Gallery. Deleting a "
+    + "Person deletes both."));
+
+  const query = () => "?brand=" + encodeURIComponent(brand.value);
+
+  // --------------------------------------------------------------- the cards
+
+  async function personCard(person) {
+    const c = el("div", { className: "card", dataset: { person: person.id } });
+    const meta = el("div", { className: "meta" });
+    meta.append(
+      el("b", { textContent: person.name }),
+      document.createTextNode(
+        " · " + person.photoCount + (person.photoCount === 1 ? " photo" : " photos")),
+    );
+    const del = el("button", { className: "ghost", type: "button", textContent: "Delete Person" });
+    // Two clicks rather than a dialog: the second one is the confirmation, and
+    // the label says what it will do. Deleting a Person cannot be undone.
+    del.onclick = async () => {
+      if (del.textContent !== "Really delete?") {
+        del.textContent = "Really delete?";
+        return;
+      }
+      try {
+        await send("/v1/people/" + person.id + query(), "DELETE");
+        await load([note("Deleted " + person.name + " and every photograph of them.")]);
+      } catch (err) { fail(err); }
+    };
+    meta.append(el("br"), del);
+    c.append(meta);
+
+    const photos = el("div", { className: "photos" });
+    for (const photo of person.photos) {
+      const wrap = el("div", { className: "overlay" });
+      const img = el("img", { alt: person.name });
+      wrap.append(img);
+      wrap.append(faceBox(photo.face, "enrolled"));
+      try {
+        img.src = await privateImage(
+          "/v1/people/" + person.id + "/photos/" + photo.photoId + query());
+      } catch {
+        // A thumbnail that will not load must not take the card with it: the
+        // Person and their photo count are still worth showing.
+        wrap.append(note("photo unavailable"));
+      }
+      const drop = el("button", {
+        className: "ghost", type: "button", textContent: "Remove",
+        dataset: { photo: photo.photoId },
+      });
+      drop.onclick = async () => {
+        try {
+          await send(
+            "/v1/people/" + person.id + "/photos/" + photo.photoId + query(), "DELETE");
+          await load([note("Removed one Reference Photo.")]);
+        } catch (err) { fail(err); }
+      };
+      const one = el("div");
+      one.append(wrap, el("div", { className: "meta", textContent:
+        photo.consentAt ? "consent recorded" : "no consent recorded" }), drop);
+      photos.append(one);
+    }
+    c.append(photos);
+    return c;
+  }
+
+  async function load(prefix = []) {
+    peopleBrand = brand.value;
+    show([...prefix, note("Loading People …")]);
+    try {
+      const res = await call("/v1/people" + query());
+      who.replaceChildren(
+        ...res.people.map((p) => el("option", { value: p.id, textContent: p.name })));
+      if (!res.people.length) {
+        return show([...prefix, note("No People yet for this company.")]);
+      }
+      const cards = [];
+      for (const person of res.people) cards.push(await personCard(person));
+      show([
+        ...prefix,
+        note(res.people.length + (res.people.length === 1 ? " Person." : " People.")),
+        el("div", { className: "cards" }, ...cards),
+      ]);
+    } catch (err) { fail(err); }
+  }
+
+  // ----------------------------------------------------------- the enrolment
+
+  /**
+   * Send one or more photographs at a Person.
+   *
+   * Always multipart, even for a URL, so the console has one request to build
+   * rather than two. A face index is only ever sent with a single photograph —
+   * see the picker below for why.
+   */
+  async function sendPhotos(sources, faceIndex) {
+    if (!who.value) return fail(new Error("Add a Person first, then enrol photographs."));
+    const body = new FormData();
+    body.set("brand", brand.value);
+    body.set("consent", consent.checked ? "true" : "false");
+    if (faceIndex !== undefined) body.set("faceIndex", String(faceIndex));
+    for (const one of sources) {
+      if (one.file) body.append("file", one.file);
+      else body.set("source", one.url);
+    }
+    enrolGo.disabled = true;
+    show([note("Looking for a face …")]);
+    try {
+      const res = await send("/v1/people/" + who.value + "/photos", "POST", body);
+      await report(res, sources);
+    } catch (err) { fail(err); } finally { enrolGo.disabled = false; }
+  }
+
+  /**
+   * The photograph with a numbered box on every face, one of which is clicked.
+   *
+   * The picked face is sent as that photograph on its own, never as part of the
+   * batch it arrived in: an index means something different in every picture, so
+   * re-sending the whole batch with one index would ask for face 2 of a portrait
+   * that has one face.
+   */
+  function picker(result, source) {
+    const wrap = el("div", { className: "overlay pickable" });
+    wrap.append(el("img", { src: source.file ? URL.createObjectURL(source.file) : source.url }));
+    result.faces.forEach((face, i) => {
+      const box = faceBox(face.box, "face " + (i + 1), "pick");
+      box.onclick = () => sendPhotos([source], i);
+      wrap.append(box);
+    });
+    return el("div", {},
+      note(result.faces.length + " faces in " + result.name + " — click the one to enrol."),
+      wrap);
+  }
+
+  async function report(res, sources) {
+    const nodes = [];
+    for (const one of res.results) {
+      const source = sources.find((s) => s.name === one.name) ?? sources[0];
+      if (one.status === "enrolled") {
+        nodes.push(note("Enrolled a face from " + one.name + "."));
+      } else if (one.status === "pick-a-face") {
+        nodes.push(picker(one, source));
+      } else {
+        nodes.push(el("p", { className: "err", textContent: one.name + ": " + one.error }));
+      }
+    }
+    await load(nodes);
+  }
+
+  addGo.onclick = async () => {
+    const name = personName.value.trim();
+    if (!name) return fail(new Error("Give the Person a name."));
+    addGo.disabled = true;
+    try {
+      const person = await call("/v1/people", { brand: brand.value, name });
+      personName.value = "";
+      await load([note("Added " + person.name + ".")]);
+      who.value = person.id;
+    } catch (err) { fail(err); } finally { addGo.disabled = false; }
+  };
+
+  enrolGo.onclick = () => {
+    const sources = [...files.files].map((f) => ({ name: f.name, file: f }));
+    const link = photoUrl.value.trim();
+    if (link) sources.push({ name: link, url: link });
+    if (!sources.length) {
+      return fail(new Error("Choose at least one photograph, or give a URL."));
+    }
+    return sendPhotos(sources);
+  };
+
+  brand.onchange = () => load();
+  form.onsubmit = (e) => { e.preventDefault(); };
+  load();
 }
 
 function galleryForm() {
@@ -532,6 +836,7 @@ for (const tab of document.querySelectorAll(".tab")) {
 function draw() {
   if (panel === "render") renderForm();
   else if (panel === "carousel") carouselForm();
+  else if (panel === "people") peopleForm();
   else if (panel === "gallery") galleryForm();
   else cropForm();
 }
