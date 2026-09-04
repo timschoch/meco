@@ -55,6 +55,7 @@ export const UI_HTML = String.raw`<!doctype html>
   .checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
   .checks label { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--ink); font-size: 13px; }
   .checks input { width: auto; }
+  .checks input[type="number"] { width: 5.5em; }
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
   .card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
   .card img { display: block; width: 100%; background: #000; }
@@ -328,11 +329,54 @@ function cropForm() {
   }
   form.append(field("Crop Anchor", anchor));
 
+  // The Subject Area, as four fractions of the result. Left blank it is absent
+  // and the golden grid frames the Crop, which is what the tab always did.
+  const area = el("fieldset");
+  area.append(el("legend", { textContent: "Subject Area — fractions of the result, 0–1, all four or none" }));
+  const areaFields = el("div", { className: "checks" });
+  const areaInput = (key, label) => {
+    const input = el("input", { name: "subjectArea" + key, type: "number", step: "0.01", min: "0", max: "1", placeholder: label });
+    areaFields.append(field(label, input));
+    return input;
+  };
+  const areaX = areaInput("X", "x");
+  const areaY = areaInput("Y", "y");
+  const areaW = areaInput("Width", "width");
+  const areaH = areaInput("Height", "height");
+  area.append(areaFields);
+  form.append(area);
+
+  /**
+   * The Subject Area the four fields describe, or null for none.
+   *
+   * Throws rather than silently dropping a half-filled area: a caller who typed
+   * three numbers meant something by them, and a Crop that ignored them would
+   * look like the feature is broken rather than the input.
+   */
+  function readSubjectArea() {
+    const raw = [areaX, areaY, areaW, areaH].map((i) => i.value.trim());
+    if (raw.every((v) => !v)) return null;
+    if (raw.some((v) => !v)) throw new Error("Give all four Subject Area fields, or none.");
+    const [x, y, w, h] = raw.map(Number);
+    if ([x, y, w, h].some((n) => !Number.isFinite(n) || n < 0 || n > 1)) {
+      throw new Error("Every Subject Area field must be a number between 0 and 1.");
+    }
+    if (w <= 0 || h <= 0) throw new Error("A Subject Area needs a width and a height above 0.");
+    if (x + w > 1 || y + h > 1) {
+      throw new Error("A Subject Area must lie inside the frame: x + width and y + height must not exceed 1.");
+    }
+    return { x, y, width: w, height: h };
+  }
+
   const go = el("button", { className: "go", type: "submit", textContent: "Crop" });
   form.append(go);
 
   form.onsubmit = async (e) => {
     e.preventDefault();
+    let subjectArea;
+    try {
+      subjectArea = readSubjectArea();
+    } catch (err) { return fail(err); }
     go.disabled = true;
     show([el("p", { className: "note", textContent: "Cropping …" })]);
     try {
@@ -341,8 +385,12 @@ function cropForm() {
         width: Number(width.value),
         height: Number(height.value),
         ...(anchor.value ? { anchor: anchor.value } : { strategy: "attention" }),
+        ...(subjectArea ? { subjectArea } : {}),
       });
-      const how = res.resolvedBy + (res.fallback ? " · fell back: " + res.fallback : "");
+      const how = res.resolvedBy
+        + (res.fallback ? " · fell back: " + res.fallback : "")
+        + (res.subjectAreaSatisfied === undefined ? ""
+          : res.subjectAreaSatisfied ? " · Subject Area satisfied" : " · Subject Area missed");
       show([el("div", { className: "cards" }, card(res.url, res.width + "×" + res.height + " · " + how))]);
     } catch (err) { fail(err); } finally { go.disabled = false; }
   };

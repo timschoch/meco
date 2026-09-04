@@ -119,7 +119,16 @@ function stubFetch(url, init = {}) {
       ? (body.output === "images"
           ? { placement: body.channel, slides: body.slides.map((_, i) => ({ url: "https://blob.test/s" + i + ".png" })) }
           : { placement: body.channel, pages: body.slides.length, url: "https://blob.test/c.pdf" })
-    : url === "/v1/crop" ? { width: body.width, height: body.height, resolvedBy: "saliency", url: "https://blob.test/crop.jpg" }
+    // The real endpoint reports the flag only when the request named an area,
+    // so the stub has to be just as quiet — otherwise the card can never be
+    // shown to stay clean for a Crop that asked for nothing.
+    : url === "/v1/crop" ? {
+        width: body.width,
+        height: body.height,
+        resolvedBy: "saliency",
+        url: "https://blob.test/crop.jpg",
+        ...(body.subjectArea ? { subjectAreaSatisfied: body.subjectArea.x < 0.5 } : {}),
+      }
     : null;
   if (!json) throw new Error("test stub has no route for " + url);
   return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(json) });
@@ -223,6 +232,56 @@ await tick();
 const crop = calls.find((c) => c.url === "/v1/crop");
 check("crop posted numeric size", crop?.body.width === 1080 && crop?.body.height === 1920);
 check("crop card named the producer that framed it", doc.body.textContent.includes("1080×1920 · saliency"));
+check("a Crop with no Subject Area sent none", crop?.body.subjectArea === undefined);
+check(
+  "a Crop with no Subject Area said nothing about one on the card",
+  !$(".card .meta")?.textContent.includes("Subject Area"),
+  $(".card .meta")?.textContent ?? "no card",
+);
+
+// The Subject Area fields, which is the whole point of the tab for a Template
+// that declares one. Filled in, they travel; the flag comes back on the card.
+const areaFields = ["subjectAreaX", "subjectAreaY", "subjectAreaWidth", "subjectAreaHeight"];
+check(
+  "the Crop tab offers four Subject Area fields",
+  areaFields.every((name) => $('[name="' + name + '"]')?.type === "number"),
+);
+
+const setArea = (values) => {
+  areaFields.forEach((name, i) => { $('[name="' + name + '"]').value = values[i]; });
+};
+const submit = async () => {
+  $("#form").dispatchEvent(new window.Event("submit", { cancelable: true, bubbles: true }));
+  await tick();
+  await tick();
+};
+
+setArea(["0.3", "0.35", "0.4", "0.3"]);
+await submit();
+const aimed = calls.filter((c) => c.url === "/v1/crop").at(-1);
+check(
+  "the four fields posted one Subject Area",
+  JSON.stringify(aimed?.body.subjectArea) === JSON.stringify({ x: 0.3, y: 0.35, width: 0.4, height: 0.3 }),
+  JSON.stringify(aimed?.body.subjectArea),
+);
+check("the card reported the Subject Area was satisfied", doc.body.textContent.includes("Subject Area satisfied"));
+
+setArea(["0.6", "0.35", "0.3", "0.3"]);
+await submit();
+check("the card reported a Subject Area that was missed", doc.body.textContent.includes("Subject Area missed"));
+
+// Bad input has to be caught in the page. The API would refuse it too, but a
+// number the browser can see is wrong should never cost a round trip.
+const refused = async (label, values, wanted) => {
+  const before = calls.length;
+  setArea(values);
+  await submit();
+  check(label, calls.length === before && ($(".err")?.textContent ?? "").includes(wanted), $(".err")?.textContent ?? "no error shown");
+};
+
+await refused("a half-filled Subject Area is refused in the page", ["0.3", "", "0.4", "0.3"], "all four");
+await refused("a Subject Area above 1 is refused in the page", ["0.3", "0.3", "1.4", "0.3"], "between 0 and 1");
+await refused("a Subject Area off the edge is refused in the page", ["0.8", "0.3", "0.4", "0.3"], "inside the frame");
 
 // ------------------------------------------------------------ gallery tab
 

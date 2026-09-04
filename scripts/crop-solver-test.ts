@@ -14,6 +14,7 @@ import {
   type CropFallback,
   type CropWindow,
   type PixelSize,
+  type SubjectArea,
   type SubjectBox,
 } from "../src/crop-solver.js";
 
@@ -232,6 +233,125 @@ check(
   })(),
 );
 
+// --------------------------------------------------------------- Subject Area
+
+console.log("\nSubject Area");
+
+const SQUARE = { width: 1080, height: 1080 };
+
+/**
+ * A Subject with a size, filling an area it can reach.
+ *
+ * The zoom is the claim under test: 800 pixels of Subject filling 40 % of the
+ * frame fixes the window at 2000, which is neither the cover window nor
+ * anything the golden grid would have picked.
+ */
+const AREA: SubjectArea = { x: 0.3, y: 0.3, width: 0.4, height: 0.4 };
+const sized = box({ x: 0.2, y: 0.4, width: 0.2, height: 0.2 });
+const filled = solveCrop([sized], SOURCE, SQUARE, { subjectArea: AREA });
+check(
+  "a Subject Area sizes the window from the Subject",
+  filled.width === 2000 && filled.height === 2000,
+  `${String(filled.width)}x${String(filled.height)}`,
+);
+check(
+  "the Subject fills the Subject Area it was given",
+  filled.subjectAreaSatisfied === true,
+  `satisfied=${String(filled.subjectAreaSatisfied)}` +
+    ` subject=${pct(sized.width * SOURCE.width / filled.width)} of the frame`,
+);
+check(
+  "the Subject Area moved the window off the golden grid",
+  (() => {
+    const golden = solveCrop([sized], SOURCE, SQUARE);
+    return golden.width !== filled.width || golden.left !== filled.left;
+  })(),
+);
+
+/**
+ * A bare point cannot fill anything, so the area only says where to aim. That is
+ * every producer meco has today; a detected face is what makes the zoom bind.
+ */
+const aimed = solveCrop([box({ x: 0.5, y: 0.5, width: 0, height: 0 })], SOURCE, SQUARE, {
+  subjectArea: AREA,
+});
+const aimedAt = framed(aimed, box({ x: 0.5, y: 0.5, width: 0, height: 0 }), SOURCE);
+check(
+  "a Subject Area aims a point at its centre",
+  Math.abs(aimedAt.x - 0.5) <= 0.01 && Math.abs(aimedAt.y - 0.5) <= 0.01,
+  `x=${pct(aimedAt.x)} y=${pct(aimedAt.y)}`,
+);
+check("a point that landed in the area says so", aimed.subjectAreaSatisfied === true);
+
+/**
+ * Relaxed: the Subject is pinned to the left edge of the Source Image, so no
+ * window can put it as far right as the area asks. The Crop still happens and
+ * still holds the Subject — the flag is what carries the bad news.
+ */
+const edge = box({ x: 0, y: 0.4, width: 0.05, height: 0.05 });
+const RIGHT: SubjectArea = { x: 0.55, y: 0.3, width: 0.4, height: 0.4 };
+const missed = solveCrop([edge], SOURCE, { width: 1080, height: 1920 }, { subjectArea: RIGHT });
+check(
+  "a Subject Area the Source Image cannot reach is reported, not faked",
+  missed.subjectAreaSatisfied === false,
+  `satisfied=${String(missed.subjectAreaSatisfied)} window at ${String(missed.left)},${String(missed.top)}`,
+);
+check(
+  "a missed Subject Area still keeps the Subject in shot",
+  missed.satisfied && missed.left === 0,
+  `satisfied=${String(missed.satisfied)} left=${String(missed.left)}`,
+);
+/**
+ * Two Subjects, one area. The window is sized around the union of them, so it
+ * has to be positioned around that union too — pinning it on the leader instead
+ * would slide a window that exactly fits both of them off both of them.
+ */
+const pair = solveCrop(
+  [
+    box({ x: 0.3, y: 0.4, width: 0.08, height: 0.1, priority: 30 }),
+    box({ x: 0.42, y: 0.4, width: 0.08, height: 0.1, priority: 10 }),
+  ],
+  SOURCE,
+  SQUARE,
+  { subjectArea: AREA },
+);
+check(
+  "two Subjects together fill the Subject Area",
+  pair.subjectAreaSatisfied === true,
+  `satisfied=${String(pair.subjectAreaSatisfied)} window=${String(pair.width)}@${String(pair.left)},${String(pair.top)}`,
+);
+
+/**
+ * A Subject Area overrides a Crop Anchor, which is the coarser statement. A wide
+ * shape out of this Source Image is full width, so the vertical axis is the only
+ * one with room to show the override at all.
+ */
+const centreAnchor = box({
+  producer: "anchor",
+  priority: 20,
+  x: 0.5,
+  y: 0.5,
+  width: 0,
+  height: 0,
+  framedAt: { x: 0.5, y: 0.5 },
+});
+const WIDE = { width: 1920, height: 1080 };
+const anchorAlone = solveCrop([centreAnchor], SOURCE, WIDE);
+const overridden = solveCrop([centreAnchor], SOURCE, WIDE, {
+  subjectArea: { x: 0.3, y: 0.05, width: 0.4, height: 0.3 },
+});
+check(
+  "a Subject Area outranks the Crop Anchor's own framing",
+  overridden.top !== anchorAlone.top,
+  `with the area ${String(overridden.top)}, with the anchor alone ${String(anchorAlone.top)}`,
+);
+
+/** Without one, nothing is claimed either way. */
+check(
+  "a Crop with no Subject Area reports nothing about one",
+  solveCrop([sized], SOURCE, SQUARE).subjectAreaSatisfied === undefined,
+);
+
 // ------------------------------------------------------------------ refusals
 
 console.log("\nrefusals");
@@ -252,6 +372,36 @@ throws("a Source Image with no size is refused", () =>
 );
 throws("a Crop size of zero is refused", () =>
   solveCrop([box()], SOURCE, { width: 0, height: 100 }),
+);
+throws("a Subject Area outside the frame is refused", () =>
+  solveCrop([box()], SOURCE, SHAPES[0]!, {
+    subjectArea: { x: 0.7, y: 0.1, width: 0.5, height: 0.2 },
+  }),
+);
+throws("a Subject Area with no width is refused", () =>
+  solveCrop([box()], SOURCE, SHAPES[0]!, {
+    subjectArea: { x: 0.1, y: 0.1, width: 0, height: 0.2 },
+  }),
+);
+
+/**
+ * Too small: 3600 pixels of Subject filling a fifth of the frame needs an 18000
+ * pixel window out of a 4000 pixel photograph. The message has to name both, or
+ * a caller cannot tell whether to send a bigger picture or ask for less.
+ */
+let tooSmall = "";
+try {
+  solveCrop([box({ x: 0.05, y: 0.05, width: 0.9, height: 0.9 })], SOURCE, SQUARE, {
+    subjectArea: { x: 0.4, y: 0.4, width: 0.2, height: 0.2 },
+  });
+} catch (err) {
+  tooSmall = (err as Error).message;
+}
+check("a Source Image too small for the Subject Area is refused", tooSmall !== "");
+check(
+  "the refusal names the required and the available size",
+  tooSmall.includes("18000x18000") && tooSmall.includes("3000x3000"),
+  tooSmall,
 );
 
 console.log(

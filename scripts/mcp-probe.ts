@@ -34,11 +34,13 @@ interface Probe {
   /** Milliseconds until the body ended, or null if it was still open at BUDGET_MS. */
   bodyMs: number | null;
   body: string;
+  /** The whole body, for checks that read the payload rather than the clock. */
+  full: string;
 }
 
 async function probe(
   label: string,
-  body: { method: string },
+  body: { method: string; params?: Record<string, unknown> },
   protocolVersion: string,
   modern: boolean,
 ): Promise<Probe> {
@@ -51,7 +53,11 @@ async function probe(
         accept: "application/json, text/event-stream",
         "mcp-protocol-version": protocolVersion,
         // The 2026 era routes on the header and rejects a body that disagrees.
+        // A `tools/call` names the tool in a second header for the same reason.
         ...(modern ? { "mcp-method": body.method } : {}),
+        ...(modern && typeof body.params?.name === "string"
+          ? { "mcp-name": body.params.name }
+          : {}),
       },
       body: JSON.stringify(body),
     }),
@@ -77,6 +83,7 @@ async function probe(
     headerMs,
     bodyMs,
     body: text.replace(/\s+/g, " ").slice(0, 600),
+    full: text,
   };
 }
 
@@ -117,7 +124,7 @@ const METHODS = [
 
 const request = (
   id: number,
-  { method, params }: { method: string; params: object },
+  { method, params }: { method: string; params: Record<string, unknown> },
   era: "legacy" | "modern",
 ) => ({
   jsonrpc: "2.0",
@@ -142,6 +149,42 @@ for (const [era, version] of [
   }
 }
 
+/**
+ * A Subject Area outside the frame has to be refused over MCP too.
+ *
+ * The rule itself is `api.subjectAreaShape`, shared with the HTTP route, so what
+ * this proves is only that the tool is wired to it — but that is the half a
+ * shared schema cannot prove about itself. A refused call never reaches storage
+ * or the network, and the Source Image is a `data:` URL so a call that somehow
+ * got through would still not leave the process.
+ */
+const PIXEL =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+probes.push(
+  await probe(
+    "modern crop_image bad area",
+    request(
+      id++,
+      {
+        method: "tools/call",
+        params: {
+          name: "crop_image",
+          arguments: {
+            source: PIXEL,
+            width: 1080,
+            height: 1350,
+            subjectArea: { x: 0.8, y: 0.1, width: 0.4, height: 0.4 },
+          },
+        },
+      },
+      "modern",
+    ),
+    MODERN_VERSION,
+    true,
+  ),
+);
+
 for (const p of probes) {
   const body = p.bodyMs === null ? "NEVER CLOSED" : `${p.bodyMs.toFixed(0)}ms`;
   console.log(
@@ -151,9 +194,61 @@ for (const p of probes) {
   );
 }
 
+// ------------------------------------------------------------- the tool shape
+
+/**
+ * The JSON out of an exchange, whichever transport it arrived on.
+ *
+ * The SDK answers some methods as JSON and some as a one-event SSE stream, and
+ * which is which is its business, not this script's.
+ */
+function payload(text: string): unknown {
+  const events = text
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trim())
+    .join("");
+  try {
+    return JSON.parse(events || text);
+  } catch {
+    return null;
+  }
+}
+
+interface ToolListing {
+  result?: {
+    tools?: { name: string; inputSchema?: { properties?: Record<string, unknown> } }[];
+  };
+}
+
+/** Refused either way the SDK can refuse: a JSON-RPC error, or a tool that said no. */
+function refused(text: string): boolean {
+  const answer = payload(text) as { error?: unknown; result?: { isError?: boolean } } | null;
+  return answer !== null && (answer.error !== undefined || answer.result?.isError === true);
+}
+
+/**
+ * `crop_image` has to advertise `subjectArea`, or an MCP client has no way to
+ * know it may send one — the validation is shared with HTTP, but the schema a
+ * client reads is only written here.
+ */
+const listed = probes.find((p) => p.label === "modern tools/list");
+const tools = (payload(listed?.full ?? "") as ToolListing | null)?.result?.tools ?? [];
+const cropTool = tools.find((t) => t.name === "crop_image");
+const advertised = cropTool?.inputSchema?.properties?.subjectArea !== undefined;
+console.log(
+  `${advertised ? "ok    " : "FAIL  "} crop_image advertises subjectArea` +
+    `  — ${String(tools.length)} tools listed`,
+);
+
+const rejected = refused(probes.find((p) => p.label === "modern crop_image bad area")?.full ?? "");
+console.log(
+  `${rejected ? "ok    " : "FAIL  "} crop_image refuses a Subject Area outside the frame`,
+);
+
 const hung = probes.filter((p) => p.bodyMs === null);
 console.log(
   `\n${String(probes.length)} exchanges probed, ${String(hung.length)} never closed ` +
     `within ${String(BUDGET_MS)}ms`,
 );
-if (hung.length > 0) process.exitCode = 1;
+if (hung.length > 0 || !advertised || !rejected) process.exitCode = 1;

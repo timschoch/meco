@@ -67,5 +67,5 @@ A place in a Template where a Source Image appears.
 _Avoid_: image field, photo placeholder, media area
 
 **Subject Area**:
-The part of an Image Slot that a Template requires the Subject to fill. A Template declares it; a Crop must satisfy it.
+The part of an Image Slot that a Template requires the Subject to fill, given as fractions of the output. A Template declares it and a caller may name one for a single Crop; either way the Crop must satisfy it, and the answer says whether it did.
 _Avoid_: safe area, focus region, subject box

@@ -136,6 +136,8 @@ interface CropCase {
   anchor?: string;
   /** A producer that looks for the Subject must not frame the background. */
   keepsSubject?: boolean;
+  /** What the response must say about the Subject Area, when one was asked for. */
+  subjectArea?: boolean;
 }
 
 const CASES: CropCase[] = [
@@ -188,13 +190,54 @@ const CASES: CropCase[] = [
     resolvedBy: "anchor",
     anchor: "left",
   },
+  // A Subject Area the framing can reach. The Crop Anchor pins the point, so the
+  // only thing under test is whether the area moved it and said that it had.
+  {
+    label: "a Subject Area it can hit",
+    body: {
+      source: LANDSCAPE,
+      width: 1080,
+      height: 1350,
+      anchor: "center",
+      subjectArea: { x: 0.4, y: 0.35, width: 0.3, height: 0.3 },
+    },
+    resolvedBy: "anchor",
+    anchor: "center",
+    subjectArea: true,
+  },
+  // The same picture, an area up in the corner. A 9:16 window of a landscape
+  // photograph is already full height, so nothing can lift the centre of the
+  // picture into the top fifth of the frame — and the answer has to admit it.
+  {
+    label: "a Subject Area it cannot hit",
+    body: {
+      source: LANDSCAPE,
+      width: 1080,
+      height: 1920,
+      anchor: "center",
+      subjectArea: { x: 0.05, y: 0.05, width: 0.2, height: 0.2 },
+    },
+    resolvedBy: "anchor",
+    anchor: "center",
+    subjectArea: false,
+  },
 ];
+
+/**
+ * Every distinct Crop that made it into storage.
+ *
+ * A set rather than a count, because storage is content-addressed: two requests
+ * that frame the same pixels file one object, and the Gallery is right to list
+ * it once.
+ */
+const cropKeys = new Set<string>();
 
 for (const one of CASES) {
   const { status, json } = await post("/v1/crop", one.body);
   const wanted = `${String(one.body.width)}x${String(one.body.height)}`;
   check(`${one.label} returned 200`, status === 200, JSON.stringify(json).slice(0, 200));
   if (status !== 200) continue;
+  cropKeys.add(String(json.key));
   check(
     `${one.label} returned the size asked for`,
     `${String(json.width)}x${String(json.height)}` === wanted,
@@ -222,6 +265,13 @@ for (const one of CASES) {
   if (one.anchor) {
     check(`${one.label} echoed the Crop Anchor`, json.anchor === one.anchor);
   }
+  check(
+    one.subjectArea === undefined
+      ? `${one.label} claimed nothing about a Subject Area it was not given`
+      : `${one.label} reported the Subject Area as ${String(one.subjectArea)}`,
+    json.subjectAreaSatisfied === one.subjectArea,
+    `subjectAreaSatisfied=${String(json.subjectAreaSatisfied)}`,
+  );
   if (one.keepsSubject) {
     // At least as prominent as in the whole photograph: a Crop that went looking
     // for the Subject must end up with more of it, never less.
@@ -240,6 +290,52 @@ check("a Crop of no size is refused", rejected.status === 400, String(rejected.s
 const dead = await post("/v1/crop", { source: "not-a-url", width: 100, height: 100 });
 check("a source that is not a URL is refused", dead.status === 400, String(dead.status));
 
+// ------------------------------------------------------------- Subject Area
+
+console.log("\nsubject area");
+
+/**
+ * The same Crop with and without an area. Storage is content-addressed, so a
+ * different key is a different picture — which is the whole claim, made in one
+ * comparison rather than by reading pixels back.
+ */
+const WITHOUT = { source: LANDSCAPE, width: 1080, height: 1350, anchor: "center" };
+const plain = await post("/v1/crop", WITHOUT);
+const aimed = await post("/v1/crop", {
+  ...WITHOUT,
+  subjectArea: { x: 0.5, y: 0.5, width: 0.5, height: 0.5 },
+});
+cropKeys.add(String(plain.json.key));
+cropKeys.add(String(aimed.json.key));
+check(
+  "a Subject Area changed the pixels the Crop kept",
+  plain.json.key !== aimed.json.key,
+  `${String(plain.json.key)} vs ${String(aimed.json.key)}`,
+);
+check(
+  "the Crop with no Subject Area still frames as it always did",
+  plain.json.resolvedBy === "anchor" && plain.json.subjectAreaSatisfied === undefined,
+  JSON.stringify(plain.json).slice(0, 160),
+);
+
+const OUT_OF_RANGE: Json[] = [
+  { label: "x below zero", subjectArea: { x: -0.1, y: 0.1, width: 0.4, height: 0.4 } },
+  { label: "height above one", subjectArea: { x: 0.1, y: 0.1, width: 0.4, height: 1.4 } },
+  { label: "a width of zero", subjectArea: { x: 0.1, y: 0.1, width: 0, height: 0.4 } },
+  { label: "a rectangle off the right edge", subjectArea: { x: 0.8, y: 0.1, width: 0.4, height: 0.4 } },
+  { label: "a missing side", subjectArea: { x: 0.1, y: 0.1, width: 0.4 } },
+];
+
+for (const one of OUT_OF_RANGE) {
+  const { status } = await post("/v1/crop", {
+    source: LANDSCAPE,
+    width: 1080,
+    height: 1350,
+    subjectArea: one.subjectArea,
+  });
+  check(`a Subject Area with ${String(one.label)} is refused`, status === 400, String(status));
+}
+
 // ------------------------------------------------------------------- gallery
 
 console.log("\ngallery");
@@ -249,8 +345,8 @@ const items = (listing.json.items ?? []) as { kind: string; key: string }[];
 check("the Gallery answered", listing.status === 200);
 check(
   "the Gallery listed every Crop just stored",
-  items.filter((i) => i.kind === "crop").length === CASES.length,
-  `${String(items.length)} items`,
+  items.filter((i) => i.kind === "crop").length === cropKeys.size,
+  `${String(items.length)} items, ${String(cropKeys.size)} distinct Crops stored`,
 );
 check(
   "every listed Crop is content-addressed under crops/",

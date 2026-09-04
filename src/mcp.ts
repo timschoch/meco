@@ -193,13 +193,21 @@ export function createMecoMcpHandler(storage: Storage) {
         description:
           "Cut a Source Image to an exact size. Give an anchor to choose the " +
           "region yourself, or a strategy to let the image decide — 'attention' " +
-          "keeps the most salient area, which is what keeps a person in frame.",
+          "keeps the most salient area, which is what keeps a person in frame. " +
+          "Give a subjectArea to say where in the result the Subject has to land.",
         inputSchema: z.object({
           source: z.string().url().describe("URL of the Source Image."),
           width: z.number().int().positive(),
           height: z.number().int().positive(),
           anchor: z.enum(CROP_ANCHORS).optional(),
           strategy: z.enum(["attention", "entropy"]).optional(),
+          subjectArea: api.subjectAreaShape
+            .optional()
+            .describe(
+              "The rectangle of the result the Subject must fill, as fractions " +
+                "0..1 from the top-left. Overrides the anchor and the default " +
+                "golden-ratio framing. The answer says whether it was satisfied.",
+            ),
           format: z.enum(["png", "jpeg", "webp"]).optional(),
           quality: z.number().int().min(1).max(100).optional(),
         }),

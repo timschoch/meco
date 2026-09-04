@@ -17,8 +17,11 @@ import {
   type CropProducer,
   type FractionPoint,
   type PixelSize,
+  type SubjectArea,
   type SubjectBox,
 } from "./crop-solver.js";
+
+export type { SubjectArea };
 
 /** The nine regions of a Source Image a Crop can keep. */
 export const CROP_ANCHORS = [
@@ -34,15 +37,6 @@ export const CROP_ANCHORS = [
 ] as const;
 
 export type CropAnchor = (typeof CROP_ANCHORS)[number];
-
-/** Where in a Template's Image Slot the Subject must land. Declared by a Template. */
-export interface SubjectArea {
-  /** Fractions of the slot, 0..1 from the top-left. */
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
 
 /**
  * Where a Crop Anchor puts its point — in the Source Image and in the frame.
@@ -91,6 +85,12 @@ export interface CropRequest {
    * one its attention map picks or the one its entropy map does.
    */
   strategy?: "attention" | "entropy";
+  /**
+   * Where in the output frame the Subject has to land. Without one the solver
+   * uses the golden grid, which is what every Crop did before Templates could
+   * ask for anything more exact.
+   */
+  subjectArea?: SubjectArea;
   format?: "png" | "jpeg" | "webp";
   quality?: number;
 }
@@ -106,6 +106,8 @@ export interface CropResult {
   satisfied: boolean;
   /** Which rung of the fallback ladder rescued the window, if any. */
   fallback?: CropFallback;
+  /** Only when the request named a Subject Area: the Subject landed inside it. */
+  subjectAreaSatisfied?: boolean;
   /** Only when the Crop Anchor decided. */
   anchor?: CropAnchor;
 }
@@ -219,7 +221,9 @@ export async function cropImage(req: CropRequest): Promise<CropResult> {
   const aspect = width / height;
 
   const boxes = await subjectBoxes(source, size, aspect, req);
-  const window = solveCrop(boxes, size, { width, height });
+  const window = solveCrop(boxes, size, { width, height }, {
+    ...(req.subjectArea ? { subjectArea: req.subjectArea } : {}),
+  });
 
   // Cut the window the solver chose, then scale it to the size asked for. `fill`
   // rather than `cover`, because the window is already the required shape up to
@@ -248,6 +252,9 @@ export async function cropImage(req: CropRequest): Promise<CropResult> {
     resolvedBy: window.resolvedBy,
     satisfied: window.satisfied,
     ...(window.fallback ? { fallback: window.fallback } : {}),
+    ...(window.subjectAreaSatisfied === undefined
+      ? {}
+      : { subjectAreaSatisfied: window.subjectAreaSatisfied }),
     ...(window.resolvedBy === "anchor" && anchor ? { anchor } : {}),
   };
 }
