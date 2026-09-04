@@ -9,7 +9,7 @@
     "meco-faces": {
       "root": ".",
       "runtime": "container",
-      "entrypoint": "Dockerfile.faces"
+      "entrypoint": "packages/faces/Dockerfile.vercel"
     }
   },
   "rewrites": [

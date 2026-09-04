@@ -132,6 +132,12 @@ also keeps the documented fallback — a separate `meco-faces` project reached b
 `FACES_URL` env var — a configuration change rather than a code change. Why the
 service is separate at all: `docs/adr/0002-meco-faces-as-a-separate-service.md`.
 
+The faces Dockerfile is named `Dockerfile.vercel` and lives in `packages/faces/`
+because Vercel checks the **basename** of a service `entrypoint` and rejects
+anything that is not a Dockerfile or a Containerfile — `Dockerfile.faces` at the
+root fails the build with `invalid "entrypoint"`. It is still built from the
+repository root, because the install needs the workspace lockfile.
+
 `MECO_TOKEN` must be set on both services. `POST /faces/detect` requires it;
 `GET /faces/health` does not, so that a liveness probe does not need a secret.
 
@@ -151,7 +157,7 @@ start on Vercel is this number plus whatever the platform spends provisioning an
 instance. Reproduce with:
 
 ```
-docker build -f Dockerfile.faces -t meco-faces .
+docker build -f packages/faces/Dockerfile.vercel -t meco-faces .
 MECO_TOKEN=local-token pnpm --filter meco-faces exec tsx scripts/latency.ts \
   http://localhost:8788 12 -- \
   docker run --rm --name faces-lat -p 8788:80 -e PORT=80 -e MECO_TOKEN=local-token meco-faces
@@ -177,7 +183,7 @@ ONNX Runtime version.
 ### Test locally
 
 ```
-docker build -f Dockerfile.faces -t meco-faces .
+docker build -f packages/faces/Dockerfile.vercel -t meco-faces .
 docker run --rm -p 8788:80 -e PORT=80 -e MECO_TOKEN=<token> meco-faces
 curl http://localhost:8788/health
 curl -X POST http://localhost:8788/detect \
@@ -194,7 +200,7 @@ curl -X POST http://localhost:8788/detect \
   Registry limit).
 - `onnxruntime-node` unpacks to ~280 MB because it ships prebuilt binaries for
   all five platforms it supports, and its postinstall downloads CUDA provider
-  binaries on `linux/x64` and nowhere else. `Dockerfile.faces` sets
+  binaries on `linux/x64` and nowhere else. `packages/faces/Dockerfile.vercel` sets
   `ONNXRUNTIME_NODE_INSTALL=skip` and deletes every `bin/napi-v6` directory but
   the one `$TARGETARCH` needs. Keep both; either one alone leaves most of that
   weight in the image.
