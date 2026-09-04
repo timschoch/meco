@@ -82,7 +82,7 @@ const PRIORITY: Record<CropProducer, number> = {
  * the rest to check they survived, which is what "pin on this face, keep the
  * others in frame when possible" means as an arithmetic.
  */
-const SUPPORTING_FACE = 1;
+const SUPPORTING_FACE_STEP = 1;
 
 /** The short side of the resize sharp reads the saliency point from. */
 const SALIENCY_READ_PX = 32;
@@ -232,7 +232,7 @@ export function faceSubjectBoxes(faces: readonly DetectedFace[]): SubjectBox[] {
     width: face.box.width,
     height: face.box.height,
     producer: "face" as const,
-    priority: PRIORITY.face - (i === lead ? 0 : SUPPORTING_FACE),
+    priority: PRIORITY.face - (i === lead ? 0 : SUPPORTING_FACE_STEP),
     keep: true,
     eyeY: (face.landmarks.rEye.y + face.landmarks.lEye.y) / 2,
   }));

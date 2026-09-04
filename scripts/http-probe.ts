@@ -382,6 +382,13 @@ const recorded = JSON.parse(await readFile(fixtures("detected.json"), "utf8")) a
   images: Record<string, Detection>;
 };
 
+/**
+ * Hashed here rather than with `sourceHash` from `src/annotations.ts`.
+ *
+ * The claim below is that meco files an Annotation under the SHA-256 of the
+ * Source Image bytes. Computing the expected key with the very function that
+ * computes the real one would make that claim true by construction.
+ */
 const sha = (data: Buffer) => createHash("sha256").update(data).digest("hex");
 
 /** Recorded detections, keyed by the hash of the photograph they belong to. */
@@ -399,12 +406,11 @@ const facesService = createServer((req, res) => {
       const known = canned.get(sha(body));
       // An image nobody recorded is a photograph with no faces in it, answered
       // the way meco-faces would answer one: its real size, and an empty list.
-      const meta = known ?? {
-        ...(await sharp(body).metadata()),
-        faces: [],
-      };
+      const answer = known ?? { ...(await sharp(body).metadata()), faces: [] };
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ width: meta.width, height: meta.height, faces: meta.faces }));
+      res.end(
+        JSON.stringify({ width: answer.width, height: answer.height, faces: answer.faces }),
+      );
     })();
   });
 });
@@ -647,6 +653,85 @@ check(
     filled.json.subjectAreaSatisfied === true,
   `${String(filled.status)} resolvedBy=${String(filled.json.resolvedBy)}` +
     ` subjectAreaSatisfied=${String(filled.json.subjectAreaSatisfied)}`,
+);
+
+// -------------------------------------- what the caller asked for, with faces
+
+/**
+ * A Crop Anchor and a strategy have to go on working once faces are switched on.
+ *
+ * They are not overridden so much as outranked: `PRIORITY` in `src/crop.ts` puts
+ * a face above both, which is the order parent issue #5 story 9 asks for — a
+ * Crop with no face falls back to the busiest region, then to the Crop Anchor,
+ * then to centre. So the pair of claims is that a face wins when there is one,
+ * and that the caller's own instruction still decides when there is not. The
+ * third fixture is a photograph of Mars, which is the honest way to have no face
+ * in the picture rather than switching the service off.
+ */
+const FACELESS = await fixturePhoto("jezero-crater.jpg");
+
+const anchoredWithFace = await post("/v1/crop", {
+  source: PORTRAIT.url,
+  width: 1080,
+  height: 1350,
+  anchor: "top",
+});
+cropKeys.add(String(anchoredWithFace.json.key));
+check(
+  "a face outranks the Crop Anchor the caller named",
+  anchoredWithFace.json.resolvedBy === "face",
+  `resolvedBy=${String(anchoredWithFace.json.resolvedBy)}`,
+);
+check(
+  "and the answer does not claim the anchor decided",
+  anchoredWithFace.json.anchor === undefined,
+  `anchor=${String(anchoredWithFace.json.anchor)}`,
+);
+
+const anchoredNoFace = await post("/v1/crop", {
+  source: FACELESS.url,
+  width: 1080,
+  height: 1350,
+  anchor: "top",
+});
+cropKeys.add(String(anchoredNoFace.json.key));
+check(
+  "a photograph with no face still obeys the Crop Anchor",
+  anchoredNoFace.status === 200 &&
+    anchoredNoFace.json.resolvedBy === "anchor" &&
+    anchoredNoFace.json.anchor === "top",
+  `${String(anchoredNoFace.status)} resolvedBy=${String(anchoredNoFace.json.resolvedBy)}`,
+);
+
+const salientNoFace = await post("/v1/crop", {
+  source: FACELESS.url,
+  width: 1080,
+  height: 1920,
+  strategy: "attention",
+});
+cropKeys.add(String(salientNoFace.json.key));
+check(
+  "a photograph with no face still lets the picture decide",
+  salientNoFace.status === 200 && salientNoFace.json.resolvedBy === "saliency",
+  `resolvedBy=${String(salientNoFace.json.resolvedBy)}`,
+);
+
+/**
+ * With no face, no anchor and no strategy the answer is still `centre`.
+ *
+ * Pinned rather than approved. Story 9 of parent issue #5 asks for the busiest
+ * region *before* the Crop Anchor, which would make this `saliency`; the
+ * saliency producer has been gated behind an explicit `strategy` since it
+ * shipped, and ungating it changes a Crop nobody asked to change. Recorded on
+ * #11 as a question for the owner — this check is here so that the answer, when
+ * it comes, has to be a deliberate edit.
+ */
+const bareNoFace = await post("/v1/crop", { source: FACELESS.url, width: 1200, height: 627 });
+cropKeys.add(String(bareNoFace.json.key));
+check(
+  "with nothing asked for and no face, the centre still decides",
+  bareNoFace.json.resolvedBy === "centre",
+  `resolvedBy=${String(bareNoFace.json.resolvedBy)}`,
 );
 
 // ------------------------------------------------------ a face service down

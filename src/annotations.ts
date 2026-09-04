@@ -94,7 +94,20 @@ export interface Annotation {
 const FACE_PRODUCER = "yunet";
 
 const HUMAN: Concept = { name: "human", uri: `${CV_REGION_TYPE}human` };
-const SUBJECT_AREA: Concept = { name: "subject area", uri: `${CV_REGION_ROLE}subjectArea` };
+
+/**
+ * IPTC's `subjectArea`, which is **not** meco's Subject Area.
+ *
+ * The names collide and the meanings do not: IPTC's role says "this rectangle is
+ * a subject of the picture", which is CONTEXT.md's Subject Box. meco's Subject
+ * Area is a rectangle of the *output* a Template requires the Subject to fill,
+ * and never appears in an Annotation. The wire value has to stay IPTC's, so the
+ * identifier carries the prefix instead.
+ */
+const IPTC_SUBJECT_AREA_ROLE: Concept = {
+  name: "subject area",
+  uri: `${CV_REGION_ROLE}subjectArea`,
+};
 
 export function sourceHash(source: Buffer): string {
   return createHash("sha256").update(source).digest("hex");
@@ -117,7 +130,7 @@ function toRegion(face: DetectedFace, index: number): ImageRegion {
       RbH: face.box.height,
     },
     rCtype: [HUMAN],
-    rRole: [SUBJECT_AREA],
+    rRole: [IPTC_SUBJECT_AREA_ROLE],
     "meco:producer": FACE_PRODUCER,
     "meco:score": face.score,
     "meco:landmarks": face.landmarks,
