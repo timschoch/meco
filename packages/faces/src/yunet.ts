@@ -48,6 +48,15 @@ export interface Landmarks {
   lMouth: Point;
 }
 
+/**
+ * The same five names as a list, in the same order.
+ *
+ * The order is the transform's input, so anything that walks the landmarks has
+ * to walk them in it. One list, here beside the type, so that a second copy
+ * cannot be written down in a different order somewhere else.
+ */
+export const LANDMARK_NAMES = ["rEye", "lEye", "nose", "rMouth", "lMouth"] as const;
+
 export interface DetectedFace {
   box: Box;
   landmarks: Landmarks;

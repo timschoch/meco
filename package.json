@@ -19,7 +19,8 @@
     "test:storage": "tsx scripts/storage-contract.ts",
     "typecheck:faces": "pnpm --filter meco-faces typecheck",
     "build:faces": "pnpm --filter meco-faces build",
-    "test:detect": "pnpm --filter meco-faces test:detect"
+    "test:detect": "pnpm --filter meco-faces test:detect",
+    "test:embed": "pnpm --filter meco-faces test:embed"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",

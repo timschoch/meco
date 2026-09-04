@@ -16,6 +16,66 @@
 import { Hono, type Context, type Next } from "hono";
 
 import { MODEL, ModelLoadError, detectFaces, isLoaded, runtimeVersion } from "./detect.js";
+import {
+  EMBED_MODEL,
+  EmbedModelLoadError,
+  embedFaces,
+  isEmbedLoaded,
+  type FaceToEmbed,
+} from "./embed.js";
+import type { Landmarks } from "./yunet.js";
+
+/**
+ * Read the `faces` query parameter back into the shape `/detect` produced.
+ *
+ * Faces travel in the query string because the body is already spoken for by
+ * the photograph, and a 12 MP JPEG has no business being wrapped in JSON so
+ * that five points can ride along beside it.
+ *
+ * That does put a ceiling on how many faces one call can carry, and it is lower
+ * than it looks. Measured on the four-face fixture: 632 encoded bytes per face
+ * when the whole of `/detect`'s answer is passed through, 443 when only the
+ * landmarks are — so Node's default 16 KB of request line and headers is reached
+ * at roughly 25 faces, or 37 if the caller sends nothing but landmarks. Past
+ * that the platform answers 431 before this code is ever reached, which is why
+ * only `landmarks` is read: a caller with a crowd can drop everything else.
+ *
+ * Every field is checked rather than trusted. The alignment is pure arithmetic:
+ * a missing landmark would not throw, it would produce a Face Print of
+ * something that is not a face, and nothing downstream could tell.
+ */
+function parseFaces(raw: string | undefined): FaceToEmbed[] {
+  if (raw === undefined) {
+    throw new Error("Pass the faces from /detect as ?faces=<json>.");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("The faces parameter is not valid JSON.");
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error("The faces parameter must be an array, as /detect returns.");
+  }
+
+  const names = ["rEye", "lEye", "nose", "rMouth", "lMouth"] as const;
+  return parsed.map((face, i) => {
+    const marks = (face as { landmarks?: unknown }).landmarks;
+    if (typeof marks !== "object" || marks === null) {
+      throw new Error(`Face ${String(i)} has no landmarks.`);
+    }
+    for (const name of names) {
+      const point = (marks as Record<string, unknown>)[name] as
+        | { x?: unknown; y?: unknown }
+        | undefined;
+      if (typeof point?.x !== "number" || typeof point.y !== "number") {
+        throw new Error(`Face ${String(i)} is missing the ${name} landmark.`);
+      }
+    }
+    return { landmarks: marks as Landmarks };
+  });
+}
 
 export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
   const routes = new Hono();
@@ -43,6 +103,7 @@ export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
   };
 
   routes.use("/detect", requireToken);
+  routes.use("/embed", requireToken);
 
   /**
    * Which models are loaded and what is running them.
@@ -55,7 +116,10 @@ export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
   routes.get("/health", (c) =>
     c.json({
       ok: true,
-      models: [{ ...MODEL, warm: isLoaded() }],
+      models: [
+        { ...MODEL, warm: isLoaded() },
+        { ...EMBED_MODEL, warm: isEmbedLoaded() },
+      ],
       onnxruntime: runtimeVersion(),
     }),
   );
@@ -95,7 +159,48 @@ export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
   });
 
   /**
-   * Reachable at `/detect` and at `/faces/detect`.
+   * Turn faces already found in one image into Face Prints.
+   *
+   * Two calls rather than one route that detects and embeds together, because
+   * meco does not want a Face Print for every face it finds: it caches an
+   * Annotation per image and embeds only the faces a Person might be. The image
+   * is sent twice in that case, which is a cost this service is happy to pay to
+   * avoid running the expensive half on faces nobody asked about.
+   *
+   * The response keeps the caller's order, so `prints[i]` belongs to
+   * `faces[i]`. No identity is returned or looked up — matching a Face Print to
+   * a Person happens in meco, against a gallery this service cannot see.
+   */
+  routes.post("/embed", async (c) => {
+    const body = await c.req.arrayBuffer();
+    if (body.byteLength === 0) {
+      return c.json({ error: "Request body is empty — POST the image bytes." }, 400);
+    }
+
+    let faces: FaceToEmbed[];
+    try {
+      faces = parseFaces(c.req.query("faces"));
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+
+    try {
+      const started = performance.now();
+      const prints = await embedFaces(Buffer.from(body), faces);
+      const ms = performance.now() - started;
+      console.log(`embed ${String(prints.length)} faces ${ms.toFixed(0)}ms`);
+      return c.json({ prints });
+    } catch (err) {
+      if (err instanceof EmbedModelLoadError) {
+        console.error(err.message);
+        return c.json({ error: err.message }, 503);
+      }
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  /**
+   * Reachable at `/detect` and at `/faces/detect`, and the same for `/embed`.
    *
    * Vercel routes the two container services of this project by rewrite, and a
    * rewrite whose destination is a service passes the path through as it stands
