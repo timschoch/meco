@@ -15,7 +15,8 @@
     "test:ui": "tsx scripts/ui-test.mjs",
     "test:mcp": "tsx scripts/mcp-probe.ts",
     "test:crop": "tsx scripts/crop-solver-test.ts",
-    "test:http": "tsx scripts/http-probe.ts"
+    "test:http": "tsx scripts/http-probe.ts",
+    "test:storage": "tsx scripts/storage-contract.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",

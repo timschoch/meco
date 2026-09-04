@@ -4,10 +4,29 @@
  * Both are stored outputs with a stable URL, and both are content-addressed:
  * the same bytes always land at the same key, so a caller that retries pays
  * nothing and gets the same URL back. See CONTEXT.md.
+ *
+ * Not everything meco stores is an output. A Person record and its Reference
+ * Photos are records: they are addressed by a key the caller chose, they are
+ * overwritten in place, and they are deleted when the Person is. That is what
+ * `putAt`, `get` and `delete` are for. Because a Reference Photo is a face
+ * photo of a named individual, everything under `PRIVATE_PREFIX` is stored so
+ * that its URL alone does not hand the bytes to whoever asks.
  */
 import { createHash } from "node:crypto";
-import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, posix, relative, resolve, sep } from "node:path";
+
+/**
+ * People live here. A Reference Photo is personal data, so this prefix is
+ * private in the store and the Gallery never lists it. See
+ * `docs/plans/faces-and-subject-aware-crop.md`.
+ */
+export const PRIVATE_PREFIX = "people";
+
+/** True for a key whose bytes must not be readable from its URL alone. */
+export function isPrivateKey(key: string): boolean {
+  return key === PRIVATE_PREFIX || key.startsWith(`${PRIVATE_PREFIX}/`);
+}
 
 export interface StoredObject {
   /** Content-addressed key, e.g. `renders/laica/3f2a…c1.png`. */
@@ -26,6 +45,13 @@ export interface StoredListing {
   createdAt: string;
 }
 
+/** The bytes behind one key, as `get` hands them back. */
+export interface StoredBytes {
+  key: string;
+  data: Buffer;
+  contentType: string;
+}
+
 export interface Storage {
   readonly kind: "local" | "vercel-blob";
   put(
@@ -34,6 +60,15 @@ export interface Storage {
     contentType: string,
     extension: string,
   ): Promise<StoredObject>;
+  /**
+   * Write `data` at exactly `key`, replacing anything already there. For
+   * records, where the caller owns the name and the newest version wins.
+   */
+  putAt(key: string, data: Buffer, contentType: string): Promise<StoredObject>;
+  /** The bytes at `key`, or null when nothing is stored there. */
+  get(key: string): Promise<StoredBytes | null>;
+  /** Remove `key`. A key that is not there is already gone, not an error. */
+  delete(key: string): Promise<void>;
   /** Every stored object whose key starts with `prefix`, newest first. */
   list(prefix: string): Promise<StoredListing[]>;
 }
@@ -45,6 +80,40 @@ export function contentKey(
 ): string {
   const digest = createHash("sha256").update(data).digest("hex").slice(0, 32);
   return `${prefix}/${digest}.${extension}`;
+}
+
+/**
+ * A key is a POSIX path inside the store, and it has to stay inside it. Keys
+ * used to come only from `contentKey`; now a caller names them, and on the
+ * local backend a key is a filesystem path, so `..` would reach out of `out/`.
+ */
+function assertKey(key: string): string {
+  const segments = key.split("/");
+  const escapes =
+    key.length === 0 ||
+    key.startsWith("/") ||
+    segments.some((s) => s === "" || s === "." || s === "..");
+  if (escapes) throw new Error(`Not a valid storage key: "${key}"`);
+  return key;
+}
+
+/**
+ * Local disk keeps bytes, not headers, so the content type of a stored object
+ * has to be read back off its extension. Only what meco writes is listed;
+ * anything else is bytes to be handed over untouched.
+ */
+const CONTENT_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  pdf: "application/pdf",
+  json: "application/json",
+};
+
+function contentTypeOf(key: string): string {
+  const ext = key.slice(key.lastIndexOf(".") + 1).toLowerCase();
+  return CONTENT_TYPES[ext] ?? "application/octet-stream";
 }
 
 /** Writes under `out/`, and serves URLs from the local dev server. */
@@ -66,16 +135,41 @@ export class LocalStorage implements Storage {
     contentType: string,
     extension: string,
   ): Promise<StoredObject> {
-    const key = contentKey(prefix, data, extension);
-    const file = join(this.root, key);
+    return this.putAt(contentKey(prefix, data, extension), data, contentType);
+  }
+
+  async putAt(
+    key: string,
+    data: Buffer,
+    contentType: string,
+  ): Promise<StoredObject> {
+    const file = this.file(key);
     await mkdir(dirname(file), { recursive: true });
     await writeFile(file, data);
+    // The URL of a private object still names it, but nothing serves it: the
+    // dev server in `src/server.ts` mounts only the three public kinds.
     return {
       key,
       url: `${this.baseUrl}/${key}`,
       bytes: data.length,
       contentType,
     };
+  }
+
+  async get(key: string): Promise<StoredBytes | null> {
+    try {
+      const data = await readFile(this.file(key));
+      return { key, data, contentType: contentTypeOf(key) };
+    } catch (err) {
+      // A key that was never written is a miss, not a failure: callers ask
+      // before they know whether anything is there. Anything else is real.
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
+    }
+  }
+
+  async delete(key: string): Promise<void> {
+    await rm(this.file(key), { force: true });
   }
 
   async list(prefix: string): Promise<StoredListing[]> {
@@ -103,6 +197,10 @@ export class LocalStorage implements Storage {
     }
     return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
+
+  private file(key: string): string {
+    return join(this.root, assertKey(key));
+  }
 }
 
 /** A key is always POSIX, whatever separator the local filesystem uses. */
@@ -114,12 +212,42 @@ function relativeKey(dir: string, file: string): string {
 export class BlobStorage implements Storage {
   readonly kind = "vercel-blob" as const;
 
-  constructor(private readonly token = process.env.BLOB_READ_WRITE_TOKEN) {
-    if (!this.token) {
+  private readonly token: string;
+  /**
+   * A second store, created with `--access private`. Vercel Blob decides
+   * public or private per *store*, not per object: a private write to the
+   * public store is refused outright. So People need a store of their own, and
+   * the only difference between the two stores is which token addresses them.
+   */
+  private readonly privateToken: string | undefined;
+
+  constructor(
+    token = process.env.BLOB_READ_WRITE_TOKEN,
+    privateToken = process.env.BLOB_PEOPLE_READ_WRITE_TOKEN,
+  ) {
+    if (!token) {
       throw new Error(
         "BLOB_READ_WRITE_TOKEN is not set — cannot use Vercel Blob storage.",
       );
     }
+    this.token = token;
+    this.privateToken = privateToken;
+  }
+
+  /**
+   * Which store a key belongs to. Missing configuration is an error and never
+   * a fallback: writing a Reference Photo to the public store would put a face
+   * photo of a named person on an open URL, which is the whole point of this.
+   */
+  private tokenFor(key: string): string {
+    if (!isPrivateKey(key)) return this.token;
+    if (!this.privateToken) {
+      throw new Error(
+        `BLOB_PEOPLE_READ_WRITE_TOKEN is not set — "${key}" is private and ` +
+          "there is no private store to put it in. See DEPLOY.md.",
+      );
+    }
+    return this.privateToken;
   }
 
   async put(
@@ -128,17 +256,53 @@ export class BlobStorage implements Storage {
     contentType: string,
     extension: string,
   ): Promise<StoredObject> {
+    return this.putAt(contentKey(prefix, data, extension), data, contentType);
+  }
+
+  async putAt(
+    key: string,
+    data: Buffer,
+    contentType: string,
+  ): Promise<StoredObject> {
     const { put } = await import("@vercel/blob");
-    const key = contentKey(prefix, data, extension);
-    const result = await put(key, data, {
-      access: "public",
+    const result = await put(assertKey(key), data, {
+      access: accessFor(key),
       contentType,
-      token: this.token,
+      token: this.tokenFor(key),
       addRandomSuffix: false,
-      // Same bytes, same key: a retry must not create a second object.
+      // A content-addressed retry writes the same bytes to the same key, and a
+      // record is written at its key again every time it changes. Neither may
+      // fail on "already exists" or leave a second object behind.
       allowOverwrite: true,
     });
     return { key, url: result.url, bytes: data.length, contentType };
+  }
+
+  async get(key: string): Promise<StoredBytes | null> {
+    const { get, BlobNotFoundError } = await import("@vercel/blob");
+    let result;
+    try {
+      result = await get(assertKey(key), {
+        access: accessFor(key),
+        token: this.tokenFor(key),
+        // Reads go to origin. The CDN copy of a key that was just overwritten
+        // can still be the old bytes, and a record must read back what was
+        // last written to it.
+        useCache: false,
+      });
+    } catch (err) {
+      // A miss is an answer, not a failure; the SDK reports it as an error.
+      if (err instanceof BlobNotFoundError) return null;
+      throw err;
+    }
+    if (!result || result.statusCode !== 200) return null;
+    const data = Buffer.from(await new Response(result.stream).arrayBuffer());
+    return { key, data, contentType: result.blob.contentType };
+  }
+
+  async delete(key: string): Promise<void> {
+    const { del } = await import("@vercel/blob");
+    await del(assertKey(key), { token: this.tokenFor(key) });
   }
 
   async list(prefix: string): Promise<StoredListing[]> {
@@ -150,7 +314,7 @@ export class BlobStorage implements Storage {
     do {
       const page = await list({
         prefix: `${prefix}/`,
-        token: this.token,
+        token: this.tokenFor(prefix),
         limit: 1000,
         ...(cursor ? { cursor } : {}),
       });
@@ -166,6 +330,16 @@ export class BlobStorage implements Storage {
     } while (cursor);
     return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
+}
+
+/**
+ * Access is a property of the key, not of the call site, so every read and
+ * write of a People key agrees on `private` without any caller having to
+ * remember. Vercel Blob wants it on the call as well as on the store, and
+ * refuses the pair when they disagree.
+ */
+function accessFor(key: string): "public" | "private" {
+  return isPrivateKey(key) ? "private" : "public";
 }
 
 /**

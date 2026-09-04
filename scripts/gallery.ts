@@ -6,7 +6,9 @@
  * tell you an image is not blank, they do not tell you the layout is right.
  */
 import { readdir, writeFile } from "node:fs/promises";
-import { join, extname, relative } from "node:path";
+import { join, extname, relative, sep } from "node:path";
+
+import { isPrivateKey } from "../src/storage.js";
 
 const ROOT = process.argv[2] ?? "out";
 const OUT = process.argv[3] ?? "out/gallery.html";
@@ -14,6 +16,9 @@ const OUT = process.argv[3] ?? "out/gallery.html";
 async function* walk(d: string): AsyncGenerator<string> {
   for (const entry of await readdir(d, { withFileTypes: true })) {
     const p = join(d, entry.name);
+    // A Reference Photo is a face photo of a named Person, not a render. It
+    // stays off the contact sheet however the sheet is opened or shared.
+    if (isPrivateKey(relative(ROOT, p).split(sep).join("/"))) continue;
     if (entry.isDirectory()) yield* walk(p);
     else if ([".png", ".jpg", ".jpeg", ".webp", ".pdf"].includes(extname(p))) yield p;
   }

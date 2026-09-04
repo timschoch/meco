@@ -19,6 +19,9 @@ const app = createApp(storage);
 // Serve local renders so the URLs the local driver hands back actually resolve.
 // Only mounted for local storage: on Blob the URLs point at Blob, and mounting
 // these would just log a missing-directory warning on every request.
+//
+// The three public kinds are named one by one on purpose. It is what keeps the
+// People prefix — Reference Photos, private on Blob — off the local server too.
 if (storage.kind === "local") {
   mkdirSync(resolve(process.cwd(), "out"), { recursive: true });
   app.use("/renders/*", serveStatic({ root: "./out" }));
