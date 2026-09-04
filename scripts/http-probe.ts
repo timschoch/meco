@@ -28,7 +28,7 @@ import { createApp } from "../src/app.js";
 import { CROP_PRODUCERS, solveCrop } from "../src/crop-solver.js";
 import { faceSubjectBoxes } from "../src/crop.js";
 import { FACES_URL, type Detection } from "../src/faces.js";
-import { MIN_FACE_PX, facePrintsFor } from "../src/people.js";
+import { MIN_FACE_PX, facePrintsFor, personPrefix } from "../src/people.js";
 import { LocalStorage, isPrivateKey } from "../src/storage.js";
 
 const problems: string[] = [];
@@ -1364,6 +1364,24 @@ check(
   ((galleryWithPeople.json.items ?? []) as { key: string }[]).map((i) => i.key).join(" "),
 );
 
+/**
+ * Enrolment may not invent a prefix.
+ *
+ * The claim above walks keys that already start with `people/`, so it cannot see
+ * a Reference Photo written somewhere else entirely — which is the shape a
+ * refactor takes when it stops routing through `photoKey`. This one reads the
+ * whole store and refuses any key that is not one of the kinds meco has.
+ */
+const KNOWN_PREFIXES = ["renders/", "carousels/", "crops/", "annotations/", "people/"];
+const strays = (await everyStoredKey()).filter(
+  (k) => !KNOWN_PREFIXES.some((prefix) => k.startsWith(prefix)),
+);
+check(
+  "nothing in the store sits outside the prefixes meco owns",
+  strays.length === 0,
+  strays.join(" "),
+);
+
 /** The seam #14 matches against: every Face Print this Brand has enrolled. */
 const brandPrints = await facePrintsFor("laica", storage);
 check(
@@ -1429,6 +1447,31 @@ check(
  * half-finished enrolment could be missing an entry from, and personal data left
  * behind that nothing points at is the one outcome this must not have.
  */
+/**
+ * A Face Print the record does not name — a half-finished enrolment.
+ *
+ * This is the case the whole design is arranged around, and until it is planted
+ * here nothing proves it: in a clean run the record names every key, so a
+ * `deletePerson` that walked `person.photos` instead of the prefix would pass
+ * every other check on this page while leaving personal data in the store.
+ * Written straight to storage, because the only way to get an orphan honestly is
+ * for an enrolment to have died between its two writes.
+ */
+const orphanKey = `${personPrefix("laica", ada.id)}/orphan.print.json`;
+await storage.putAt(
+  orphanKey,
+  Buffer.from(JSON.stringify({ personId: ada.id, photoId: "orphan", print: [], printedAt: "" })),
+  "application/json",
+);
+check(
+  "a Face Print can exist under a Person that their record does not name",
+  (await everyStoredKey()).includes(orphanKey) &&
+    !((await get("/v1/people?brand=laica")).json.people as PersonJson[])
+      .find((p) => p.id === ada.id)!
+      .photos.some((photo) => photo.photoId === "orphan"),
+  orphanKey,
+);
+
 const before = await everyStoredKey();
 check(
   "before deleting, the store does hold this Person's things",
@@ -1441,6 +1484,11 @@ check(
   "and leaves nothing of them anywhere in the store, under any prefix",
   !(await everyStoredKey()).some((k) => k.includes(ada.id)),
   (await everyStoredKey()).filter((k) => k.includes(ada.id)).join(" "),
+);
+check(
+  "including the Face Print their record never named",
+  !(await everyStoredKey()).includes(orphanKey),
+  orphanKey,
 );
 check(
   "the Brand's People no longer name them",
