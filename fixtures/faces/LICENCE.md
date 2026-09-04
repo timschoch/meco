@@ -35,7 +35,7 @@ two different people. `expected.json` records which is which as a letter.
 
 The 112×112 squares the ArcFace warp produces from the faces above, written by
 `packages/faces/scripts/align-dump.ts` and committed. They are the exact input
-the PyTorch reference embeddings in `edgeface-reference.json` were computed on,
+the PyTorch reference Face Prints in `edgeface-reference.json` were computed on,
 which is what lets the embed test compare an ONNX output against a PyTorch one
 without a Python interpreter in the loop. Same provenance and licence as the
 photographs they were cut from.

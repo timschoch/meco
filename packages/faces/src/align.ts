@@ -6,7 +6,7 @@
  * landmarks on a fixed set of canonical points. Two photographs of one person
  * only produce comparable Face Prints if both went through this warp — it is
  * what removes scale, in-plane rotation and position before the network ever
- * sees the pixels, so the embedding is free to be about the face.
+ * sees the pixels, so the Face Print is free to be about the face.
  *
  * Python does this with `skimage.transform.SimilarityTransform` plus
  * `cv2.warpAffine`. Here it is a closed-form fit and `sharp.affine()`, which is
@@ -19,7 +19,7 @@
  */
 import sharp from "sharp";
 
-import type { Landmarks, Point } from "./yunet.js";
+import { LANDMARK_NAMES, type Landmarks, type Point } from "./yunet.js";
 
 /** The square the model is fed. Not a parameter: the network's input is fixed. */
 export const ALIGNED_SIZE = 112;
@@ -45,7 +45,21 @@ export const ARCFACE_DST: Landmarks = {
 };
 
 /** The five points in the order the transform consumes them. */
-export const asPoints = (l: Landmarks): Point[] => [l.rEye, l.lEye, l.nose, l.rMouth, l.lMouth];
+export const asPoints = (l: Landmarks): Point[] => LANDMARK_NAMES.map((name) => l[name]);
+
+/**
+ * Landmarks as fractions of an image, in the pixels of that image.
+ *
+ * `/detect` answers in fractions so that nothing it says depends on a
+ * resolution; the warp works in pixels because that is what it resamples. This
+ * is the one place the two meet, and it is exported rather than inlined because
+ * every caller that has a detected face and wants it aligned needs it, and a
+ * second copy that multiplied `y` by the width would still look right.
+ */
+export const inPixels = (l: Landmarks, width: number, height: number): Landmarks =>
+  Object.fromEntries(
+    LANDMARK_NAMES.map((name) => [name, { x: l[name].x * width, y: l[name].y * height }]),
+  ) as unknown as Landmarks;
 
 /**
  * An affine map as its two rows: `[[a, b, tx], [c, d, ty]]`.
@@ -266,7 +280,3 @@ export async function alignFace(image: RawImage, landmarks: Landmarks): Promise<
   }
   return out;
 }
-
-/** The transform `alignFace` will use, for a caller that wants to check the geometry. */
-export const alignmentMatrix = (landmarks: Landmarks): Matrix =>
-  similarityTransform(asPoints(landmarks), asPoints(ARCFACE_DST));

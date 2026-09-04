@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import * as ort from "onnxruntime-node";
 import sharp from "sharp";
 
-import { ALIGNED_SIZE, alignFace, type RawImage } from "./align.js";
+import { ALIGNED_SIZE, alignFace, inPixels, type RawImage } from "./align.js";
 import type { Landmarks } from "./yunet.js";
 
 export const EMBED_MODEL = {
@@ -82,7 +82,7 @@ export const isEmbedLoaded = () => session !== undefined;
  * keep. `.rotate()` applies EXIF orientation, which is what makes the fractions
  * from `/detect` — taken on the upright image — mean the same thing here.
  */
-async function decodeUpright(image: Buffer): Promise<RawImage> {
+export async function decodeUpright(image: Buffer): Promise<RawImage> {
   const { data, info } = await sharp(image).rotate().removeAlpha().raw().toBuffer({
     resolveWithObject: true,
   });
@@ -141,22 +141,10 @@ export async function embedFaces(image: Buffer, faces: FaceToEmbed[]): Promise<n
   if (faces.length === 0) return [];
 
   const upright = await decodeUpright(image);
-  const inPixels = (l: Landmarks): Landmarks => {
-    const scale = (p: { x: number; y: number }) => ({
-      x: p.x * upright.width,
-      y: p.y * upright.height,
-    });
-    return {
-      rEye: scale(l.rEye),
-      lEye: scale(l.lEye),
-      nose: scale(l.nose),
-      rMouth: scale(l.rMouth),
-      lMouth: scale(l.lMouth),
-    };
-  };
-
   const squares = await Promise.all(
-    faces.map((face) => alignFace(upright, inPixels(face.landmarks))),
+    faces.map((face) =>
+      alignFace(upright, inPixels(face.landmarks, upright.width, upright.height)),
+    ),
   );
 
   const model = await loadEmbedModel();
@@ -171,20 +159,4 @@ export async function embedFaces(image: Buffer, faces: FaceToEmbed[]): Promise<n
     );
   }
   return faces.map((_, n) => l2Normalise(values.subarray(n * PRINT_LENGTH, (n + 1) * PRINT_LENGTH)));
-}
-
-/**
- * How alike two Face Prints are, from -1 to 1.
- *
- * Both are already unit length, so this is the dot product and nothing else.
- * It lives here beside the model that produced them; what counts as a match is
- * a threshold meco decides, not a property of the arithmetic.
- */
-export function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length) {
-    throw new Error(`Cannot compare Face Prints of length ${String(a.length)} and ${String(b.length)}.`);
-  }
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) sum += a[i]! * b[i]!;
-  return sum;
 }

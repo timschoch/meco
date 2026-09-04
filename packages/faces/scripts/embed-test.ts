@@ -9,7 +9,7 @@
  * range, in which case everything runs and nothing recognises anyone. Each gets
  * its own section below, and each is checked against something outside this
  * package: geometry against arithmetic, the export against PyTorch, and the
- * embeddings against two photographs of one human being.
+ * Face Prints against two photographs of one human being.
  *
  * Drives the Hono app in-process — no port, no container.
  */
@@ -22,21 +22,16 @@ import {
   ALIGNED_SIZE,
   ARCFACE_DST,
   alignFace,
-  alignmentMatrix,
   applyMatrix,
   asPoints,
-  type RawImage,
+  inPixels,
+  similarityTransform,
 } from "../src/align.js";
 import { createFacesApp } from "../src/app.js";
 import { detectFaces } from "../src/detect.js";
-import { PRINT_LENGTH, cosineSimilarity, embedFaces } from "../src/embed.js";
-import type { Box, Landmarks, Point } from "../src/yunet.js";
-
-const FIXTURES = fileURLToPath(new URL("../../../fixtures/faces/", import.meta.url));
-
-interface Expected {
-  images: { file: string; faces: { label: string; person?: string; box: Box }[] }[];
-}
+import { PRINT_LENGTH, embedFaces } from "../src/embed.js";
+import { LANDMARK_NAMES, type Landmarks, type Point } from "../src/yunet.js";
+import { FIXTURES, cosineSimilarity, readFixtureFaces } from "./fixture-faces.js";
 
 interface Reference {
   model: string;
@@ -45,10 +40,12 @@ interface Reference {
   prints: Record<string, number[]>;
 }
 
-const expected = JSON.parse(await readFile(`${FIXTURES}expected.json`, "utf8")) as Expected;
 const reference = JSON.parse(
   await readFile(`${FIXTURES}edgeface-reference.json`, "utf8"),
 ) as Reference;
+
+/** Every fixture face, detected once and reused by all four sections below. */
+const fixtures = await readFixtureFaces();
 
 const checks: { ok: boolean; label: string; detail: string }[] = [];
 const check = (ok: boolean, label: string, detail = "") => {
@@ -126,8 +123,6 @@ function placed(scale: number, degrees: number, tx: number, ty: number): Landmar
   };
 }
 
-const NAMES = ["rEye", "lEye", "nose", "rMouth", "lMouth"] as const;
-
 for (const [scale, degrees, tx, ty] of [
   [3.2, 0, 120, 80],
   [3.2, 17, 300, 160],
@@ -141,7 +136,7 @@ for (const [scale, degrees, tx, ty] of [
 
   let worst = 0;
   let missing = "";
-  for (const name of NAMES) {
+  for (const name of LANDMARK_NAMES) {
     const found = centroid(square, ARCFACE_DST[name]);
     if (!found) {
       missing = name;
@@ -183,20 +178,17 @@ for (const [scale, degrees, tx, ty] of [
  * against the template.
  */
 {
-  const bytes = await readFile(`${FIXTURES}astronaut-portrait.jpg`);
-  const { faces, width, height } = await detectFaces(bytes);
-  const face = faces[0]!;
-  const inPixels = Object.fromEntries(
-    Object.entries(face.landmarks).map(([name, p]) => [name, { x: p.x * width, y: p.y * height }]),
-  ) as unknown as Landmarks;
+  const image = fixtures.find((i) => i.file === "astronaut-portrait.jpg")!;
+  const { width, height } = image.upright;
+  const marks = inPixels(image.faces[0]!.face.landmarks, width, height);
 
-  const canvas = await markers(asPoints(inPixels), width, height, 4);
-  const square = await alignFace(canvas, inPixels);
-  const matrix = alignmentMatrix(inPixels);
+  const canvas = await markers(asPoints(marks), width, height, 4);
+  const square = await alignFace(canvas, marks);
+  const matrix = similarityTransform(asPoints(marks), asPoints(ARCFACE_DST));
 
   let worst = 0;
-  for (const name of NAMES) {
-    const want = applyMatrix(matrix, inPixels[name]);
+  for (const name of LANDMARK_NAMES) {
+    const want = applyMatrix(matrix, marks[name]);
     const found = centroid(square, want);
     worst = Math.max(worst, found ? Math.hypot(found.x - want.x, found.y - want.y) : Infinity);
   }
@@ -209,8 +201,8 @@ for (const [scale, degrees, tx, ty] of [
   // And the residual itself is worth reporting: a large one would mean the
   // detector's five points are not shaped like a face at all.
   const residual = Math.max(
-    ...NAMES.map((name) => {
-      const got = applyMatrix(matrix, inPixels[name]);
+    ...LANDMARK_NAMES.map((name) => {
+      const got = applyMatrix(matrix, marks[name]);
       return Math.hypot(got.x - ARCFACE_DST[name].x, got.y - ARCFACE_DST[name].y);
     }),
   );
@@ -232,41 +224,16 @@ for (const [scale, degrees, tx, ty] of [
  * A channel of slack absorbs a rounding change inside libvips's resampler; it
  * is far tighter than any change of geometry could hide behind.
  */
-const aligned = new Map<string, { square: Buffer; person: string }>();
+const identity = new Map<string, string>();
 
-for (const image of expected.images) {
-  if (image.faces.length === 0) continue;
+for (const image of fixtures) {
+  for (const { name, person, face } of image.faces) {
+    identity.set(name, person);
 
-  const bytes = await readFile(`${FIXTURES}${image.file}`);
-  const { faces, width, height } = await detectFaces(bytes);
-  if (faces.length !== image.faces.length) {
-    check(false, `${image.file} face count`, "the detect test has to pass before this one can");
-    continue;
-  }
-
-  const marked = [...image.faces].sort((a, b) => a.box.x - b.box.x);
-  const found = [...faces].sort((a, b) => a.box.x - b.box.x);
-  const upright = await sharp(bytes).rotate().removeAlpha().raw().toBuffer({
-    resolveWithObject: true,
-  });
-  const raw: RawImage = {
-    data: upright.data,
-    width: upright.info.width,
-    height: upright.info.height,
-  };
-
-  for (const [i, face] of found.entries()) {
-    const inPixels = Object.fromEntries(
-      Object.entries(face.landmarks).map(([name, p]) => [
-        name,
-        { x: p.x * width, y: p.y * height },
-      ]),
-    ) as unknown as Landmarks;
-
-    const square = await alignFace(raw, inPixels);
-    const name = `${image.file.replace(/\.[a-z]+$/, "")}-${marked[i]!.label.replace(/\s+/g, "-")}.png`;
-    aligned.set(name, { square, person: marked[i]!.person ?? "?" });
-
+    const square = await alignFace(
+      image.upright,
+      inPixels(face.landmarks, image.upright.width, image.upright.height),
+    );
     const committed = await sharp(`${FIXTURES}aligned/${name}`).removeAlpha().raw().toBuffer();
     let worst = 0;
     for (let b = 0; b < committed.length; b++) {
@@ -286,7 +253,7 @@ for (const image of expected.images) {
  * The acceptance criterion, and the reason `export-edgeface.py` exists.
  *
  * The Face Prints come out of the whole service path — decode, detect, warp,
- * ONNX — and are compared with vectors the PyTorch model produced on the same
+ * ONNX — and are compared with the Face Prints PyTorch produced on the same
  * squares. Anything that changes the model, the preprocessing or the geometry
  * shows up here as a cosine below 1.
  */
@@ -296,20 +263,16 @@ console.log(
 
 const prints = new Map<string, number[]>();
 
-for (const image of expected.images) {
-  if (image.faces.length === 0) continue;
+for (const image of fixtures) {
+  // Every face of one image in a single call, in the order this test holds
+  // them — which also exercises the promise the route makes about that order.
+  const embedded = await embedFaces(
+    await readFile(`${FIXTURES}${image.file}`),
+    image.faces.map(({ face }) => face),
+  );
 
-  const bytes = await readFile(`${FIXTURES}${image.file}`);
-  const { faces } = await detectFaces(bytes);
-  const marked = [...image.faces].sort((a, b) => a.box.x - b.box.x);
-  const order = faces
-    .map((face, index) => ({ face, index }))
-    .sort((a, b) => a.face.box.x - b.face.box.x);
-
-  const embedded = await embedFaces(bytes, faces);
-  for (const [i, { index }] of order.entries()) {
-    const name = `${image.file.replace(/\.[a-z]+$/, "")}-${marked[i]!.label.replace(/\s+/g, "-")}.png`;
-    const print = embedded[index]!;
+  for (const [i, { name }] of image.faces.entries()) {
+    const print = embedded[i]!;
     prints.set(name, print);
 
     const want = reference.prints[name];
@@ -327,7 +290,7 @@ for (const image of expected.images) {
     const length = Math.sqrt(print.reduce((sum, v) => sum + v * v, 0));
     check(
       print.length === PRINT_LENGTH && Math.abs(length - 1) < 1e-6,
-      `${name} is a unit vector of ${String(PRINT_LENGTH)} floats`,
+      `${name} is ${String(PRINT_LENGTH)} floats on the unit sphere`,
       `${String(print.length)} floats, length ${length.toFixed(9)}`,
     );
   }
@@ -344,9 +307,6 @@ for (const image of expected.images) {
  * catastrophically wrong pipeline, not to tune the model. So the measurements
  * are printed whether they pass or fail.
  */
-const identity = new Map<string, string>();
-for (const [name, { person }] of aligned) identity.set(name, person);
-
 const pairs: { a: string; b: string; same: boolean; cosine: number }[] = [];
 const names = [...prints.keys()].sort();
 for (let i = 0; i < names.length; i++) {
@@ -424,7 +384,7 @@ check(
 check(
   cosineSimilarity(body.prints[0]!, prints.get("astronaut-portrait-centre.png")!) > 0.999999,
   "the route and the function agree",
-  "the API answer is the same vector the library produced",
+  "the API answer is the same Face Print the library produced",
 );
 
 const prefixed = await post(authorised, "/faces/embed");

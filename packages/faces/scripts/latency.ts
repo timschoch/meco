@@ -39,12 +39,18 @@ const token = process.env.MECO_TOKEN;
 /**
  * A 12 MP photo, made by enlarging a fixture rather than committing one.
  *
+ * The group fixture rather than the portrait, because four faces in one frame
+ * is what makes the marginal cost of a face measurable: embedding one and
+ * embedding all of them differ only by the extra warps and the extra rows of a
+ * batched inference, so the difference between the two numbers is that cost and
+ * everything they share is the decode.
+ *
  * What is being measured is a decode plus a fixed-size resize, and neither
  * cares whether the detail is real — but 12 MP of real photograph would be
  * megabytes of repository for a number nobody reads twice.
  */
 const source = fileURLToPath(
-  new URL("../../../fixtures/faces/astronaut-portrait.jpg", import.meta.url),
+  new URL("../../../fixtures/faces/artemis-2-crew.jpg", import.meta.url),
 );
 const photo = await sharp(await readFile(source))
   .resize({ width: 3000, height: 4000, fit: "fill" })
@@ -113,25 +119,37 @@ while (cold === undefined) {
 console.log(`cold  ${cold.toFixed(0).padStart(6)} ms   (${String(attempts)} attempts from t=0)`);
 
 const warmDetect: number[] = [];
-const warmEmbed: number[] = [];
-let embedded = 0;
+const warmOne: number[] = [];
+const warmAll: number[] = [];
+let count = 0;
 for (let i = 0; i < runs; i++) {
   const { ms, faces } = await detect();
   warmDetect.push(ms);
-  const print = await embed(faces);
-  warmEmbed.push(print.ms);
-  embedded = print.prints;
+  count = faces.length;
+
+  // One face and then all of them, on the same photograph. Both pay the same
+  // decode, so the gap between them is what a face costs.
+  const one = await embed(faces.slice(0, 1));
+  const all = await embed(faces);
+  warmOne.push(one.ms);
+  warmAll.push(all.ms);
+
   console.log(
     `warm  detect ${ms.toFixed(0).padStart(5)} ms   ` +
-      `embed ${print.ms.toFixed(0).padStart(5)} ms   ` +
-      `${String(faces.length)} faces`,
+      `embed 1 ${one.ms.toFixed(0).padStart(5)} ms   ` +
+      `embed ${String(all.prints)} ${all.ms.toFixed(0).padStart(5)} ms`,
   );
 }
+
+const median = (values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] ?? 0;
+};
 
 const report = (label: string, values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
   console.log(
-    `warm ${label} median ${(sorted[Math.floor(sorted.length / 2)] ?? 0).toFixed(0)} ms, ` +
+    `warm ${label} median ${median(values).toFixed(0)} ms, ` +
       `min ${(sorted[0] ?? 0).toFixed(0)} ms, max ${(sorted.at(-1) ?? 0).toFixed(0)} ms ` +
       `over ${String(runs)} runs`,
   );
@@ -139,7 +157,15 @@ const report = (label: string, values: number[]) => {
 
 console.log();
 report("detect", warmDetect);
-report(`embed (${String(embedded)} faces)`, warmEmbed);
+report("embed 1 face", warmOne);
+report(`embed ${String(count)} faces`, warmAll);
+if (count > 1) {
+  const perFace = (median(warmAll) - median(warmOne)) / (count - 1);
+  console.log(
+    `\na further face costs ${perFace.toFixed(1)} ms; the other ` +
+      `${median(warmOne).toFixed(0)} ms of an embed is the decode and the round trip`,
+  );
+}
 
 // A spawned child keeps the event loop alive on its own, so the exit is
 // explicit. Killing `docker run` does not always stop the container it started —

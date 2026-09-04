@@ -229,10 +229,11 @@ Print to a Person happens in meco, against a gallery this service cannot see.
 | Image, delta for embed | **+7 MB** on disk, **+6 MB** in the registry — the EdgeFace model and nothing else |
 | Detection model | `face_detection_yunet_2026may.onnx`, 229,738 B, MIT, copied in at build time |
 | Recognition model | `edgeface_xs_gamma_06.onnx`, 7,277,244 B, weights CC BY-NC-SA 4.0, copied in at build time |
-| Cold, 12 MP photo | **~420 ms** from `docker run` to a served detection; 376–534 ms over six boots |
-| Warm detect, 12 MP photo | **39 ms** median, 30–60 ms over 12 runs |
-| Warm embed, 12 MP photo, one face | **62 ms** median, 47–104 ms over 12 runs |
-| Marginal cost of a further face | **~3 ms** — one warp and one row of a batched inference |
+| Cold, 12 MP photo | **~470 ms** from `docker run` to a served detection; 381–586 ms over eight boots |
+| Warm detect, 12 MP photo | **~38 ms** median |
+| Warm embed, 12 MP photo, one face | **~55 ms** median |
+| Warm embed, 12 MP photo, four faces | **~78 ms** median |
+| Marginal cost of a further face | **5–14 ms** — one warp and one row of a batched inference |
 
 The image size is the `linux/amd64` build, which is what Vercel runs. The
 latency figures are local Docker on Apple silicon (`linux/arm64`), against the
@@ -246,22 +247,26 @@ MECO_TOKEN=local-token pnpm --filter meco-faces exec tsx scripts/latency.ts \
 docker rm -f faces-lat
 ```
 
-The 12 MP photo is a fixture enlarged to 3000×4000 at run time. What is being
-timed is a decode and a fixed-size resize, and neither cares whether the detail
-is real.
+The 12 MP photo is the four-face fixture enlarged to 3000×4000 at run time. What
+is being timed is a decode and a fixed-size resize, and neither cares whether
+the detail is real. Every round embeds one face and then all four of them on
+that same photograph, which is what makes a face's own cost measurable: both
+calls pay the same decode, so the gap between the two medians is the marginal
+cost and the script prints it.
 
-**Embedding is mostly the decode.** In process, on a 12 MP group photograph:
-19 ms to decode it, 29 ms to embed one face, 37 ms to embed four. So the model
-and the warp together cost about 3 ms per face and everything else is reading
-the JPEG — which is why `/embed` takes the image again rather than a crop of it,
-and why the faces go in one batched inference rather than one call each.
+**Embedding is mostly the decode.** Roughly 55 ms of an embed is reading 12 MP
+of JPEG and the round trip, and 5–14 ms is each face's warp and its row of the
+inference. That is why `/embed` takes the whole image again rather than a crop
+of it, and why the faces go in one batched call rather than one call each.
 
-**Adding EdgeFace did not move the cold start.** Boots of the detect-only image
-on the same machine measured 400–592 ms against this image's 376–534 ms. The two
-model sessions are created one after the other rather than together: starting
-them concurrently costs the detector around 400 ms on a cold boot, and a cold
-boot is always woken by a detection, since nobody can ask for a Face Print
-before they know where the face is.
+**The cold start.** Boots of the detect-only image on this machine measured
+400–592 ms; this image measures 381–586 ms, so recognition is inside the noise.
+It is only there because the two model sessions are created one after the other
+rather than together — starting them concurrently costs the detector around
+400 ms on a cold boot, and a cold boot is always woken by a detection, since
+nobody can ask for a Face Print before they know where the face is. Every
+latency figure here swings 30–50 % run to run on a laptop that is also building
+images; take the medians, not the extremes.
 
 **Against a deployment the same request takes about 1.1 s**, measured on a
 preview from Switzerland to `cle1`: 1420 ms first, 1068 ms median over twelve
@@ -300,9 +305,11 @@ throwing.
   as markers, aligned, and their centroids measured in the 112×112 square. The
   arrangement is the template's own, so the fit has no residual and the eyes
   must land on `arcface_dst` exactly. Measured: every landmark within 0.15 px,
-  the eyes within 0.05 px.
+  the eyes within 0.05 px. A second case does the same on a real detected face,
+  where the fit does leave a residual, and checks the markers against the
+  transform's own prediction instead: within 0.19 px.
 - **The export.** Face Prints computed through the whole service path are
-  compared with vectors PyTorch produced, committed in
+  compared with the Face Prints PyTorch produced, committed in
   `fixtures/faces/edgeface-reference.json`. Measured: cosine 1.000000 on all six
   fixture faces, against a floor of 0.99.
 - **The meaning.** The same person in two photographs four years apart scores

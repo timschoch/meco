@@ -10,12 +10,12 @@ It is also the only thing that ever compares the two runtimes. A conversion that
 silently changes an operator does not fail; it returns 512 confident floats that
 no longer match anyone. So the script embeds the ONNX output against the PyTorch
 output on real aligned faces and refuses to finish if they have drifted, then
-writes the PyTorch vectors out as `edgeface-reference.json` so the TypeScript
+writes the PyTorch Face Prints out as `edgeface-reference.json` so the TypeScript
 test can keep making the same comparison without a Python interpreter.
 
 The faces it uses are the committed 112x112 squares in `fixtures/faces/aligned/`,
 written by `align-dump.ts` with the service's own warp. Reading them rather than
-re-implementing the alignment in numpy is the point: the reference embeddings
+re-implementing the alignment in numpy is the point: the reference Face Prints
 then describe exactly the pixels meco-faces will send the model.
 
 Environment
@@ -204,7 +204,7 @@ def main() -> None:
             {
                 "$comment": [
                     "PyTorch reference Face Prints for the squares in aligned/, written by",
-                    "packages/faces/scripts/export-edgeface.py. Each vector is the",
+                    "packages/faces/scripts/export-edgeface.py. Each Face Print is the",
                     "edgeface_xs_gamma_06 output for the file of the same name, L2-normalised.",
                     "The embed test asserts meco-faces' ONNX output has cosine similarity",
                     "above 0.99 with each of these. Regenerate whenever the alignment, the",
@@ -221,8 +221,8 @@ def main() -> None:
                 "opset": OPSET,
                 "minCosine": MIN_COSINE,
                 "prints": {
-                    name: [round(float(v), 7) for v in vector]
-                    for name, vector in zip(names, reference_unit)
+                    name: [round(float(v), 7) for v in print_]
+                    for name, print_ in zip(names, reference_unit)
                 },
             },
             indent=2,

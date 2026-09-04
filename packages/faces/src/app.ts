@@ -30,8 +30,15 @@ import type { Landmarks } from "./yunet.js";
  *
  * Faces travel in the query string because the body is already spoken for by
  * the photograph, and a 12 MP JPEG has no business being wrapped in JSON so
- * that five points can ride along beside it. The five landmarks of eight faces
- * are well under two kilobytes of URL.
+ * that five points can ride along beside it.
+ *
+ * That does put a ceiling on how many faces one call can carry, and it is lower
+ * than it looks. Measured on the four-face fixture: 632 encoded bytes per face
+ * when the whole of `/detect`'s answer is passed through, 443 when only the
+ * landmarks are — so Node's default 16 KB of request line and headers is reached
+ * at roughly 25 faces, or 37 if the caller sends nothing but landmarks. Past
+ * that the platform answers 431 before this code is ever reached, which is why
+ * only `landmarks` is read: a caller with a crowd can drop everything else.
  *
  * Every field is checked rather than trusted. The alignment is pure arithmetic:
  * a missing landmark would not throw, it would produce a Face Print of

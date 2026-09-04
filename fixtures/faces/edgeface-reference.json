@@ -1,7 +1,7 @@
 {
   "$comment": [
     "PyTorch reference Face Prints for the squares in aligned/, written by",
-    "packages/faces/scripts/export-edgeface.py. Each vector is the",
+    "packages/faces/scripts/export-edgeface.py. Each Face Print is the",
     "edgeface_xs_gamma_06 output for the file of the same name, L2-normalised.",
     "The embed test asserts meco-faces' ONNX output has cosine similarity",
     "above 0.99 with each of these. Regenerate whenever the alignment, the",
