@@ -133,14 +133,33 @@ also keeps the documented fallback — a separate `meco-faces` project reached b
 service is separate at all: `docs/adr/0002-meco-faces-as-a-separate-service.md`.
 
 The faces image is built from a root-level **`Containerfile`**, and the name is
-forced from two sides. Vercel checks the *basename* of a service `entrypoint`
-and rejects anything that is not a Dockerfile or a Containerfile, so
-`Dockerfile.faces` fails the build outright with `invalid "entrypoint"`. And it
-builds with the entrypoint's own directory as the context, ignoring the service
-`root` — `buildah build -f <root>/packages/faces/Dockerfile.vercel
-<root>/packages/faces` — so the file cannot live beside the package it builds
-either, because the install needs the workspace lockfile at the repository root.
-`Dockerfile.vercel` is meco's. A root-level `Containerfile` is what is left.
+forced from two sides. Each cost a failed deployment to find, so both errors are
+here verbatim for whoever adds a third service.
+
+**The `entrypoint` basename must be a Dockerfile or a Containerfile.** A
+descriptive name is refused before anything is built:
+
+```
+Error: Container service "meco-faces" has invalid "entrypoint" "Dockerfile.faces".
+It must name a Dockerfile or Containerfile.
+```
+
+**The build context is the entrypoint's own directory, and `root` is ignored.**
+Moving the file to `packages/faces/Dockerfile.vercel` gets past the first check
+and then cannot see the workspace lockfile:
+
+```
+Error: building at STEP "COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./":
+checking on sources under "/vercel/path0/packages/faces":
+copier: stat: "/pnpm-lock.yaml": no such file or directory
+
+buildah build … -f /vercel/path0/packages/faces/Dockerfile.vercel /vercel/path0/packages/faces
+```
+
+That last line is the whole story: the directory at the end is the context, and
+`"root": "."` did not change it. So the file has to sit at the repository root,
+and its basename has to be one of the two Vercel accepts. `Dockerfile.vercel` is
+meco's. A root-level `Containerfile` is what is left.
 
 `MECO_TOKEN` must be set on both services. `POST /faces/detect` requires it;
 `GET /faces/health` does not, so that a liveness probe does not need a secret.
