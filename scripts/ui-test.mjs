@@ -92,12 +92,146 @@ const gallery = [
   { key: "crops/d.jpg", url: "https://blob.test/d.jpg", bytes: 1024, createdAt: "2026-08-22T10:00:00.000Z", kind: "crop" },
 ];
 
+
+/**
+ * People, kept as state rather than as a canned answer.
+ *
+ * The People tab reloads its cards after every change, so a stub that always
+ * said the same thing could not tell an enrolment that worked from one that did
+ * nothing. This one is written to, which is what lets the test assert that a
+ * deleted Person is gone from the very next listing.
+ */
+const people = {
+  laica: [
+    {
+      id: "p-ada", brand: "laica", name: "Ada", createdAt: "2026-09-01T10:00:00.000Z",
+      photoCount: 1,
+      photos: [{
+        photoId: "ph-1",
+        face: { x: 0.32, y: 0.11, width: 0.24, height: 0.3 },
+        format: "jpg",
+        enrolledAt: "2026-09-01T10:05:00.000Z",
+        consentAt: "2026-09-01T10:05:00.000Z",
+      }],
+    },
+    {
+      id: "p-linus", brand: "laica", name: "Linus", createdAt: "2026-09-02T10:00:00.000Z",
+      photoCount: 0, photos: [],
+    },
+  ],
+  hopefamily: [],
+  swisshutless: [],
+};
+
+/** A photograph with several faces in it, and one with nobody in it at all. */
+const CROWD = "https://example.test/crowd.jpg";
+const EMPTY = "https://example.test/desert.jpg";
+
+const CROWD_FACES = [
+  { index: 0, box: { x: 0.1, y: 0.2, width: 0.12, height: 0.15 }, score: 0.99, pixels: 130 },
+  { index: 1, box: { x: 0.4, y: 0.18, width: 0.13, height: 0.16 }, score: 0.98, pixels: 140 },
+  { index: 2, box: { x: 0.7, y: 0.22, width: 0.11, height: 0.14 }, score: 0.97, pixels: 120 },
+];
+
+/** What the People routes answer, given the form or JSON that arrived. */
+function peopleRoute(path, method, body) {
+  // A GET or a DELETE names the Brand in the query; an upload carries it as a
+  // form field, because the same request also carries the files.
+  const brand = new URLSearchParams(path.split("?")[1] ?? "").get("brand") ?? body?.brand;
+  const route = path.split("?")[0];
+  const parts = route.split("/");
+
+  if (route === "/v1/people" && method === "GET") {
+    return { brand, people: people[brand] ?? [] };
+  }
+  if (route === "/v1/people" && method === "POST") {
+    const person = {
+      id: "p-" + body.name.toLowerCase(), brand: body.brand, name: body.name,
+      createdAt: "2026-09-05T10:00:00.000Z", photoCount: 0, photos: [],
+    };
+    people[body.brand].push(person);
+    return person;
+  }
+
+  const personId = parts[3];
+  const person = (people[brand] ?? []).find((p) => p.id === personId);
+
+  // /v1/people/:id
+  if (parts.length === 4 && method === "DELETE") {
+    people[brand] = people[brand].filter((p) => p.id !== personId);
+    return { deleted: true, objects: 3 };
+  }
+  // /v1/people/:id/photos
+  if (parts.length === 5 && method === "POST") {
+    const source = body.source;
+    if (source === EMPTY) {
+      return { status: 400, json: { error: "No face was found in this photograph." } };
+    }
+    if (source === CROWD && body.faceIndex === undefined) {
+      return {
+        personId, name: person.name,
+        results: [{
+          name: source, status: "pick-a-face", width: 1200, height: 800, faces: CROWD_FACES,
+        }],
+      };
+    }
+    const photo = {
+      photoId: "ph-new",
+      format: "jpg",
+      face: (source === CROWD ? CROWD_FACES[Number(body.faceIndex)].box
+        : { x: 0.4, y: 0.2, width: 0.2, height: 0.24 }),
+      enrolledAt: "2026-09-05T10:01:00.000Z",
+      ...(body.consent === "true" ? { consentAt: "2026-09-05T10:01:00.000Z" } : {}),
+    };
+    person.photos = [...person.photos.filter((p) => p.photoId !== photo.photoId), photo];
+    person.photoCount = person.photos.length;
+    return { personId, name: person.name, results: [{ name: source, status: "enrolled", photo }] };
+  }
+  // /v1/people/:id/photos/:photoId
+  if (parts.length === 6 && method === "DELETE") {
+    person.photos = person.photos.filter((p) => p.photoId !== parts[5]);
+    person.photoCount = person.photos.length;
+    return person;
+  }
+  // The bytes of one Reference Photo, which have no public URL.
+  if (parts.length === 6 && method === "GET") {
+    return { blob: true };
+  }
+  return null;
+}
+
 /** Every request the page made, so the test can assert on the payloads. */
 const calls = [];
 
 function stubFetch(url, init = {}) {
-  const body = init.body ? JSON.parse(init.body) : undefined;
-  calls.push({ url, headers: init.headers ?? {}, body });
+  const method = init.method ?? "GET";
+  // A multipart upload arrives as FormData, not as a JSON string. Duck-typed
+  // rather than checked against a class, because the page builds it inside jsdom
+  // and this file runs outside it.
+  const form = init.body && typeof init.body.getAll === "function" ? init.body : null;
+  const body = form
+    ? Object.fromEntries([...form.entries()])
+    : init.body ? JSON.parse(init.body) : undefined;
+  // Files travel under one repeated name, which `fromEntries` would collapse to
+  // the last of them — so they are read out separately.
+  const files = form ? form.getAll("file").map((f) => f.name) : undefined;
+  calls.push({ url, method, headers: init.headers ?? {}, body, files, multipart: !!form });
+
+  if (url.startsWith("/v1/people")) {
+    const answer = peopleRoute(url, method, body);
+    if (!answer) throw new Error("test stub has no People route for " + method + " " + url);
+    if (answer.status === 400) {
+      return Promise.resolve({
+        ok: false, status: 400, json: () => Promise.resolve(answer.json),
+      });
+    }
+    if (answer.blob) {
+      return Promise.resolve({
+        ok: true, status: 200, blob: () => Promise.resolve({ size: 1 }),
+      });
+    }
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer) });
+  }
   const [path, query] = url.split("?");
   const params = new URLSearchParams(query ?? "");
   const wanted = params.get("brand");
@@ -168,11 +302,17 @@ const dom = new JSDOM(UI_HTML, {
   url: "https://meco.test/",
   beforeParse(w) {
     w.fetch = stubFetch;
+    // A Reference Photo is fetched as bytes and shown through an object URL, so
+    // the page never puts a token in an image address. jsdom has no object URL
+    // store; a stable string is all the test needs to see that one was used.
+    w.URL.createObjectURL = () => "blob:reference-photo";
   },
 });
 const { window } = dom;
 
 const tick = () => new Promise((r) => window.setTimeout(r, 0));
+/** The People tab awaits a fetch per Reference Photo, so it settles later. */
+const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
 await tick();
 await tick();
 
@@ -370,6 +510,189 @@ check(
 );
 check("each box is labelled with its region", drawn[0]?.querySelector("b")?.textContent === "Face 1");
 check("the count is stated in words too", doc.body.textContent.includes("2 subjects found."));
+
+
+// --------------------------------------------------------------- people tab
+
+/**
+ * The People tab, which is the one part of the console that handles personal
+ * data — so what is checked here is not only that it draws, but that it draws
+ * from bytes it had to ask for, records consent when the box is ticked, and does
+ * not delete a Person on one click.
+ */
+doc.querySelector('[data-panel="people"]').click();
+await settle();
+
+check("people form drew a company select", !!$('[name="peopleBrand"]'));
+check(
+  "people listed as cards",
+  doc.querySelectorAll("[data-person]").length === 2,
+  String(doc.querySelectorAll("[data-person]").length),
+);
+check("a card names the Person and the photo count", doc.body.textContent.includes("Ada · 1 photo"));
+check("a Person with no photos says so", doc.body.textContent.includes("Linus · 0 photos"));
+
+const thumb = $('[data-person="p-ada"] .photos .overlay');
+check("the Reference Photo is drawn", !!thumb);
+check(
+  "it came from the private route, not a URL on the record",
+  calls.some((c) => c.url === "/v1/people/p-ada/photos/ph-1?brand=laica"),
+  calls.filter((c) => c.url.startsWith("/v1/people/p-ada")).map((c) => c.url).join(" "),
+);
+check(
+  "and it is shown through an object URL, so no token is in the address",
+  thumb?.querySelector("img")?.getAttribute("src") === "blob:reference-photo",
+  thumb?.querySelector("img")?.getAttribute("src") ?? "no image",
+);
+check(
+  "the enrolled face is outlined on it",
+  thumb?.querySelector(".face")?.style.left === "32%"
+    && thumb?.querySelector(".face")?.style.width === "24%",
+  thumb?.querySelector(".face")?.getAttribute("style") ?? "no box",
+);
+check("the card says whether consent was recorded", doc.body.textContent.includes("consent recorded"));
+
+// Adding a Person: a name, and the Brand the tab is showing.
+$('[name="personName"]').value = "Grace";
+[...doc.querySelectorAll("button")].find((b) => b.textContent === "Add person").click();
+await settle();
+const added = calls.filter((c) => c.url === "/v1/people" && c.method === "POST").at(-1);
+check(
+  "adding a Person posted the name and the Brand",
+  added?.body.name === "Grace" && added?.body.brand === "laica",
+  JSON.stringify(added?.body),
+);
+check("the new Person appears in the list", doc.body.textContent.includes("Grace · 0 photos"));
+
+// Enrolling by URL, with consent ticked. The request has to be multipart, since
+// the same form also carries files.
+$('[name="person"]').value = "p-ada";
+$('[name="photoUrl"]').value = "https://example.test/portrait.jpg";
+$('[name="consent"]').checked = true;
+const enrolButton = [...doc.querySelectorAll("button")].find((b) => b.textContent === "Enrol photos");
+enrolButton.click();
+await settle();
+
+const enrolled = calls.filter((c) => c.url.endsWith("/photos") && c.method === "POST").at(-1);
+check("enrolling sent a multipart request", enrolled?.multipart === true);
+check("it named the Brand and the photograph", enrolled?.body.brand === "laica"
+  && enrolled?.body.source === "https://example.test/portrait.jpg", JSON.stringify(enrolled?.body));
+check("the consent checkbox travelled", enrolled?.body.consent === "true", String(enrolled?.body.consent));
+check("the enrolment was reported", doc.body.textContent.includes("Enrolled a face from"));
+check("and the card now counts two photos", doc.body.textContent.includes("Ada · 2 photos"));
+
+// Several faces: the caller has to pick one, and only that photograph is sent
+// again — an index means something different in every picture.
+$('[name="photoUrl"]').value = CROWD;
+enrolButton.click();
+await settle();
+const boxes = doc.querySelectorAll(".pickable .face.pick");
+check("a photograph with several faces offered a picker", boxes.length === 3, String(boxes.length));
+check("the picker labelled each face", boxes[1]?.querySelector("b")?.textContent === "face 2");
+check(
+  "a picked face is not enrolled until it is clicked",
+  calls.filter((c) => c.body?.faceIndex !== undefined).length === 0,
+);
+
+boxes[1].click();
+await settle();
+const picked = calls.filter((c) => c.url.endsWith("/photos") && c.method === "POST").at(-1);
+check("clicking a face sent it by index", picked?.body.faceIndex === "1", String(picked?.body.faceIndex));
+check("and only that photograph went back", picked?.body.source === CROWD, String(picked?.body.source));
+
+// A photograph with no face is refused, and the page says why rather than
+// silently doing nothing.
+$('[name="photoUrl"]').value = EMPTY;
+enrolButton.click();
+await settle();
+check(
+  "a photograph with no face is reported to the user",
+  ($(".err")?.textContent ?? "").includes("No face was found"),
+  $(".err")?.textContent ?? "no error shown",
+);
+
+/**
+ * Dropping photographs, which is how the console is meant to be used and the one
+ * path a file input cannot cover: a browser will not let a page put a File into
+ * an input, so dropped files are kept beside it and joined when the form is sent.
+ * jsdom has no DataTransfer, so the event carries a stand-in with the one field
+ * the page reads.
+ */
+$('[name="photoUrl"]').value = "";
+const dropZone = $('[data-role="drop"]');
+check("the enrol form offers somewhere to drop photographs", !!dropZone);
+
+const dropEvent = new window.Event("drop", { bubbles: true, cancelable: true });
+dropEvent.dataTransfer = {
+  files: [
+    new window.File(["one"], "first.jpg", { type: "image/jpeg" }),
+    new window.File(["two"], "second.jpg", { type: "image/jpeg" }),
+  ],
+};
+dropZone.dispatchEvent(dropEvent);
+await tick();
+check(
+  "dropped photographs are counted before anything is sent",
+  dropZone.textContent === "2 photographs ready",
+  dropZone.textContent,
+);
+check(
+  "and dropping sends nothing by itself",
+  calls.filter((c) => c.url.endsWith("/photos") && c.method === "POST").at(-1)?.body.source
+    === EMPTY,
+);
+
+enrolButton.click();
+await settle();
+const droppedCall = calls.filter((c) => c.url.endsWith("/photos") && c.method === "POST").at(-1);
+check(
+  "enrolling sends the dropped photographs as files",
+  droppedCall?.multipart === true && droppedCall.files?.join(",") === "first.jpg,second.jpg",
+  String(droppedCall?.files),
+);
+check(
+  "and the queue is emptied, so the next enrolment does not send them again",
+  dropZone.textContent === "or drop photographs here",
+  dropZone.textContent,
+);
+
+// Deleting: irreversible, so it takes two clicks.
+doc.querySelector('[data-panel="people"]').click();
+await settle();
+const deleteButton = [...doc.querySelectorAll('[data-person="p-linus"] button')]
+  .find((b) => b.textContent === "Delete Person");
+const deletesBefore = calls.filter((c) => c.method === "DELETE").length;
+deleteButton.click();
+await tick();
+check(
+  "one click on Delete Person deletes nothing",
+  calls.filter((c) => c.method === "DELETE").length === deletesBefore
+    && deleteButton.textContent === "Really delete?",
+  deleteButton.textContent,
+);
+deleteButton.click();
+await settle();
+const deleted = calls.filter((c) => c.method === "DELETE").at(-1);
+check("the second click deleted the Person", deleted?.url === "/v1/people/p-linus?brand=laica", deleted?.url ?? "none");
+check(
+  "and they are gone from the list",
+  !doc.querySelector('[data-person="p-linus"]')
+    && doc.body.textContent.includes("Deleted Linus and every photograph of them."),
+  doc.querySelectorAll("[data-person]").length + " cards left",
+);
+
+// Removing one Reference Photo leaves the Person standing.
+const removeButton = [...doc.querySelectorAll('[data-person="p-ada"] button')]
+  .find((b) => b.textContent === "Remove");
+removeButton.click();
+await settle();
+const removed = calls.filter((c) => c.method === "DELETE").at(-1);
+check(
+  "removing one photograph names the photograph",
+  removed?.url === "/v1/people/p-ada/photos/ph-1?brand=laica",
+  removed?.url ?? "none",
+);
+check("the Person is still there", doc.body.textContent.includes("Ada · 1 photo"));
 
 // ------------------------------------------------------------ gallery tab
 

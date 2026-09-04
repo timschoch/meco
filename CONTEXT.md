@@ -80,6 +80,14 @@ _Avoid_: safe area, focus region, subject box
 
 ### Faces
 
+**Person**:
+A named individual a Brand wants meco to recognise, owned by exactly one Brand and known by their Reference Photos. Personal data throughout: a Person is a record, never a stored output, and deleting one takes every Reference Photo and Face Print with it.
+_Avoid_: identity, user, contact, profile
+
+**Reference Photo**:
+A photograph enrolled for one Person, showing that Person's face. Several per Person. Private in the store and never in the Gallery — meco serves the bytes only to a caller carrying the token, so a Reference Photo has no URL that hands it over on its own.
+_Avoid_: training image, sample, example, headshot
+
 **Face Print**:
-The 512 floats meco-faces returns for one face, on the unit sphere, from which two faces can be compared but no photograph can be recovered. Still a biometric template of a real person. meco-faces computes them and stores nothing.
+The 512 floats meco-faces returns for one face, on the unit sphere, from which two faces can be compared but no photograph can be recovered. A Person has one per Reference Photo. Still a biometric template of a real person. meco-faces computes them and stores nothing.
 _Avoid_: embedding, descriptor, template, vector, encoding

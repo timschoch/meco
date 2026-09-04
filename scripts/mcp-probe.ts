@@ -262,11 +262,59 @@ console.log(
   `${findsSubjects ? "ok    " : "FAIL  "} find_subjects is listed and takes a source`,
 );
 
+/**
+ * The three People tools, which are what lets an agent enrol a Person without an
+ * HTTP client. Only their shape is checked here — what they do is checked in
+ * `scripts/http-probe.ts`, which has a face service and a store to do it against.
+ *
+ * `add_reference_photo` has to advertise `faceIndex`, because a photograph with
+ * several faces in it comes back asking which one and there is no other way for
+ * the agent to answer.
+ */
+const PEOPLE_TOOLS = [
+  { name: "list_people", needs: ["brand"] },
+  { name: "add_person", needs: ["brand", "name"] },
+  { name: "add_reference_photo", needs: ["brand", "personId", "source", "faceIndex", "consent"] },
+];
+
+let peopleOk = true;
+for (const wanted of PEOPLE_TOOLS) {
+  const tool = tools.find((t) => t.name === wanted.name);
+  const properties = tool?.inputSchema?.properties ?? {};
+  const missing = wanted.needs.filter((n) => properties[n] === undefined);
+  const ok = tool !== undefined && missing.length === 0;
+  peopleOk &&= ok;
+  console.log(
+    `${ok ? "ok    " : "FAIL  "} ${wanted.name} is listed and takes ${wanted.needs.join(", ")}` +
+      (missing.length > 0 ? `  — missing ${missing.join(", ")}` : ""),
+  );
+}
+
+/**
+ * Deleting a Person is deliberately not an MCP tool: it is irreversible, it
+ * takes every Reference Photo and Face Print with it, and it belongs behind a
+ * hand on a console rather than behind a sentence an agent decided to act on.
+ */
+const deletesPeople = tools.some(
+  (t) => /person|people|photo/.test(t.name) && /delete|remove|forget/.test(t.name),
+);
+console.log(
+  `${deletesPeople ? "FAIL  " : "ok    "} no tool deletes a Person over MCP`,
+);
+
 const hung = probes.filter((p) => p.bodyMs === null);
 console.log(
   `\n${String(probes.length)} exchanges probed, ${String(hung.length)} never closed ` +
     `within ${String(BUDGET_MS)}ms`,
 );
-if (hung.length > 0 || !advertised || !advertisesBlur || !rejected || !findsSubjects) {
+if (
+  hung.length > 0 ||
+  !advertised ||
+  !advertisesBlur ||
+  !rejected ||
+  !findsSubjects ||
+  !peopleOk ||
+  deletesPeople
+) {
   process.exitCode = 1;
 }

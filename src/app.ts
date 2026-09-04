@@ -16,7 +16,9 @@ import { z } from "zod";
 import * as api from "./api.js";
 import { BRANDS } from "./brands.js";
 import { CHANNELS, PLACEMENTS } from "./channels.js";
+import { fetchSourceImage } from "./crop.js";
 import { createMecoMcpHandler } from "./mcp.js";
+import * as people from "./people.js";
 import type { Storage } from "./storage.js";
 import { describeTemplates } from "./templates/registry.js";
 import { UI_HTML } from "./ui.js";
@@ -169,6 +171,157 @@ export function createApp(storage: Storage): Hono {
     }
   });
 
+  // ----------------------------------------------------------------- people
+
+  /**
+   * A Person always travels with the Brand that owns them.
+   *
+   * The record lives at `people/<brand>/<personId>/…`, so an id on its own does
+   * not locate it — finding one would mean listing every Brand's prefix on every
+   * call. Naming the Brand also means a mistyped id cannot reach into another
+   * Brand's People, which for personal data is worth one query parameter.
+   */
+  const brandOf = (c: Context): string => {
+    const brand = c.req.query("brand");
+    if (!brand) throw new Error("Name the Brand this Person belongs to: ?brand=<id>.");
+    return brand;
+  };
+
+  app.get("/v1/people", async (c) => {
+    try {
+      const brand = brandOf(c);
+      const enrolled = await people.listPeople(brand, storage);
+      return c.json({ brand, people: enrolled.map(describePerson) });
+    } catch (err) {
+      return errorResponse(c, err);
+    }
+  });
+
+  app.post("/v1/people", async (c) => {
+    const parsed = people.addPersonBody.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
+    }
+    try {
+      return c.json(describePerson(await people.createPerson(parsed.data, storage)));
+    } catch (err) {
+      return errorResponse(c, err);
+    }
+  });
+
+  app.delete("/v1/people/:id", async (c) => {
+    try {
+      const removed = await people.deletePerson(brandOf(c), c.req.param("id"), storage);
+      return c.json({ deleted: true, objects: removed.deleted });
+    } catch (err) {
+      return errorResponse(c, err);
+    }
+  });
+
+  /**
+   * Add Reference Photos to a Person, as an upload or as a URL.
+   *
+   * Several photographs may arrive in one multipart request, and each is enrolled
+   * on its own: one may enrol, the next may have several faces and come back for
+   * a pick, a third may have no face at all. So the answer is a result per
+   * photograph rather than one verdict, and the request is only a 400 when
+   * nothing in it could succeed — no photograph enrolled and none waiting on a
+   * face to be picked.
+   *
+   * A `faceIndex` may only accompany a single photograph: an index means
+   * something different in every picture, so one index across a batch would ask
+   * for face 2 of a portrait that has one face.
+   *
+   * The platform caps a request body at 100 MB, which meco does not narrow: the
+   * limit that matters is the one the request will actually meet, and inventing a
+   * second one here would refuse photographs the platform would have carried.
+   */
+  app.post("/v1/people/:id/photos", async (c) => {
+    try {
+      const personId = c.req.param("id");
+      const request = await readEnrolmentRequest(c);
+      const person = await people.getPerson(request.brand, personId, storage);
+
+      const results: PhotoResult[] = [];
+      // Kept beside the list so a request where nothing worked can say why in the
+      // one field every other failure in this API uses.
+      let firstRejection = "";
+      for (const one of request.photos) {
+        try {
+          const enrolment = await people.enrolReferencePhoto(
+            {
+              brand: request.brand,
+              personId,
+              source: one.bytes,
+              ...(request.faceIndex === undefined ? {} : { faceIndex: request.faceIndex }),
+              consent: request.consent,
+            },
+            storage,
+          );
+          results.push({ name: one.name, ...enrolment });
+        } catch (err) {
+          // One unusable photograph does not throw away the ones beside it.
+          const message = (err as Error).message;
+          firstRejection ||= message;
+          results.push({ name: one.name, status: "rejected", error: message });
+        }
+      }
+
+      const usable = results.some((r) => r.status !== "rejected");
+      return c.json(
+        {
+          personId,
+          name: person.name,
+          results,
+          ...(usable ? {} : { error: firstRejection || "Nothing could be enrolled." }),
+        },
+        usable ? 200 : 400,
+      );
+    } catch (err) {
+      return errorResponse(c, err);
+    }
+  });
+
+  /**
+   * The bytes of one Reference Photo.
+   *
+   * A Reference Photo is private in the store, so its own URL hands nothing over.
+   * This is the only way to see one, and it is behind the same token as the rest
+   * of `/v1/*` — which is what lets the console outline the enrolled face on the
+   * actual photograph without the photograph having a public address.
+   */
+  app.get("/v1/people/:id/photos/:photoId", async (c) => {
+    try {
+      const photo = await people.referencePhotoBytes(
+        brandOf(c),
+        c.req.param("id"),
+        c.req.param("photoId"),
+        storage,
+      );
+      return c.body(photo.bytes as unknown as ArrayBuffer, 200, {
+        "content-type": photo.contentType,
+        // Personal data behind a token must not be left in a shared cache.
+        "cache-control": "private, no-store",
+      });
+    } catch (err) {
+      return errorResponse(c, err);
+    }
+  });
+
+  app.delete("/v1/people/:id/photos/:photoId", async (c) => {
+    try {
+      const person = await people.deleteReferencePhoto(
+        brandOf(c),
+        c.req.param("id"),
+        c.req.param("photoId"),
+        storage,
+      );
+      return c.json(describePerson(person));
+    } catch (err) {
+      return errorResponse(c, err);
+    }
+  });
+
   // -------------------------------------------------------------------- MCP
 
   // The same operations over MCP, so Claude Code and Claude Desktop reach them as
@@ -240,4 +393,101 @@ export function createApp(storage: Storage): Hono {
   });
 
   return app;
+}
+
+/** A Person as a caller reads one: the record, plus the count the console shows. */
+function describePerson(person: people.Person) {
+  return { ...person, photoCount: person.photos.length };
+}
+
+/** What became of one photograph in a request that carried several. */
+type PhotoResult =
+  | ({ name: string } & people.Enrolment)
+  | { name: string; status: "rejected"; error: string };
+
+/** One photograph on its way in, with something to call it in the answer. */
+interface IncomingPhoto {
+  name: string;
+  bytes: Buffer;
+}
+
+/** One request to enrol photographs, whichever way they arrived. */
+interface EnrolmentRequest {
+  brand: string;
+  faceIndex?: number;
+  consent: boolean;
+  photos: IncomingPhoto[];
+}
+
+/**
+ * The photographs in one request, however they were sent.
+ *
+ * Multipart and a JSON body with a URL are the two ways a Reference Photo
+ * arrives, and they differ only in where the bytes come from — so they are read
+ * into the same shape here and the route below never learns which it was. A
+ * browser can only upload; an MCP client can only name a URL; both have to work.
+ */
+async function readEnrolmentRequest(c: Context): Promise<EnrolmentRequest> {
+  const type = c.req.header("content-type") ?? "";
+
+  if (!type.startsWith("multipart/form-data")) {
+    const parsed = people.addReferencePhotoBody.safeParse(await c.req.json());
+    if (!parsed.success) {
+      throw new api.ApiError("Invalid request", z.treeifyError(parsed.error));
+    }
+    return {
+      brand: parsed.data.brand,
+      ...(parsed.data.faceIndex === undefined ? {} : { faceIndex: parsed.data.faceIndex }),
+      consent: parsed.data.consent === true,
+      photos: [{ name: parsed.data.source, bytes: await fetchSourceImage(parsed.data.source) }],
+    };
+  }
+
+  // `all` so that several files under one field name arrive as a list rather
+  // than as whichever one happened to be parsed last.
+  const form = await c.req.parseBody({ all: true });
+  const field = (name: string): string | undefined => {
+    const value = form[name];
+    return typeof value === "string" ? value : undefined;
+  };
+
+  const brand = field("brand");
+  if (!brand) throw new Error("Name the Brand this Person belongs to: a `brand` field.");
+
+  const photos: IncomingPhoto[] = [];
+  const files = form["file"];
+  for (const one of Array.isArray(files) ? files : files ? [files] : []) {
+    if (typeof one === "string") continue;
+    photos.push({
+      name: one.name || "photograph",
+      bytes: Buffer.from(await one.arrayBuffer()),
+    });
+  }
+
+  // A URL may ride along in a form too, so the console can offer both without
+  // sending two different kinds of request.
+  const source = field("source");
+  if (source) photos.push({ name: source, bytes: await fetchSourceImage(source) });
+
+  if (photos.length === 0) {
+    throw new Error("Attach at least one photograph as `file`, or name one as `source`.");
+  }
+
+  const index = field("faceIndex");
+  const consent = field("consent");
+  // A face index means something different in every photograph, so it cannot
+  // ride along with a batch: face 2 of a group is nobody in a portrait. The
+  // console sends the picked photograph on its own for exactly this reason.
+  if (index !== undefined && index !== "" && photos.length > 1) {
+    throw new Error(
+      "A face index belongs to one photograph. Send that photograph on its own.",
+    );
+  }
+  return {
+    brand,
+    ...(index === undefined || index === "" ? {} : { faceIndex: Number(index) }),
+    // A checkbox arrives as "on"; an API client is likelier to send "true".
+    consent: consent === "true" || consent === "on" || consent === "1",
+    photos,
+  };
 }

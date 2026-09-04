@@ -360,6 +360,33 @@ MECO_TOKEN=<token> pnpm --filter meco-faces exec tsx scripts/latency.ts \
   http://localhost:8788 12
 ```
 
+## People
+
+Reference Photos and Face Prints are personal data. Three rules, and the code
+holds all three:
+
+- **Nothing about a Person leaves the People prefix.** Everything lives under
+  `people/<brand>/<personId>/`, which routes to the private Blob store and is
+  never listed by the Gallery. Enrolling writes no Annotation, so a Reference
+  Photo leaves no trace under `annotations/` either.
+- **A Reference Photo has no public URL.** `GET /v1/people/:id/photos/:photoId`
+  serves the bytes, behind the same token as the rest of `/v1/*` and marked
+  `private, no-store`. No answer about a Person carries a storage URL.
+- **Deleting a Person deletes everything.** `DELETE /v1/people/:id?brand=` lists
+  the Person's own prefix and removes what is there, rather than working from
+  the record's list of photographs — a half-finished enrolment must not be able
+  to leave bytes behind. This is the deletion path to point a data subject at.
+
+Consent is recorded, not assumed: the console has a checkbox at enrol time and
+the answer is stored as `consentAt` on the photograph. Absent means nobody said
+so. Only enrol people who agreed.
+
+Uploads go to `POST /v1/people/:id/photos`, as multipart (several files at once)
+or as a JSON body naming a URL. **The platform caps a request body at 100 MB**
+and meco does not narrow that: a second, smaller limit here would refuse
+photographs the platform would have carried. A request that is too large is
+refused by Vercel before it reaches meco.
+
 ## Gotchas
 
 - Never `docker cp` a macOS-built `node_modules` into the image — `sharp` and
