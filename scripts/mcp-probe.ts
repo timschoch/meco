@@ -236,9 +236,13 @@ const listed = probes.find((p) => p.label === "modern tools/list");
 const tools = (payload(listed?.full ?? "") as ToolListing | null)?.result?.tools ?? [];
 const cropTool = tools.find((t) => t.name === "crop_image");
 const advertised = cropTool?.inputSchema?.properties?.subjectArea !== undefined;
+const advertisesBlur = cropTool?.inputSchema?.properties?.blurUnknownFaces !== undefined;
 console.log(
   `${advertised ? "ok    " : "FAIL  "} crop_image advertises subjectArea` +
     `  — ${String(tools.length)} tools listed`,
+);
+console.log(
+  `${advertisesBlur ? "ok    " : "FAIL  "} crop_image advertises blurUnknownFaces`,
 );
 
 const rejected = refused(probes.find((p) => p.label === "modern crop_image bad area")?.full ?? "");
@@ -263,4 +267,6 @@ console.log(
   `\n${String(probes.length)} exchanges probed, ${String(hung.length)} never closed ` +
     `within ${String(BUDGET_MS)}ms`,
 );
-if (hung.length > 0 || !advertised || !rejected || !findsSubjects) process.exitCode = 1;
+if (hung.length > 0 || !advertised || !advertisesBlur || !rejected || !findsSubjects) {
+  process.exitCode = 1;
+}

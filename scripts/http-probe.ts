@@ -25,7 +25,9 @@ import {
 import sharp from "sharp";
 
 import { createApp } from "../src/app.js";
-import { CROP_PRODUCERS } from "../src/crop-solver.js";
+import { CROP_PRODUCERS, solveCrop } from "../src/crop-solver.js";
+import { faceSubjectBoxes } from "../src/crop.js";
+import { facesInFrame } from "../src/face-blur.js";
 import { FACES_URL, type Detection } from "../src/faces.js";
 import { LocalStorage } from "../src/storage.js";
 
@@ -540,6 +542,186 @@ check(
   ),
 );
 
+// ------------------------------------------------------------------ Face Blur
+
+/**
+ * The mask, proven in pixels rather than by reading the count back.
+ *
+ * `blurred` is easy to return and easy to return wrongly, so the claim under
+ * test is the one a caller actually cares about: inside every face the picture
+ * changed, and outside every face not one byte did. The second half is what
+ * separates an elliptical mask bounded to the faces from a blur of the whole
+ * frame that happens to look right.
+ *
+ * PNG on both sides, because JPEG would re-quantise the untouched pixels too and
+ * "byte-identical" would stop meaning anything.
+ */
+console.log("\nface blur");
+
+const BLUR_SHAPE = { width: 1080, height: 1350 };
+const GROUP_DETECTION = recorded.images["artemis-2-crew.jpg"]!;
+const GROUP_SIZE = { width: GROUP_DETECTION.width, height: GROUP_DETECTION.height };
+
+const sharpCrop = await post("/v1/crop", { source: GROUP.url, ...BLUR_SHAPE, format: "png" });
+const blurCrop = await post("/v1/crop", {
+  source: GROUP.url,
+  ...BLUR_SHAPE,
+  format: "png",
+  blurUnknownFaces: true,
+});
+cropKeys.add(String(sharpCrop.json.key));
+cropKeys.add(String(blurCrop.json.key));
+
+check(
+  "every face in the window was blurred, and the answer counts them",
+  blurCrop.status === 200 && blurCrop.json.blurred === GROUP_DETECTION.faces.length,
+  `${String(blurCrop.status)} blurred=${String(blurCrop.json.blurred)} of ${String(GROUP_DETECTION.faces.length)}`,
+);
+check(
+  "a Crop that did not ask for Face Blur says nothing about it",
+  sharpCrop.json.blurred === undefined,
+  String(sharpCrop.json.blurred),
+);
+check(
+  "Face Blur changed the picture, so it is not the same Crop",
+  sharpCrop.json.key !== blurCrop.json.key,
+  `${String(sharpCrop.json.key)} vs ${String(blurCrop.json.key)}`,
+);
+
+/**
+ * Where the faces landed in the finished frame.
+ *
+ * Solved here from the recorded detection rather than read out of the response,
+ * so the rectangles the pixels are checked against are derived independently of
+ * the Crop that produced them.
+ */
+const blurWindow = solveCrop(
+  faceSubjectBoxes(GROUP_DETECTION.faces),
+  GROUP_SIZE,
+  BLUR_SHAPE,
+  {},
+);
+const faceRects = facesInFrame(GROUP_DETECTION.faces, GROUP_SIZE, blurWindow, BLUR_SHAPE);
+
+const rawFrame = async (key: unknown) =>
+  sharp(join(root, String(key))).raw().toBuffer({ resolveWithObject: true });
+const before = await rawFrame(sharpCrop.json.key);
+const after = await rawFrame(blurCrop.json.key);
+
+check(
+  "both Crops are the same frame to compare",
+  before.info.width === after.info.width &&
+    before.info.height === after.info.height &&
+    before.info.channels === after.info.channels,
+  `${String(before.info.width)}x${String(before.info.height)}x${String(before.info.channels)}`,
+);
+
+/** True where the two frames disagree, one entry per pixel. */
+const changed = new Uint8Array(before.info.width * before.info.height);
+for (let i = 0; i < changed.length; i++) {
+  for (let c = 0; c < before.info.channels; c++) {
+    if (before.data[i * before.info.channels + c] !== after.data[i * before.info.channels + c]) {
+      changed[i] = 1;
+      break;
+    }
+  }
+}
+
+/** Marked where any face box covers, so "outside" is every face at once. */
+const covered = new Uint8Array(changed.length);
+for (const r of faceRects) {
+  for (let y = r.top; y < r.top + r.height; y++) {
+    for (let x = r.left; x < r.left + r.width; x++) covered[y * before.info.width + x] = 1;
+  }
+}
+
+const changedInside = faceRects.map((r) => {
+  let n = 0;
+  for (let y = r.top; y < r.top + r.height; y++) {
+    for (let x = r.left; x < r.left + r.width; x++) n += changed[y * before.info.width + x]!;
+  }
+  return n / (r.width * r.height);
+});
+let changedOutside = 0;
+for (let i = 0; i < changed.length; i++) if (changed[i] === 1 && covered[i] === 0) changedOutside++;
+
+check(
+  "one face box per blurred face",
+  faceRects.length === blurCrop.json.blurred,
+  `${String(faceRects.length)} rectangles, blurred=${String(blurCrop.json.blurred)}`,
+);
+// Half rather than all of the box: the mask is the inscribed ellipse, which is
+// π/4 of the rectangle, and the corners it leaves alone are the proof of that.
+check(
+  "the pixels inside every face box changed",
+  changedInside.length > 0 && changedInside.every((share) => share > 0.5),
+  changedInside.map((s) => s.toFixed(3)).join(" "),
+);
+check(
+  "and the corners of the box did not, so the mask is an ellipse",
+  changedInside.every((share) => share < 0.95),
+  changedInside.map((s) => s.toFixed(3)).join(" "),
+);
+check(
+  "every pixel outside the face boxes is byte-identical",
+  changedOutside === 0,
+  `${String(changedOutside)} of ${String(changed.length)} pixels differ`,
+);
+
+/**
+ * A face the window cut out is not in the picture, so it cannot have been
+ * blurred. The shape is narrow enough that the solver has to sacrifice faces —
+ * the check would prove nothing on a window that held them all.
+ */
+const NARROW = { width: 350, height: 1400 };
+const narrowWindow = solveCrop(faceSubjectBoxes(GROUP_DETECTION.faces), GROUP_SIZE, NARROW, {});
+const stillShowing = facesInFrame(GROUP_DETECTION.faces, GROUP_SIZE, narrowWindow, NARROW).length;
+const narrowCrop = await post("/v1/crop", {
+  source: GROUP.url,
+  ...NARROW,
+  blurUnknownFaces: true,
+});
+cropKeys.add(String(narrowCrop.json.key));
+check(
+  "the narrow shape really does leave faces out",
+  stillShowing > 0 && stillShowing < GROUP_DETECTION.faces.length,
+  `${String(stillShowing)} of ${String(GROUP_DETECTION.faces.length)} faces still in frame`,
+);
+check(
+  "a face outside the solved window is not counted",
+  narrowCrop.json.blurred === stillShowing,
+  `blurred=${String(narrowCrop.json.blurred)}, ${String(stillShowing)} in frame`,
+);
+
+/**
+ * Face Blur must not defeat the Annotation cache. It asks for nothing the
+ * framing did not already ask for, so three more Crops of a photograph already
+ * seen cost no detection at all.
+ */
+check(
+  "Face Blur costs no extra detection",
+  detectCalls.length === afterPortrait + 1,
+  `${String(detectCalls.length)} calls, still ${String(afterPortrait + 1)}`,
+);
+
+const nothingToHide = await post("/v1/crop", {
+  source: PORTRAIT.url,
+  width: 1080,
+  height: 1080,
+  subjectArea: { x: 0.35, y: 0.1, width: 0.3, height: 0.5 },
+  blurUnknownFaces: true,
+});
+cropKeys.add(String(nothingToHide.json.key));
+check(
+  "Face Blur leaves the framing alone",
+  nothingToHide.status === 200 &&
+    nothingToHide.json.resolvedBy === "face" &&
+    nothingToHide.json.subjectAreaSatisfied === true &&
+    nothingToHide.json.blurred === 1,
+  `${String(nothingToHide.status)} resolvedBy=${String(nothingToHide.json.resolvedBy)}` +
+    ` blurred=${String(nothingToHide.json.blurred)}`,
+);
+
 // --------------------------------------------------------- find subjects
 
 /**
@@ -732,6 +914,27 @@ check(
   "with nothing asked for and no face, the centre still decides",
   bareNoFace.json.resolvedBy === "centre",
   `resolvedBy=${String(bareNoFace.json.resolvedBy)}`,
+);
+
+/**
+ * Face Blur on a photograph with nobody in it. It reports zero rather than
+ * staying quiet, because a caller who asked to anonymise a picture has to be
+ * able to tell "there was no face here" from "the option did nothing". It lives
+ * with the other faceless claims rather than up in the Face Blur section because
+ * cropping Mars is itself a detection, and that section is counting them.
+ */
+const blurredNobody = await post("/v1/crop", {
+  source: FACELESS.url,
+  width: 1080,
+  height: 1350,
+  anchor: "center",
+  blurUnknownFaces: true,
+});
+cropKeys.add(String(blurredNobody.json.key));
+check(
+  "a photograph with no face in it reports zero blurred, not nothing",
+  blurredNobody.status === 200 && blurredNobody.json.blurred === 0,
+  `${String(blurredNobody.status)} blurred=${String(blurredNobody.json.blurred)}`,
 );
 
 // ------------------------------------------------------ a face service down

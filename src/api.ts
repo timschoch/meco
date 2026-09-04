@@ -177,6 +177,7 @@ export const cropBody = z.object({
   anchor: z.enum(CROP_ANCHORS).optional(),
   strategy: z.enum(["attention", "entropy"]).optional(),
   subjectArea: subjectAreaShape.optional(),
+  blurUnknownFaces: z.boolean().default(false),
   format: z.enum(["png", "jpeg", "webp"]).default("jpeg"),
   quality: z.number().int().min(1).max(100).optional(),
 });
@@ -201,6 +202,7 @@ export async function crop(input: CropInput, storage: Storage) {
     ...(input.anchor ? { anchor: input.anchor } : {}),
     ...(input.strategy ? { strategy: input.strategy } : {}),
     ...(input.subjectArea ? { subjectArea: input.subjectArea } : {}),
+    ...(input.blurUnknownFaces ? { blurUnknownFaces: true } : {}),
     format: input.format,
     ...(input.quality === undefined ? {} : { quality: input.quality }),
   });
@@ -216,6 +218,7 @@ export async function crop(input: CropInput, storage: Storage) {
       ? {}
       : { subjectAreaSatisfied: result.subjectAreaSatisfied }),
     ...(result.anchor ? { anchor: result.anchor } : {}),
+    ...(result.blurred === undefined ? {} : { blurred: result.blurred }),
     // A Crop that could not reach the face service still succeeds — it simply
     // frames itself from saliency or the Crop Anchor instead. Saying so is the
     // difference between a picture framed on a face and one that only looks as

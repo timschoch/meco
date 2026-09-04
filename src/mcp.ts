@@ -195,7 +195,8 @@ export function createMecoMcpHandler(storage: Storage) {
           "Crop by itself, with the eye line on the upper golden line; otherwise " +
           "give an anchor to choose the region yourself, or a strategy to let the " +
           "image decide — 'attention' keeps the most salient area. Give a " +
-          "subjectArea to say where in the result the Subject has to land.",
+          "subjectArea to say where in the result the Subject has to land. Set " +
+          "blurUnknownFaces to hide the faces of people meco does not know.",
         inputSchema: z.object({
           source: z.string().url().describe("URL of the Source Image."),
           width: z.number().int().positive(),
@@ -208,6 +209,14 @@ export function createMecoMcpHandler(storage: Storage) {
               "The rectangle of the result the Subject must fill, as fractions " +
                 "0..1 from the top-left. Overrides the anchor and the default " +
                 "golden-ratio framing. The answer says whether it was satisfied.",
+            ),
+          blurUnknownFaces: z
+            .boolean()
+            .optional()
+            .describe(
+              "Blur every face in the result that is not a known Person, " +
+                "behind an elliptical mask. Faces the crop left out are not " +
+                "touched and not counted. The answer says how many were hidden.",
             ),
           format: z.enum(["png", "jpeg", "webp"]).optional(),
           quality: z.number().int().min(1).max(100).optional(),
