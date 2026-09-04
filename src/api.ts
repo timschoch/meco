@@ -12,7 +12,7 @@ import { slidesToPdf } from "./carousel.js";
 import { PLACEMENTS, resolvePlacements, type PlacementId } from "./channels.js";
 import { CROP_ANCHORS, cropImage, fetchSourceImage } from "./crop.js";
 import { loadImages, renderImage, type ImageFormat } from "./render.js";
-import type { Storage } from "./storage.js";
+import { isPrivateKey, type Storage } from "./storage.js";
 import { getTemplate } from "./templates/registry.js";
 
 /** A caller mistake — bad template name, data that misses the schema. */
@@ -239,6 +239,10 @@ export async function gallery(input: GalleryInput, storage: Storage) {
 
   const items = listings
     .flat()
+    // Reference Photos are personal data and never a stored output. `KINDS`
+    // already leaves them out; this is the guard that stays true when a fourth
+    // kind is added.
+    .filter((i) => !isPrivateKey(i.key))
     .filter((i) => !placement || i.placement === placement)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return { total: items.length, items: items.slice(0, input.limit) };
