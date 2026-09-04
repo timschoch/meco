@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test:detect": "tsx scripts/detect-test.ts",
     "test:embed": "tsx scripts/embed-test.ts",
-    "dump:aligned": "tsx scripts/align-dump.ts"
+    "dump:aligned": "tsx scripts/align-dump.ts",
+    "dump:prints": "tsx scripts/print-dump.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",

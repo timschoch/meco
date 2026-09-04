@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "Recorded answers from a real POST /detect against meco-faces, for the two",
+    "Recorded answers from a real POST /detect against meco-faces, for the three",
     "fixture photographs that have faces in them. Checked in so that meco's own",
     "tests can frame a Crop on a real detection without loading ONNX Runtime,",
     "reaching the network, or depending on a second workspace package.",
@@ -175,6 +175,105 @@
             }
           },
           "score": 0.927661
+        }
+      ]
+    },
+    "soyuz-crew.jpg": {
+      "width": 1400,
+      "height": 679,
+      "faces": [
+        {
+          "box": {
+            "x": 0.412498,
+            "y": 0.311759,
+            "width": 0.087944,
+            "height": 0.233878
+          },
+          "landmarks": {
+            "rEye": {
+              "x": 0.434438,
+              "y": 0.398872
+            },
+            "lEye": {
+              "x": 0.472522,
+              "y": 0.400454
+            },
+            "nose": {
+              "x": 0.451509,
+              "y": 0.448313
+            },
+            "rMouth": {
+              "x": 0.437426,
+              "y": 0.478404
+            },
+            "lMouth": {
+              "x": 0.470206,
+              "y": 0.484309
+            }
+          },
+          "score": 0.936549
+        },
+        {
+          "box": {
+            "x": 0.178301,
+            "y": 0.245254,
+            "width": 0.089607,
+            "height": 0.262612
+          },
+          "landmarks": {
+            "rEye": {
+              "x": 0.202776,
+              "y": 0.341702
+            },
+            "lEye": {
+              "x": 0.247432,
+              "y": 0.342646
+            },
+            "nose": {
+              "x": 0.224887,
+              "y": 0.39309
+            },
+            "rMouth": {
+              "x": 0.203046,
+              "y": 0.430945
+            },
+            "lMouth": {
+              "x": 0.242213,
+              "y": 0.432378
+            }
+          },
+          "score": 0.932514
+        },
+        {
+          "box": {
+            "x": 0.726589,
+            "y": 0.154936,
+            "width": 0.088976,
+            "height": 0.243549
+          },
+          "landmarks": {
+            "rEye": {
+              "x": 0.748054,
+              "y": 0.246929
+            },
+            "lEye": {
+              "x": 0.788052,
+              "y": 0.24658
+            },
+            "nose": {
+              "x": 0.76533,
+              "y": 0.296857
+            },
+            "rMouth": {
+              "x": 0.750614,
+              "y": 0.332267
+            },
+            "lMouth": {
+              "x": 0.784421,
+              "y": 0.333572
+            }
+          },
+          "score": 0.925891
         }
       ]
     }

@@ -73,6 +73,11 @@ export const UI_HTML = String.raw`<!doctype html>
     background: var(--accent); color: #06281a; font-size: 11px; line-height: 1.5;
     border-radius: 3px 3px 0 0; white-space: nowrap; font-weight: 600;
   }
+  /* A face meco cannot name. Grey rather than a second bright colour, because
+     the preview is read for what is recognised: the names have to be what the
+     eye lands on, and everything else has to be visibly not that. */
+  .face.unknown { border-color: var(--dim); }
+  .face.unknown b { background: var(--dim); color: var(--bg); }
   /* A Person card: the Reference Photos sit in a row under the name, each one an
      overlay of its own so the enrolled face can be outlined on it. */
   .photos { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 10px 10px; }
@@ -127,6 +132,7 @@ let panel = "render";
 let galleryBrand = "";
 let galleryPlacement = "";
 let peopleBrand = "";
+let cropBrand = "";
 
 // ------------------------------------------------------------------ plumbing
 
@@ -420,6 +426,47 @@ function cropForm() {
   const height = el("input", { name: "height", type: "number", value: "1920" });
   form.append(field("Width", width), field("Height", height));
 
+  // The Brand, and with it the People meco may recognise in the picture. Left at
+  // "none" no matching happens at all — which is not the same as matching that
+  // found nobody, and the two must not be spelt the same way in the form.
+  const brand = el("select", { name: "brand", dataset: { role: "control" } });
+  brand.append(el("option", { value: "", textContent: "none — do not recognise anyone" }));
+  for (const b of brands) brand.append(el("option", { value: b.id, textContent: b.name }));
+  brand.value = cropBrand;
+  form.append(field("Company", brand, "whose People may be recognised"));
+
+  /**
+   * What the Crop is pinned on, with the Brand's People spelt out by name.
+   *
+   * A Person is an option here rather than a second field, because "pin on
+   * Sarah" and "pin on whoever is recognised" and "pin on the biggest face" are
+   * one decision with several answers, and a form that split them would let a
+   * caller ask for two at once.
+   */
+  const pinTo = el("select", { name: "pinTo", dataset: { role: "control" } });
+  form.append(field("Pin to", pinTo, "what the frame belongs to"));
+
+  function fillPinTo(people) {
+    const chosen = pinTo.value;
+    pinTo.replaceChildren(
+      el("option", { value: "", textContent: "whatever the picture offers" }),
+      ...(brand.value
+        ? [
+            el("option", { value: "person", textContent: "anyone this company knows" }),
+            ...people.map((p) =>
+              el("option", { value: "person:" + p.id, textContent: p.name })),
+          ]
+        : []),
+      el("option", { value: "faces", textContent: "the largest face, whoever it is" }),
+      el("option", { value: "attention", textContent: "the most salient area" }),
+    );
+    // Keeping the choice across a Brand change is worth a line, but only when it
+    // still exists: a Person of the Brand that was just deselected does not.
+    if ([...pinTo.options].some((o) => o.value === chosen)) pinTo.value = chosen;
+  }
+
+  fillPinTo([]);
+
   const anchor = el("select", { name: "anchor" });
   anchor.append(el("option", { value: "", textContent: "let the image decide (attention)" }));
   for (const a of ["center", "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]) {
@@ -491,17 +538,25 @@ function cropForm() {
    * overlay is real elements — the jsdom test in scripts/ui-test.mjs can count
    * them, which it could not do with pixels painted into a canvas.
    */
-  function overlay(url, regions) {
+  function overlay(url, regions, matches) {
+    const named = new Map((matches ?? []).map((m) => [m.regionId, m]));
     const wrap = el("div", { className: "overlay" });
     wrap.append(el("img", { src: url }));
     for (const region of regions) {
       const b = region.RegionBoundary;
+      const match = named.get(region.RegionId);
+      // Green with a name is a Person meco will keep sharp and may pin on; grey
+      // is a stranger, and the one Face Blur hides. The colour is the whole
+      // point of the preview — it is where a human checks meco's answer before
+      // a picture is published on the strength of it.
       const box = el("div", {
-        className: "face",
+        className: match ? "face" : "face unknown",
         style: "left:" + pc(b.RbX) + ";top:" + pc(b.RbY) + ";"
           + "width:" + pc(b.RbW) + ";height:" + pc(b.RbH),
       });
-      box.append(el("b", { textContent: region.RegionName }));
+      box.append(el("b", {
+        textContent: match ? match.name + " · " + match.score.toFixed(2) : region.RegionName,
+      }));
       wrap.append(box);
     }
     return wrap;
@@ -511,13 +566,22 @@ function cropForm() {
     preview.disabled = true;
     show([el("p", { className: "note", textContent: "Looking for subjects …" })]);
     try {
-      const res = await call("/v1/subjects", { source: source.value });
+      const res = await call("/v1/subjects", {
+        source: source.value,
+        ...(brand.value ? { brand: brand.value } : {}),
+      });
       const regions = res.ImageRegion ?? [];
+      const matches = res.matches ?? [];
       show([
         el("p", { className: "note", textContent:
           regions.length + (regions.length === 1 ? " subject found." : " subjects found.")
+          + (res.matches
+            ? " " + (matches.length
+              ? matches.map((m) => m.name).join(", ") + " recognised."
+              : "Nobody recognised.")
+            : "")
           + (res.warnings ? " " + res.warnings.join(" ") : "") }),
-        overlay(source.value, regions),
+        overlay(source.value, regions, matches),
       ]);
     } catch (err) { fail(err); } finally { preview.disabled = false; }
   };
@@ -531,16 +595,27 @@ function cropForm() {
     go.disabled = true;
     show([el("p", { className: "note", textContent: "Cropping …" })]);
     try {
+      const pin = pinTo.value;
       const res = await call("/v1/crop", {
         source: source.value,
         width: Number(width.value),
         height: Number(height.value),
+        ...(brand.value ? { brand: brand.value } : {}),
+        // A named Person is still "pin to a person"; which person rides in
+        // "persons", because that is the field that narrows and not a second
+        // kind of pinning.
+        ...(pin ? { pinTo: pin.startsWith("person:") ? "person" : pin } : {}),
+        ...(pin.startsWith("person:") ? { persons: [pin.slice("person:".length)] } : {}),
         ...(anchor.value ? { anchor: anchor.value } : { strategy: "attention" }),
         ...(subjectArea ? { subjectArea } : {}),
         ...(blur.checked ? { blurUnknownFaces: true } : {}),
       });
       const how = res.resolvedBy
         + (res.fallback ? " · fell back: " + res.fallback : "")
+        + (res.matches === undefined ? ""
+          : res.matches.length
+            ? " · " + res.matches.map((m) => m.name + " " + m.score.toFixed(2)).join(", ")
+            : " · nobody recognised")
         + (res.subjectAreaSatisfied === undefined ? ""
           : res.subjectAreaSatisfied ? " · Subject Area satisfied" : " · Subject Area missed")
         + (res.blurred === undefined ? ""
@@ -548,6 +623,25 @@ function cropForm() {
       show([el("div", { className: "cards" }, card(res.url, res.width + "×" + res.height + " · " + how))]);
     } catch (err) { fail(err); } finally { go.disabled = false; }
   };
+
+  /**
+   * The Brand's People, fetched when a Brand is chosen and not before.
+   *
+   * A Person's name is personal data, so the Crop tab asks for none until the
+   * operator has said which company they are working for. A failure to load
+   * leaves the select with its Brand-independent options rather than an error
+   * across the page: the tab still crops, it simply cannot offer a name.
+   */
+  brand.onchange = async () => {
+    cropBrand = brand.value;
+    if (!brand.value) return fillPinTo([]);
+    try {
+      fillPinTo((await call("/v1/people?brand=" + encodeURIComponent(brand.value))).people);
+    } catch {
+      fillPinTo([]);
+    }
+  };
+  if (brand.value) void brand.onchange();
 }
 
 /**

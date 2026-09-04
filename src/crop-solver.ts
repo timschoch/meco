@@ -30,7 +30,7 @@ export const PHI_LINES = [1 - PHI_INV, PHI_INV] as const;
 const SLACK_PX = 0.5;
 
 /** Who decided the framing. Ordered as the producers are consulted. */
-export const CROP_PRODUCERS = ["face", "saliency", "anchor", "centre"] as const;
+export const CROP_PRODUCERS = ["person", "face", "saliency", "anchor", "centre"] as const;
 
 export type CropProducer = (typeof CROP_PRODUCERS)[number];
 
@@ -314,21 +314,24 @@ function areaZoom(
  *
  * Never below 1, because this is a convention about where a head looks best and
  * not a licence to widen a Crop the caller asked to be tight. Never so tight that
- * the Subject would not fit either: headroom that cropped the face off would be
- * the exact opposite of the point.
+ * the face would not fit either: headroom that cropped the face off would be the
+ * exact opposite of the point.
+ *
+ * `face` is the leading Subject Box alone — the one the eyes were read off — and
+ * not every Subject in the picture. See the call site.
  */
 function headroomZoom(
   eyes: number,
-  subject: Rect,
+  face: Rect,
   source: PixelSize,
   aspect: number,
 ): number {
   const cover = windowSize(source, aspect, 1);
   const room = Math.min(eyes / PHI_LINES[0], (source.height - eyes) / PHI_LINES[1]);
-  // The window still has to hold the Subject, and the required shape ties the two
-  // axes together, so the height the Subject needs is the larger of what each
-  // axis asks for.
-  const floor = Math.max(subject.height, subject.width / aspect);
+  // The window still has to hold the face, and the required shape ties the two
+  // axes together, so the height it needs is the larger of what each axis asks
+  // for.
+  const floor = Math.max(face.height, face.width / aspect);
   const height = Math.max(floor, Math.min(cover.height, room));
   return height > 0 ? Math.max(1, cover.height / height) : 1;
 }
@@ -435,12 +438,23 @@ export function solveCrop(
   // An eye line also sizes the window, because at the shapes a portrait is most
   // often cut to there is no vertical slack left to place it in otherwise. The
   // caller's own zoom still wins when it asks for more.
+  //
+  // The floor is the leader's own box and not the union of every Subject: the
+  // rule is about the face the eyes belong to, and whether the others fit is the
+  // ladder's question, asked after. Flooring it on the union instead made the
+  // rule switch itself off in precisely the case a Person Match creates — a
+  // group, where the faces stand wider apart than any window that gives one of
+  // them headroom, so the eye line could never reach the golden line however far
+  // the ladder went on to sacrifice. Recorded as an amendment to
+  // `docs/adr/0001-analytic-solver-over-search-based-crop.md`.
   const startZoom =
     (area ? areaZoom(area, subject, source, aspect, target) : null) ??
     Math.max(
       1,
       options.zoom ?? 1,
-      eyeY === undefined ? 1 : headroomZoom(eyeY * source.height, subject, source, aspect),
+      eyeY === undefined
+        ? 1
+        : headroomZoom(eyeY * source.height, toPixels(leader, source), source, aspect),
     );
 
   /**

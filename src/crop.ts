@@ -22,8 +22,21 @@ import {
 } from "./crop-solver.js";
 import { blurFaces, facesInFrame, unknownFaces } from "./face-blur.js";
 import type { DetectedFace } from "./faces.js";
+import type { Match } from "./people.js";
 
 export type { SubjectArea };
+
+/**
+ * What a Crop is asked to frame itself on, when the caller has a preference.
+ *
+ * A preference and not an instruction: `person` still falls through to the faces
+ * and then to saliency when nobody was recognised, because a Crop always has to
+ * come out. Only `attention` is exclusive — it is how a caller says "ignore the
+ * faces", which is otherwise unsayable once meco can see them.
+ */
+export const PIN_TO = ["person", "faces", "attention"] as const;
+
+export type PinTo = (typeof PIN_TO)[number];
 
 /** The nine regions of a Source Image a Crop can keep. */
 export const CROP_ANCHORS = [
@@ -65,9 +78,11 @@ const ANCHOR_AT: Record<CropAnchor, FractionPoint> = {
  *
  * A found face outranks everything a caller or an image statistic can say: the
  * saliency point is a guess at what a photograph is of, and a face is an answer.
- * A matched Person will slot in above the face, which is the next number up.
+ * A matched Person outranks the face for the same reason again — a face says
+ * "the picture is of somebody", a Match says who.
  */
 const PRIORITY: Record<CropProducer, number> = {
+  person: 50,
   face: 40,
   saliency: 30,
   anchor: 20,
@@ -101,6 +116,20 @@ export interface CropRequest {
    * without any of it — which is what the tests do.
    */
   faces?: readonly DetectedFace[];
+  /**
+   * Which of those faces meco could put a name to, one entry per face in the
+   * same order and `null` for the strangers.
+   *
+   * Passed in for the same reason the faces are: matching means a store, a Brand
+   * and a second network call, and none of that belongs in the half that touches
+   * pixels. `src/api.ts` owns it.
+   */
+  matches?: readonly (Match | null)[];
+  /**
+   * What to frame on. Defaults to `person`, which is the same as `faces` until
+   * something matches, so a caller who never heard of a Person is unaffected.
+   */
+  pinTo?: PinTo;
   anchor?: CropAnchor;
   /**
    * Let the picture decide instead of the caller. Either value selects the
@@ -206,17 +235,33 @@ async function saliencyPoint(
 /**
  * Which detected face the frame belongs to.
  *
- * The largest, because in a photograph the biggest face is almost always the one
- * the photograph is of. That single sentence is the whole of the rule, and it is
- * a function of its own because replacing it is exactly what Person matching
- * does: a matched Person leads whatever size it is. Nothing else in the producer
- * knows how the leader was picked.
+ * A matched Person, whatever size their face is — that is what pinning on a
+ * Person means, and it is the whole reason the picture was matched at all. A
+ * Person three metres behind the crowd still leads the Crop.
+ *
+ * Among several Matches the strongest one leads. Picking the largest instead
+ * would let the framing wobble between two people from one photograph to the
+ * next as they move about, whereas the similarity is a statement about who meco
+ * is surest of and does not depend on where anybody stood.
+ *
+ * With no Match at all the rule is the one it has always been: the largest face,
+ * because in a photograph the biggest face is almost always the one the
+ * photograph is of. Nothing else in the producer knows how the leader was
+ * picked.
  */
-function leadingFace(faces: readonly DetectedFace[]): number {
+function leadingFace(
+  faces: readonly DetectedFace[],
+  matches: readonly (Match | null)[],
+): number {
   const area = (f: DetectedFace) => f.box.width * f.box.height;
   let lead = 0;
   for (let i = 1; i < faces.length; i++) {
-    if (area(faces[i]!) > area(faces[lead]!)) lead = i;
+    const challenger = matches[i] ?? null;
+    const holder = matches[lead] ?? null;
+    if (challenger && !holder) lead = i;
+    else if (challenger && holder) {
+      if (challenger.score > holder.score) lead = i;
+    } else if (!holder && area(faces[i]!) > area(faces[lead]!)) lead = i;
   }
   return lead;
 }
@@ -238,15 +283,36 @@ function leadingFace(faces: readonly DetectedFace[]): number {
  * `scripts/crop-solver-test.ts` frames real detections with it and reads the
  * window back, which is how the eye line is held to 2 % without an image.
  */
-export function faceSubjectBoxes(faces: readonly DetectedFace[]): SubjectBox[] {
-  const lead = leadingFace(faces);
+export function faceSubjectBoxes(
+  faces: readonly DetectedFace[],
+  matches: readonly (Match | null)[] = [],
+): SubjectBox[] {
+  const lead = leadingFace(faces, matches);
+
+  /**
+   * The four kinds of face a photograph can hold, stated once.
+   *
+   * Only the leading face of a matched Crop is a `person` box, because
+   * `resolvedBy` is read off whichever box won the anchor and "framed on a
+   * Person" is what that word has to mean. A second Match is still a face — but
+   * a known one, so it outranks a stranger, and a stranger is what the `drop`
+   * rung sacrifices first.
+   */
+  const tierOf = (leading: boolean, matched: boolean) =>
+    leading
+      ? matched
+        ? { producer: "person" as const, priority: PRIORITY.person }
+        : { producer: "face" as const, priority: PRIORITY.face }
+      : matched
+        ? { producer: "face" as const, priority: PRIORITY.face }
+        : { producer: "face" as const, priority: PRIORITY.face - SUPPORTING_FACE_STEP };
+
   return faces.map((face, i) => ({
     x: face.box.x,
     y: face.box.y,
     width: face.box.width,
     height: face.box.height,
-    producer: "face" as const,
-    priority: PRIORITY.face - (i === lead ? 0 : SUPPORTING_FACE_STEP),
+    ...tierOf(i === lead, matches[i] != null),
     keep: true,
     eyeY: (face.landmarks.rEye.y + face.landmarks.lEye.y) / 2,
   }));
@@ -277,10 +343,21 @@ async function subjectBoxes(
     ...(framed ? { framedAt: framed } : {}),
   });
 
-  if (req.faces && req.faces.length > 0) return faceSubjectBoxes(req.faces);
+  const pinTo = req.pinTo ?? "person";
 
-  if (req.strategy) {
-    const found = await saliencyPoint(data, source, aspect, req.strategy);
+  // `attention` is the one setting that steps over the faces. The other two both
+  // frame on a face and differ only in whether a name is allowed to change which
+  // face leads — so `faces` is served by handing the producer no Matches, which
+  // is exactly what "ignore who they are" means.
+  if (pinTo !== "attention" && req.faces && req.faces.length > 0) {
+    return faceSubjectBoxes(req.faces, pinTo === "person" ? (req.matches ?? []) : []);
+  }
+
+  // Asking to pin on attention is asking the picture to decide, so it selects
+  // the saliency producer on its own rather than needing a strategy beside it.
+  const strategy = req.strategy ?? (pinTo === "attention" ? "attention" : undefined);
+  if (strategy) {
+    const found = await saliencyPoint(data, source, aspect, strategy);
     if (found) return [point("saliency", found)];
   }
   if (req.anchor) {
@@ -328,8 +405,16 @@ export async function cropImage(req: CropRequest): Promise<CropResult> {
   // Face Blur goes on the framed pixels, between the resize and the encode. A
   // Crop that did not ask for it never enters this branch and so is the same
   // bytes it has always been.
+  // The Matches are consulted here whatever `pinTo` said. Which face leads the
+  // framing is a composition choice; who may be shown is not. A caller who
+  // pinned on attention still gets their own Person's face left sharp, because
+  // "blur the people we do not know" does not become a different sentence
+  // because the framing was decided by something else.
   const hiddenFaces = req.blurUnknownFaces
-    ? facesInFrame(unknownFaces(req.faces ?? []), size, window, { width, height })
+    ? facesInFrame(unknownFaces(req.faces ?? [], req.matches ?? []), size, window, {
+        width,
+        height,
+      })
     : [];
   if (hiddenFaces.length > 0) pipeline = await blurFaces(pipeline, hiddenFaces);
 

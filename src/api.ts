@@ -7,12 +7,13 @@
  */
 import { z } from "zod";
 
-import { annotate, facesOf } from "./annotations.js";
+import { annotate, faceRegions, facesOf } from "./annotations.js";
 import { BRANDS } from "./brands.js";
 import { slidesToPdf } from "./carousel.js";
 import { PLACEMENTS, resolvePlacements, type PlacementId } from "./channels.js";
-import { CROP_ANCHORS, cropImage, fetchSourceImage } from "./crop.js";
-import { FACES_URL } from "./faces.js";
+import { CROP_ANCHORS, PIN_TO, cropImage, fetchSourceImage } from "./crop.js";
+import { FACES_URL, type DetectedFace } from "./faces.js";
+import { matchFaces, type Match } from "./people.js";
 import { loadImages, renderImage, type ImageFormat } from "./render.js";
 import { isPrivateKey, type Storage } from "./storage.js";
 import { getTemplate } from "./templates/registry.js";
@@ -170,19 +171,91 @@ export const subjectAreaShape = z
     message: "A Subject Area must lie inside the frame: x + width and y + height must not exceed 1.",
   });
 
-export const cropBody = z.object({
-  source: z.string().url(),
-  width: z.number().int().positive(),
-  height: z.number().int().positive(),
-  anchor: z.enum(CROP_ANCHORS).optional(),
-  strategy: z.enum(["attention", "entropy"]).optional(),
-  subjectArea: subjectAreaShape.optional(),
-  blurUnknownFaces: z.boolean().default(false),
-  format: z.enum(["png", "jpeg", "webp"]).default("jpeg"),
-  quality: z.number().int().min(1).max(100).optional(),
-});
+/**
+ * True when this request can be answered — it named a Brand, or it asked
+ * nothing that needs one.
+ *
+ * A Person belongs to exactly one Brand, so `persons` and `pinTo: "person"` are
+ * both unanswerable without one — and answering them as "nobody matched" would
+ * look like the People were wrong rather than the request. Refused at the schema
+ * so both surfaces refuse it the same way, and shared by both schemas so they
+ * cannot come to disagree about what "needs a Brand" means.
+ */
+const brandGivenIfNeeded = (body: { brand?: string; pinTo?: string; persons?: string[] }) =>
+  body.brand !== undefined || (body.pinTo !== "person" && body.persons === undefined);
+
+const NEEDS_BRAND =
+  "Naming Persons, or pinning to a Person, needs the Brand that owns them: send brand.";
+
+export const cropBody = z
+  .object({
+    source: z.string().url(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    /** Enables Person matching against this Brand's People. */
+    brand: z.string().optional(),
+    pinTo: z.enum(PIN_TO).optional(),
+    persons: z.array(z.string()).min(1).optional(),
+    anchor: z.enum(CROP_ANCHORS).optional(),
+    strategy: z.enum(["attention", "entropy"]).optional(),
+    subjectArea: subjectAreaShape.optional(),
+    blurUnknownFaces: z.boolean().default(false),
+    format: z.enum(["png", "jpeg", "webp"]).default("jpeg"),
+    quality: z.number().int().min(1).max(100).optional(),
+  })
+  .refine(brandGivenIfNeeded, { message: NEEDS_BRAND });
 
 export type CropInput = z.infer<typeof cropBody>;
+
+/**
+ * One Match, as a caller reads it.
+ *
+ * The score is rounded, because the fifth decimal of a cosine is noise from the
+ * decoder and a caller comparing two answers should not see it move.
+ */
+const reportMatch = (m: Match) => ({
+  personId: m.personId,
+  name: m.name,
+  score: +m.score.toFixed(4),
+});
+
+/**
+ * The Matches, as a caller reads them.
+ *
+ * One entry per matched face, in the order the faces are in — so a photograph
+ * where two enrolled People stand side by side names both, and a Crop pinned on
+ * one of them still says the other was recognised and left sharp. An unknown
+ * face is simply absent: the list is who meco can name, and its length beside
+ * the face count is how many it could not.
+ */
+const reportMatches = (matches: readonly (Match | null)[]) =>
+  matches.filter((m): m is Match => m !== null).map(reportMatch);
+
+/**
+ * The faces named, when the request named a Brand to name them from.
+ *
+ * Both `crop` and `findSubjects` do exactly this and then merge the warnings
+ * into their own, so it is one function: two copies could come to differ about
+ * whether a Brand is optional, or about what a face service outage does, and
+ * only one of the two would be tested.
+ */
+async function matchIfBrand(
+  input: { brand?: string; persons?: string[] },
+  source: Buffer,
+  faces: readonly DetectedFace[],
+  storage: Storage,
+) {
+  if (!input.brand) return { matches: [], warnings: [] };
+  return matchFaces(
+    {
+      brand: input.brand,
+      source,
+      faces,
+      ...(input.persons ? { persons: input.persons } : {}),
+    },
+    storage,
+  );
+}
 
 export async function crop(input: CropInput, storage: Storage) {
   const source = await fetchSourceImage(input.source);
@@ -194,11 +267,18 @@ export async function crop(input: CropInput, storage: Storage) {
   const annotated = await annotate(source, storage);
   const faces = annotated ? facesOf(annotated.annotation) : [];
 
+  // Matching needs the Brand, so a Crop without one frames on faces and blurs
+  // every one of them — which is what a Crop did before Persons existed.
+  const named = await matchIfBrand(input, source, faces, storage);
+  const warnings = [...(annotated?.warnings ?? []), ...named.warnings];
+
   const result = await cropImage({
     source,
     width: input.width,
     height: input.height,
     ...(faces.length > 0 ? { faces } : {}),
+    ...(named.matches.length > 0 ? { matches: named.matches } : {}),
+    ...(input.pinTo ? { pinTo: input.pinTo } : {}),
     ...(input.anchor ? { anchor: input.anchor } : {}),
     ...(input.strategy ? { strategy: input.strategy } : {}),
     ...(input.subjectArea ? { subjectArea: input.subjectArea } : {}),
@@ -219,11 +299,15 @@ export async function crop(input: CropInput, storage: Storage) {
       : { subjectAreaSatisfied: result.subjectAreaSatisfied }),
     ...(result.anchor ? { anchor: result.anchor } : {}),
     ...(result.blurred === undefined ? {} : { blurred: result.blurred }),
+    // Always present once a Brand was named, empty list and all: "meco knows
+    // these People and recognised none of them here" is an answer, and a caller
+    // cannot tell it from "matching never ran" if the field comes and goes.
+    ...(input.brand ? { matches: reportMatches(named.matches) } : {}),
     // A Crop that could not reach the face service still succeeds — it simply
     // frames itself from saliency or the Crop Anchor instead. Saying so is the
     // difference between a picture framed on a face and one that only looks as
     // though it was.
-    ...(annotated && annotated.warnings.length > 0 ? { warnings: annotated.warnings } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
     ...stored,
   };
 }
@@ -238,9 +322,14 @@ export async function crop(input: CropInput, storage: Storage) {
  * image's hash like every other lookup, so a preview followed by a Crop of the
  * same photograph costs one detection between them.
  */
-export const subjectsBody = z.object({
-  source: z.string().url(),
-});
+export const subjectsBody = z
+  .object({
+    source: z.string().url(),
+    /** Match the faces against this Brand's People as well as finding them. */
+    brand: z.string().optional(),
+    persons: z.array(z.string()).min(1).optional(),
+  })
+  .refine(brandGivenIfNeeded, { message: NEEDS_BRAND });
 
 export type SubjectsInput = z.infer<typeof subjectsBody>;
 
@@ -255,9 +344,30 @@ export async function findSubjects(input: SubjectsInput, storage: Storage) {
       `Face detection is not configured on this deployment — set ${FACES_URL}. See DEPLOY.md.`,
     );
   }
+  // The Annotation itself is never touched. It is filed under the hash of the
+  // image alone, and which faces are Matches depends on the Brand that asked —
+  // writing a name into it would hand the next Brand somebody else's answer.
+  const regions = faceRegions(annotated.annotation);
+  const named = await matchIfBrand(
+    input,
+    source,
+    regions.map((r) => r.face),
+    storage,
+  );
+  const warnings = [...annotated.warnings, ...named.warnings];
+
   return {
     ...annotated.annotation,
-    ...(annotated.warnings.length > 0 ? { warnings: annotated.warnings } : {}),
+    // Keyed by region rather than by position, so the console can colour a box
+    // green without counting along two lists and hoping they line up.
+    ...(input.brand
+      ? {
+          matches: named.matches.flatMap((match, i) =>
+            match ? [{ regionId: regions[i]!.region.RegionId, ...reportMatch(match) }] : [],
+          ),
+        }
+      : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
 

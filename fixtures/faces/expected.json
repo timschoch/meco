@@ -41,6 +41,15 @@
       ]
     },
     {
+      "file": "soyuz-crew.jpg",
+      "note": "Person A among two strangers, taken at a launch pad in a flight suit rather than in a studio. The case Person matching is for: one enrolled face in a group, at a scale between the two portraits.",
+      "faces": [
+        { "label": "left", "person": "A", "box": { "x": 0.173, "y": 0.252, "width": 0.094, "height": 0.248 } },
+        { "label": "centre", "person": "F", "box": { "x": 0.408, "y": 0.32, "width": 0.089, "height": 0.222 } },
+        { "label": "right", "person": "G", "box": { "x": 0.718, "y": 0.175, "width": 0.09, "height": 0.225 } }
+      ]
+    },
+    {
       "file": "jezero-crater.jpg",
       "note": "No face at all. Rock and shadow, which is where a detector invents one if it is going to.",
       "faces": []

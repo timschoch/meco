@@ -147,15 +147,28 @@ function toRegion(face: DetectedFace, index: number): ImageRegion {
  * a face with no eyes cannot carry the headroom rule.
  */
 export function facesOf(annotation: Annotation): DetectedFace[] {
-  const faces: DetectedFace[] = [];
+  return faceRegions(annotation).map((r) => r.face);
+}
+
+/**
+ * The same faces, each still holding the region it was read out of.
+ *
+ * `facesOf` is a projection of this, not a second walk of the list, because a
+ * caller that matched the faces has to say which region each Match belongs to
+ * and the two answers must not be able to disagree about the order. A region
+ * without landmarks is absent from both, so counting on the indices lining up
+ * with `ImageRegion` would be counting on today's regions all having eyes.
+ */
+export function faceRegions(annotation: Annotation): { region: ImageRegion; face: DetectedFace }[] {
+  const found: { region: ImageRegion; face: DetectedFace }[] = [];
   for (const region of annotation.ImageRegion) {
     const landmarks = region["meco:landmarks"];
     if (!landmarks) continue;
     const b = region.RegionBoundary;
     const box: FaceBox = { x: b.RbX, y: b.RbY, width: b.RbW, height: b.RbH };
-    faces.push({ box, landmarks, score: region["meco:score"] ?? 1 });
+    found.push({ region, face: { box, landmarks, score: region["meco:score"] ?? 1 } });
   }
-  return faces;
+  return found;
 }
 
 export interface Annotated {

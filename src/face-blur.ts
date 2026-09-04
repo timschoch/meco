@@ -17,6 +17,7 @@ import sharp, { type Sharp } from "sharp";
 
 import type { PixelSize } from "./crop-solver.js";
 import type { DetectedFace, FaceBox } from "./faces.js";
+import type { Match } from "./people.js";
 
 /** A rectangle of an image, in that image's own pixels. */
 export interface PixelRect {
@@ -51,16 +52,26 @@ const SIGMA_MAX = 1000;
 const FEATHER = 1 / 6;
 
 /**
- * Which faces a Crop has to hide.
+ * Which faces a Crop has to hide: every face that is not a Match.
  *
- * Every one of them, because with no Person enrolled no face is known. That
- * single sentence is the whole of the rule, and it is a function of its own
- * because replacing it is exactly what Person matching does: a face matched to a
- * Person is known and stays sharp, whatever size it is. Nothing below here knows
- * how the choice was made — it is handed rectangles.
+ * That single sentence is the whole of the rule, and it is a function of its own
+ * so that the rule and the pixels can be wrong separately. Nothing below here
+ * knows how the choice was made — it is handed rectangles.
+ *
+ * `matches` runs parallel to `faces`, an entry per face in the same order, and a
+ * missing entry means unknown. So a request that did no matching at all passes
+ * nothing and every face is hidden, which is the same answer as before Persons
+ * existed and the right one: a face meco cannot name is a face it must not show.
+ *
+ * A Match is spared whatever its score above the threshold and whatever its
+ * size. That is the point of matching rather than a heuristic — the person who
+ * agreed to be in the picture stays in it.
  */
-export function unknownFaces(faces: readonly DetectedFace[]): readonly DetectedFace[] {
-  return faces;
+export function unknownFaces(
+  faces: readonly DetectedFace[],
+  matches: readonly (Match | null)[] = [],
+): readonly DetectedFace[] {
+  return faces.filter((_, i) => !matches[i]);
 }
 
 /**

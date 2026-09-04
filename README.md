@@ -37,8 +37,8 @@ set that header, `x-auth-token: <token>`.
 | `GET /v1/gallery` | every stored Render, Carousel and Crop, newest first; `?brand=` and `?placement=` filter |
 | `POST /v1/render` | render one Template at one or more Placements |
 | `POST /v1/carousel` | render Slides into one multi-page PDF, or N images |
-| `POST /v1/crop` | cut a Source Image to a shape; a solver frames it and the answer names what decided — `face`, `saliency`, `anchor` or `centre` — and a `subjectArea` says where in the result the Subject has to land |
-| `POST /v1/subjects` | the Annotation for a Source Image — every face as a rectangle — without cropping it |
+| `POST /v1/crop` | cut a Source Image to a shape; a solver frames it and the answer names what decided — `person`, `face`, `saliency`, `anchor` or `centre` — a `subjectArea` says where in the result the Subject has to land, and a `brand` lets a recognised Person take the frame while `blurUnknownFaces` hides everyone else |
+| `POST /v1/subjects` | the Annotation for a Source Image — every face as a rectangle — without cropping it; with a `brand`, also which of them are People it has enrolled |
 | `GET /v1/people?brand=` | the People a Brand has enrolled, with their Reference Photos |
 | `POST /v1/people` | create a Person under a Brand |
 | `DELETE /v1/people/:id?brand=` | remove a Person and every Reference Photo and Face Print of them |
@@ -103,6 +103,22 @@ Each Source Image is analysed once. meco hashes the bytes, keeps the Annotation
 under that hash, and only calls the face service on a miss — so ten Placements of
 one photograph cost one detection. `POST /v1/subjects` hands that Annotation over
 on its own, which is what the console's "Preview subjects" button draws.
+
+Name a `brand` and meco also tries to recognise that Brand's People. A face is a
+**Match** only when it clears an absolute similarity threshold *and* beats the
+second-best Person by a margin — so "nobody" is a valid answer and, in any
+photograph with a stranger in it, the usual one. A Match wins the anchor whatever
+size the face is, `resolvedBy` says `person`, and the answer lists every Match by
+name and score. `persons` limits which People may be recognised; `pinTo` chooses
+between `person`, `faces` and `attention`. A Person belongs to exactly one Brand
+and is never matched for another.
+
+`blurUnknownFaces` then hides every face that is **not** a Match, behind an
+elliptical mask, and says how many in `blurred`. Without a `brand` there are no
+Matches, so it hides all of them.
+
+Where the threshold and the margin came from, and what they are worth, is
+[ADR-0003](docs/adr/0003-face-recognition-licence-consent-and-threshold.md).
 
 A `subjectArea` says which rectangle of the result the Subject has to fill, as
 fractions from the top-left. Without one the solver uses its golden-ratio grid.
@@ -210,6 +226,7 @@ scores as low as an empty canvas.
 | Script | Proves |
 |---|---|
 | `pnpm test:crop` | the crop solver puts a Subject on a golden line, and names the fallback when it cannot |
+| `pnpm test:match` | no stranger is ever given a Person's name, at the shipped threshold and margin |
 | `pnpm test:http` | the HTTP API in-process: crop and Gallery against a temp directory, no port and no network |
 | `pnpm test:mcp` | every MCP exchange over `/mcp` ends instead of holding the container open |
 | `pnpm test:ui` | the demo console in jsdom, every tab clicked |
