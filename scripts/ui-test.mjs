@@ -144,6 +144,10 @@ function stubFetch(url, init = {}) {
         resolvedBy: "saliency",
         url: "https://blob.test/crop.jpg",
         ...(body.subjectArea ? { subjectAreaSatisfied: body.subjectArea.x < 0.5 } : {}),
+        // The real endpoint counts only when it was asked to blur, so the stub
+        // is just as quiet — otherwise the card can never be shown to stay clean
+        // for a Crop that asked for nothing.
+        ...(body.blurUnknownFaces ? { blurred: 3 } : {}),
       }
     : null;
   if (!json) throw new Error("test stub has no route for " + url);
@@ -288,9 +292,6 @@ check("the card reported a Subject Area that was missed", doc.body.textContent.i
 
 // Bad input has to be caught in the page. The API would refuse it too, but a
 // number the browser can see is wrong should never cost a round trip.
-/** How many Crops had been made before the preview, which must make none. */
-const cropsBefore = calls.filter((c) => c.url === "/v1/crop").length;
-
 const refused = async (label, values, wanted) => {
   const before = calls.length;
   setArea(values);
@@ -302,6 +303,37 @@ await refused("a half-filled Subject Area is refused in the page", ["0.3", "", "
 await refused("a Subject Area above 1 is refused in the page", ["0.3", "0.3", "1.4", "0.3"], "between 0 and 1");
 await refused("a Subject Area off the edge is refused in the page", ["0.8", "0.3", "0.4", "0.3"], "inside the frame");
 
+// ----------------------------------------------------------- face blur
+
+/**
+ * The Face Blur checkbox. Two claims: unchecked it sends nothing at all, so a
+ * Crop nobody asked to anonymise posts the body it always posted; checked, the
+ * flag travels and the count comes back onto the card where a human can read it.
+ */
+const blurBox = $('[name="blurUnknownFaces"]');
+check("the Crop tab offers a Blur unknown faces checkbox", blurBox?.type === "checkbox");
+
+setArea(["", "", "", ""]);
+await submit();
+const unblurred = calls.filter((c) => c.url === "/v1/crop").at(-1);
+check("an unchecked box sends no flag", unblurred?.body.blurUnknownFaces === undefined);
+check(
+  "and the card says nothing about blurring",
+  !$(".card .meta")?.textContent.includes("blurred"),
+  $(".card .meta")?.textContent ?? "no card",
+);
+
+blurBox.checked = true;
+await submit();
+const blurred = calls.filter((c) => c.url === "/v1/crop").at(-1);
+check("a checked box sends blurUnknownFaces", blurred?.body.blurUnknownFaces === true);
+check(
+  "the card reports how many faces were blurred",
+  doc.body.textContent.includes("3 faces blurred"),
+  $(".card .meta")?.textContent ?? "no card",
+);
+blurBox.checked = false;
+
 // ------------------------------------------------ preview subjects overlay
 
 /**
@@ -310,6 +342,9 @@ await refused("a Subject Area off the edge is refused in the page", ["0.8", "0.3
  * real elements positioned in per cent, which is what lets this count them and
  * read back where they were put.
  */
+/** How many Crops had been made before the preview, which must make none. */
+const cropsBefore = calls.filter((c) => c.url === "/v1/crop").length;
+
 const previewButton = [...doc.querySelectorAll("button")].find((b) => b.textContent === "Preview subjects");
 check("the Crop tab offers a Preview subjects button", !!previewButton);
 

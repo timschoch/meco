@@ -380,6 +380,15 @@ function cropForm() {
     return { x, y, width: w, height: h };
   }
 
+  // Face Blur, as the one checkbox the option deserves. Unchecked it is not sent
+  // at all rather than sent as false, so a Crop nobody asked to anonymise posts
+  // the body it always posted. It goes in a checks row like the Placement boxes,
+  // which is what keeps a checkbox from being stretched to the form's width.
+  const blur = el("input", { name: "blurUnknownFaces", type: "checkbox" });
+  const blurLabel = el("label");
+  blurLabel.append(blur, document.createTextNode("Blur unknown faces — hide every face meco cannot name"));
+  form.append(el("div", { className: "checks" }, blurLabel));
+
   const go = el("button", { className: "go", type: "submit", textContent: "Crop" });
   // "Preview subjects" is deliberately beside Crop and not inside it: seeing what
   // meco found in the picture is the step before choosing a shape, and it costs
@@ -446,11 +455,14 @@ function cropForm() {
         height: Number(height.value),
         ...(anchor.value ? { anchor: anchor.value } : { strategy: "attention" }),
         ...(subjectArea ? { subjectArea } : {}),
+        ...(blur.checked ? { blurUnknownFaces: true } : {}),
       });
       const how = res.resolvedBy
         + (res.fallback ? " · fell back: " + res.fallback : "")
         + (res.subjectAreaSatisfied === undefined ? ""
-          : res.subjectAreaSatisfied ? " · Subject Area satisfied" : " · Subject Area missed");
+          : res.subjectAreaSatisfied ? " · Subject Area satisfied" : " · Subject Area missed")
+        + (res.blurred === undefined ? ""
+          : " · " + res.blurred + (res.blurred === 1 ? " face blurred" : " faces blurred"));
       show([el("div", { className: "cards" }, card(res.url, res.width + "×" + res.height + " · " + how))]);
     } catch (err) { fail(err); } finally { go.disabled = false; }
   };

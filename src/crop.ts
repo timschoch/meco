@@ -20,6 +20,7 @@ import {
   type SubjectArea,
   type SubjectBox,
 } from "./crop-solver.js";
+import { blurFaces, facesInFrame, unknownFaces } from "./face-blur.js";
 import type { DetectedFace } from "./faces.js";
 
 export type { SubjectArea };
@@ -113,6 +114,13 @@ export interface CropRequest {
    * ask for anything more exact.
    */
   subjectArea?: SubjectArea;
+  /**
+   * Hide every face in the finished frame that is not a known Person.
+   *
+   * Off unless asked for: blurring a face is a decision about the picture, and
+   * a Crop that quietly made it would be worse than one that never offered it.
+   */
+  blurUnknownFaces?: boolean;
   format?: "png" | "jpeg" | "webp";
   quality?: number;
 }
@@ -132,6 +140,12 @@ export interface CropResult {
   subjectAreaSatisfied?: boolean;
   /** Only when the Crop Anchor decided. */
   anchor?: CropAnchor;
+  /**
+   * How many faces were hidden. Only when Face Blur was asked for, and then
+   * always — a Crop that found nothing to hide has to say zero rather than
+   * leave the caller guessing whether the option took effect.
+   */
+  blurred?: number;
 }
 
 /**
@@ -311,6 +325,14 @@ export async function cropImage(req: CropRequest): Promise<CropResult> {
     })
     .resize(width, height, { fit: "fill" });
 
+  // Face Blur goes on the framed pixels, between the resize and the encode. A
+  // Crop that did not ask for it never enters this branch and so is the same
+  // bytes it has always been.
+  const hiddenFaces = req.blurUnknownFaces
+    ? facesInFrame(unknownFaces(req.faces ?? []), size, window, { width, height })
+    : [];
+  if (hiddenFaces.length > 0) pipeline = await blurFaces(pipeline, hiddenFaces);
+
   if (format === "png") pipeline = pipeline.png();
   else if (format === "webp") pipeline = pipeline.webp({ quality });
   else pipeline = pipeline.jpeg({ quality });
@@ -329,6 +351,7 @@ export async function cropImage(req: CropRequest): Promise<CropResult> {
       ? {}
       : { subjectAreaSatisfied: window.subjectAreaSatisfied }),
     ...(window.resolvedBy === "anchor" && anchor ? { anchor } : {}),
+    ...(req.blurUnknownFaces ? { blurred: hiddenFaces.length } : {}),
   };
 }
 
