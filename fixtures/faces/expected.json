@@ -1,0 +1,37 @@
+{
+  "$comment": [
+    "Hand-marked faces for the meco-faces detect test. Boxes are fractions of",
+    "the image, 0..1 from the top-left, in the same shape POST /detect returns.",
+    "Marked by eye against the fixture at full size, drawn back over the photo",
+    "and corrected until every rectangle framed the face from hairline to chin",
+    "and ear to ear. They are a human's answer, not a detector's — the point of",
+    "the test is that the two agree.",
+    "tolerance is the largest allowed difference in any single coordinate,",
+    "expressed as a fraction of the image, per the ticket's '3 %'."
+  ],
+  "tolerance": 0.03,
+  "images": [
+    {
+      "file": "artemis-2-crew.jpg",
+      "note": "Four faces at four scales and two rows — the group case.",
+      "faces": [
+        { "label": "back left", "box": { "x": 0.228, "y": 0.248, "width": 0.088, "height": 0.095 } },
+        { "label": "back centre", "box": { "x": 0.481, "y": 0.175, "width": 0.078, "height": 0.079 } },
+        { "label": "front centre", "box": { "x": 0.451, "y": 0.354, "width": 0.089, "height": 0.093 } },
+        { "label": "back right", "box": { "x": 0.719, "y": 0.27, "width": 0.085, "height": 0.087 } }
+      ]
+    },
+    {
+      "file": "astronaut-portrait.jpg",
+      "note": "One large, well-lit face — the single-Subject case.",
+      "faces": [
+        { "label": "centre", "box": { "x": 0.402, "y": 0.135, "width": 0.25, "height": 0.276 } }
+      ]
+    },
+    {
+      "file": "jezero-crater.jpg",
+      "note": "No face at all. Rock and shadow, which is where a detector invents one if it is going to.",
+      "faces": []
+    }
+  ]
+}

@@ -5,7 +5,15 @@
       "root": ".",
       "runtime": "container",
       "entrypoint": "Dockerfile.vercel"
+    },
+    "meco-faces": {
+      "root": ".",
+      "runtime": "container",
+      "entrypoint": "Containerfile"
     }
   },
-  "rewrites": [{ "source": "/(.*)", "destination": { "service": "meco" } }]
+  "rewrites": [
+    { "source": "/faces/(.*)", "destination": { "service": "meco-faces" } },
+    { "source": "/(.*)", "destination": { "service": "meco" } }
+  ]
 }
