@@ -52,10 +52,13 @@ const REGION_ID = new RegExp(
   `^(?:${RegionKind.options.join("|")})-[1-9][0-9]*$`
 );
 
+/** A Region id on its own, for the modules that key by one without the Region. */
+export const RegionId = z.string().regex(REGION_ID);
+
 /** One thing a Model found in the bytes. True of the bytes, so cached forever. */
 export const Region = z
   .strictObject({
-    id: z.string().regex(REGION_ID),
+    id: RegionId,
     kind: RegionKind,
     /** The Model's own word (`motorbike`). Never selected on: that is `kind`. */
     label: z.string().min(1),
@@ -91,7 +94,7 @@ export const ANNOTATION_SCHEMA = 1;
 const Mime = z.enum(["image/jpeg", "image/png", "image/webp"]);
 
 /** Bare sha256 of the bytes. No algorithm prefix: the schema fixes it. */
-const ContentHash = z.string().regex(/^[0-9a-f]{64}$/);
+export const ContentHash = z.string().regex(/^[0-9a-f]{64}$/);
 
 const modelKey = (m: z.infer<typeof ModelId>) => `${m.name}@${m.version}`;
 

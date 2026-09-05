@@ -11,3 +11,13 @@ export {
   Region,
   RegionKind,
 } from "./lib/annotation";
+export {
+  CropAnchor,
+  DEFAULT_ANCHOR,
+  DEFAULT_PIN_TO,
+  FramingRequest,
+  PinTo,
+  Redaction,
+  Target,
+} from "./lib/framing-request";
+export { Match } from "./lib/match";
