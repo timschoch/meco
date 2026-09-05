@@ -10,6 +10,7 @@ export {
   ModelId,
   Region,
   RegionKind,
+  isComplete,
 } from "./lib/annotation";
 export {
   CropAnchor,
@@ -21,3 +22,4 @@ export {
   Target,
 } from "./lib/framing-request";
 export { Match } from "./lib/match";
+export { assignRegionIds, type AdapterRegion } from "./lib/region-ids";

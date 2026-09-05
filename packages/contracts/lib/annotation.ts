@@ -5,13 +5,16 @@ import { ContentHash } from "./identifiers";
 /** What a Model drew a Region around. meco's closed set; it grows by PR. */
 export const RegionKind = z.enum(["face", "person", "vehicle"]);
 
-/**
- * A Model and the version of everything that can change its output: weights,
- * preprocessing, class list, thresholds, runtime major. Bump `version` for any
- * of them, or a cached Annotation answers for a Model that no longer runs.
- */
+/** A Model, named and versioned. Both halves are needed to tell two runs apart. */
 export const ModelId = z.strictObject({
   name: z.string().min(1),
+  /**
+   * Changes whenever anything that can change the Model's output changes:
+   * weights, preprocessing, class list, thresholds, ONNX runtime major. A
+   * consumer names the `{ name, version }` pairs it requires and `isComplete`
+   * answers; bump this for any of them, or a cached Annotation answers for a
+   * Model that no longer runs.
+   */
   version: z.string().min(1),
 });
 
@@ -94,6 +97,7 @@ export const ANNOTATION_SCHEMA = 1;
 /** The image formats the models host promises to decode. Grows by PR. */
 const Mime = z.enum(["image/jpeg", "image/png", "image/webp"]);
 
+/** One string per `{ name, version }`, so two Models compare as a whole. */
 const modelKey = (m: z.infer<typeof ModelId>) => `${m.name}@${m.version}`;
 
 /**
@@ -129,3 +133,17 @@ export const Annotation = z
   );
 
 export type Annotation = z.infer<typeof Annotation>;
+
+/**
+ * Whether every Model a consumer requires is in `producedBy`, version and all.
+ * A `false` is a cache miss: the bytes must be annotated again. Comparing the
+ * version is the point — an Annotation made by an older adapter would
+ * otherwise answer for a Model that no longer runs.
+ */
+export const isComplete = (
+  annotation: Annotation,
+  required: ModelId[]
+): boolean => {
+  const ran = new Set(annotation.producedBy.map(modelKey));
+  return required.every((model) => ran.has(modelKey(model)));
+};

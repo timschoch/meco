@@ -123,7 +123,7 @@ The SHA-256 of a Source Image's bytes, in hex. The only key an Annotation is fil
 _Avoid_: id, fingerprint, checksum, digest
 
 **Region**:
-One rectangle in a Source Image that a Model drew, with its Region Kind, its Label, its score and the Model that drew it. A face Region also carries its five landmarks and may carry a Face Print. Numbered within its Annotation by position, so two runs of the same Model give the same ids.
+One rectangle in a Source Image that a Model drew, with its Region Kind, its Label, its score and the Model that drew it. A face Region also carries its five landmarks and may carry a Face Print. Numbered `<kind>-<n>` within its Annotation after sorting on where it sits — `kind`, then `box.y`, `box.x`, `box.width` — so two runs of the same Model give the same ids whatever order the Model Adapters answered in.
 _Avoid_: detection, bbox, detected object, box (a Box is the rectangle alone), subject box (that is frame's)
 
 **Region Kind**:
@@ -155,6 +155,10 @@ Already defined above under Faces. Crossing a seam it is the Region id, the Pers
 **Decoded Image**:
 A Source Image as raw pixels, decoded once by the models host and handed to every Model Adapter unchanged. Decoding costs more than inference, so it happens once per photograph, not once per Model.
 _Avoid_: bitmap, buffer, tensor, input image
+
+**Adapter Region**:
+A Region as a Model Adapter answers it: everything a Region has except its id. An adapter cannot know an id, because the number depends on every other adapter's Regions; the models host passes the union of them to contracts, which sorts and numbers them.
+_Avoid_: raw region, unnumbered region, partial region, detection
 
 **Model Adapter**:
 The hand-written code that runs one Model over a Decoded Image and answers in Regions. It declares its Model, the Region Kinds it can emit, and its licence text, so a Model cannot be added without one. Every Model Adapter passes the same Conformance Checks.
