@@ -14,25 +14,18 @@ The five canonical triage roles, each label string equal to its name. See `docs/
 
 Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+## Packages
+
+Packages are deep modules: their only public surface is their root files. See
+[packages/README.md](./packages/README.md) before adding or importing one.
+
 ## Tests
 
-No test framework, and do not add one. A test is a `tsx` script that prints its
-checks and sets `process.exitCode = 1` on failure, wired as an npm script.
-`scripts/verify.ts`, `scripts/http-probe.ts` and `scripts/mcp-probe.ts` are the
-models.
+Vitest, in workspace mode from the repo root. A package's tests live in its own
+`tests/` folder and reach it through its entry points, like every other caller.
 
-Full gate:
-
-```
-pnpm typecheck && pnpm typecheck:faces && pnpm build && pnpm build:faces \
-  && pnpm test:crop && pnpm test:http && pnpm test:mcp && pnpm test:ui \
-  && pnpm test:detect && pnpm test:embed && pnpm test:objects && pnpm test:match
-```
-
-`pnpm test:storage` runs against the live Blob store: it needs `.env.local`
-and takes ~10 minutes. It is not part of the gate. Neither is
-`pnpm --filter meco-faces verify:dfine`, which re-checks the committed object
-model against its source over the network — see `DEPLOY.md`.
+Full gate: `pnpm check` — typecheck, `lint:boundaries`, tests. CI
+(`.github/workflows/ci.yml`) runs the same three plus `pnpm build`.
 
 **Prove a test can fail.** Mutate the code it covers and confirm the suite
 catches it. Three tickets in the Subject-aware Crop feature did this; two found
@@ -48,12 +41,10 @@ types disagree, the types win and the ADR records why.
 
 ## Deployment configuration
 
-Two container services in one Vercel project. `DEPLOY.md` is the source of
-truth; the traps that cost failed builds are written there with the verbatim
-error strings. Two env vars gate shipped features and are owner-set:
-`FACES_URL` (without it no Crop is framed on a face) and
-`BLOB_PEOPLE_READ_WRITE_TOKEN` (without it every write under `people/` is
-refused).
+Two container services, `gateway` and `models`, in one Vercel project.
+`DEPLOY.md` is the source of truth for the shape;
+`docs/research/vercel-two-services.md` is the primary-source research behind it,
+including the two build traps the prototype paid for.
 
 ---
 
@@ -84,8 +75,8 @@ These are **not** valid arguments to keep something:
 - the tests would have to be rewritten
 - it was hard to get right
 
-Sunk cost is not evidence. A thing that is merely *good enough* is out; only
-*first choice* is in.
+Sunk cost is not evidence. A thing that is merely _good enough_ is out; only
+_first choice_ is in.
 
 Already out by this rule: hand-rolled `tsx` test scripts (Vitest is the first
 choice), the flat `src/*.ts` layout (packages with enforced entry points are),
@@ -97,17 +88,17 @@ decision lives, not in a chat.
 
 ## Modules
 
-| Module | Its one job |
-|---|---|
-| `store` | bytes by key, public or private |
-| `records` | everything known about a file, in a DB |
-| `models` | run named models over an image, return labelled regions |
-| `identify` | say who or what a region is |
-| `frame` | choose the crop window — pure maths, no pixels |
-| `redact` | hide what must not be shown |
-| `compose` | lay out a template, emit its occlusion zones |
-| `gateway` | one endpoint: auth, quota, pricing, routing |
-| `webui` | gallery and what-happened view. Second-class citizen |
+| Module     | Its one job                                             |
+| ---------- | ------------------------------------------------------- |
+| `store`    | bytes by key, public or private                         |
+| `records`  | everything known about a file, in a DB                  |
+| `models`   | run named models over an image, return labelled regions |
+| `identify` | say who or what a region is                             |
+| `frame`    | choose the crop window — pure maths, no pixels          |
+| `redact`   | hide what must not be shown                             |
+| `compose`  | lay out a template, emit its occlusion zones            |
+| `gateway`  | one endpoint: auth, quota, pricing, routing             |
+| `webui`    | gallery and what-happened view. Second-class citizen    |
 
 `models` is a **catalogue**, not a face service. Shared models only for now;
 per-consumer models are the direction, not the first step.
