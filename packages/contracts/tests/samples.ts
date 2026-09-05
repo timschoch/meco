@@ -1,6 +1,5 @@
 // Fixtures for the contracts tests. Private to tests/ by the boundary rules.
 import {
-  DEFAULT_ANCHOR,
   DEFAULT_PIN_TO,
   type Annotation,
   type FramingRequest,
@@ -139,13 +138,12 @@ export const framingRequest: FramingRequest = {
   redaction: { blurUnknownFaces: true },
 };
 
-/** Every optional field left out, and `anchor` at its default. */
+/** Every optional field left out, `anchor` among them. */
 export const minimalFramingRequest: FramingRequest = {
   brand,
   source: { hash: annotation.hash },
   target: { width: 1080, height: 1080 },
   pinTo: DEFAULT_PIN_TO,
-  anchor: DEFAULT_ANCHOR,
   occlusion: [],
   redaction: { blurUnknownFaces: false },
 };

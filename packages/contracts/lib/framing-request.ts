@@ -9,7 +9,10 @@ import { Brand, ContentHash, PersonId } from "./identifiers";
  */
 export const PinTo = z.enum(["match", "face", "kart"]);
 
-/** The caller's ladder when it names none. Applied by the gateway, not the schema. */
+/**
+ * The ladder frame walks when the caller names none. A constant and not a
+ * schema default, so the stored call record shows what the caller sent.
+ */
 export const DEFAULT_PIN_TO: PinTo[] = ["match", "face", "kart"];
 
 /** Where frame falls back to when nothing on the ladder yields. */
@@ -25,10 +28,7 @@ export const CropAnchor = z.enum([
   "bottom-right",
 ]);
 
-/**
- * The anchor the schema fills in. Unlike `pinTo`, what the caller asked for is
- * not worth recording: an anchor is only reached once the ladder has failed.
- */
+/** Where frame anchors when the caller names none. A constant for the same reason. */
 export const DEFAULT_ANCHOR: CropAnchor = "center";
 
 /** What the Crop is rendered as. A {@link Size}, so target and image size cannot drift. */
@@ -68,7 +68,8 @@ export const FramingRequest = z.strictObject({
     }),
   /** Person ids that may lead. Absent means any named Person may. */
   persons: z.array(PersonId).optional(),
-  anchor: CropAnchor.default(DEFAULT_ANCHOR),
+  /** frame reads `anchor ?? DEFAULT_ANCHOR`; the schema fills in nothing. */
+  anchor: CropAnchor.optional(),
   /** Where the Subject must land, in Image Slot fractions. */
   subjectArea: Box.optional(),
   /** What the Template will cover, in Image Slot fractions. May be empty. */

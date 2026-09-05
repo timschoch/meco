@@ -25,10 +25,12 @@ describe("schemaConformance over the FramingRequest", () => {
   for (const check of checks) it(check.name, check.run);
 });
 
+// Neither default lives in the schema. Both are constants frame applies, so
+// the stored call record shows what the caller sent and not what frame assumed.
 describe("FramingRequest defaults", () => {
-  it("yields the centre anchor when the caller names none", () => {
-    const { anchor: _omitted, ...withoutAnchor } = minimalFramingRequest;
-    expect(FramingRequest.parse(withoutAnchor).anchor).toBe("center");
+  it("leaves anchor unset rather than filling it in", () => {
+    expect(minimalFramingRequest.anchor).toBeUndefined();
+    expect(FramingRequest.parse(minimalFramingRequest).anchor).toBeUndefined();
     expect(DEFAULT_ANCHOR).toBe("center");
   });
 
