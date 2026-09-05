@@ -5,10 +5,5 @@
     "declarationDir": "dist/types"
   },
   "include": ["**/*.ts"],
-  "exclude": ["dist"],
-  "references": [
-    {
-      "path": "../contracts"
-    }
-  ]
+  "exclude": ["dist"]
 }
