@@ -4,9 +4,23 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./template": "./template.ts",
+    "./placements": "./placements.ts"
+  },
+  "scripts": {
+    "golden": "vite-node tests/golden.ts"
   },
   "dependencies": {
-    "@meco/contracts": "workspace:*"
+    "@meco/contracts": "workspace:*",
+    "@takumi-rs/core": "2.13.6",
+    "@takumi-rs/helpers": "2.13.6",
+    "react": "^19.2.8",
+    "sharp": "0.35.4",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "vite-node": "^6.0.0"
   }
 }
