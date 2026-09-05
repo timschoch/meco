@@ -7,11 +7,11 @@ meco turns code-authored templates and JSON data into social media images and PD
 ### Templates and rendering
 
 **Brand**:
-The look a Template renders in — colours, fonts and wordmark, owned by one consumer of meco. A Template belongs to exactly one Brand.
-_Avoid_: theme, skin, style, client
+One consumer of meco as the owner of its data: its People, Reference Photos, Templates and Look. The unit of ownership and the privacy wall; a caller may hold several, and a Template belongs to exactly one. How a Brand's output looks is its Look, defined under compose.
+_Avoid_: theme, skin, style, client, tenant, account
 
 **Template**:
-A design authored as code, with no pixel size of its own. It declares the data it needs and adapts to whatever Placement it is rendered for.
+A design authored as code, with no pixel size of its own. It declares the Fields it needs and the Placements it supports, and lays itself out for whichever of those it is rendered for; any other Placement is refused.
 _Avoid_: layout, design, banner, creative
 
 **Channel**:
@@ -23,7 +23,7 @@ A way of posting within a Channel, which fixes one output size — a post, a sto
 _Avoid_: preset, size, format, variant, aspect ratio
 
 **Render**:
-A stored image or PDF produced from one Template, one set of data and one Placement, reachable at a stable URL. The same three inputs always yield the same Render.
+A stored image or PDF produced from one Template, its Fields and one Placement, plus one Source Image under one window when the Template has an Image Slot, reachable at a stable URL. The same inputs always yield the same Render.
 _Avoid_: output, generation, asset, artifact
 
 **Gallery**:
@@ -114,7 +114,7 @@ A detected face meco is willing to compare against a Person at all: large enough
 _Avoid_: valid face, real face, good face, quality
 
 **Uncompared Face**:
-A detected face meco never asked about, because no Face Print could be made of it — the alignment refused it, or the face service did not answer. Not the same as an unknown face, which *was* compared and matched nobody: one is a gap in the question, the other an answer to it. Counted in a Crop's answer so the two can be told apart, and hidden by Face Blur exactly like any other face meco cannot name.
+A detected face meco never asked about, because no Face Print could be made of it — the alignment refused it, or the face service did not answer. Not the same as an unknown face, which _was_ compared and matched nobody: one is a gap in the question, the other an answer to it. Counted in a Crop's answer so the two can be told apart, and hidden by Face Blur exactly like any other face meco cannot name.
 _Avoid_: failed face, error, skipped, dropped
 
 ## contracts
@@ -225,3 +225,23 @@ Subject: zoom out, relax the target towards the middle, drop the cheapest
 Subject, or accept the clipping. Always named in the Framing — a Crop that
 silently gave up on a Subject is worse than one that says it did.
 _Avoid_: retry, degradation, strategy, recovery, fallback on its own
+
+## compose
+
+The module that lays a Template over a picture and produces the finished Render. It answers twice per output: first what the Template will cover (the Plan), later the picture itself. It is the last stage that touches pixels and the only one that encodes.
+
+**Look**:
+The colours, fonts and wordmark a Brand's Templates render in. Code inside compose, keyed by the Brand id, with the font files and logo bytes beside it. The Brand stays the unit of ownership and the privacy wall; the Look is only how its output looks. A Brand without a Look cannot be rendered for.
+_Avoid_: theme, skin, brand (when the look is meant), design tokens, style guide
+
+**Fields**:
+The data a Template asks the caller for, such as a title, a kicker or a date, declared by the Template as a schema, so a caller can read what is required before rendering. Never pixels: the picture reaches a Template through its Image Slot, not through a Field.
+_Avoid_: data, props, variables, content, payload
+
+**Plan**:
+What a Template will do at one Placement with these Fields, before any picture exists: the Image Slot in pixels, the Occlusion Zones and the Subject Area in Image Slot fractions. Measured from the Template's layout, so a longer title gives a taller zone. Needs no Source Image; the same Template, Placement and Fields always give the same Plan.
+_Avoid_: layout, dry run, preflight, manifest, preview
+
+**Marker**:
+One of the two components a Template uses to name what compose must find in its layout: `ImageSlot`, exactly one, where the picture goes; `Occludes`, any number, around what will cover the picture. A Marker draws nothing of its own.
+_Avoid_: annotation, tag, hint, decorator, region
