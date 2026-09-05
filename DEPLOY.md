@@ -284,6 +284,60 @@ MECO_TOKEN=<preview token> pnpm --filter meco-faces exec tsx scripts/latency.ts 
   https://<deployment>.vercel.app/faces 12
 ```
 
+### What meco sends
+
+meco bounds a Source Image to a **1600 px long edge** before either `/detect` or
+`/embed` sees it — `LONG_EDGE` in `src/faces.ts`. A photograph already within
+that is passed through untouched, byte for byte.
+
+This is not a tuning knob. A Vercel Function refuses a request body over 4.5 MB,
+and the rewrite that fronts this container is a Function, so a photograph over
+roughly 4.5 MB never reached the service at all: it came back
+`413 FUNCTION_PAYLOAD_TOO_LARGE`, the Crop fell back to `centre`, and Face Blur
+and Person matching went quietly unavailable. A 12 MP photograph off a phone is
+5–8 MB, so that was the ordinary case (issue #30).
+
+What the bound costs, measured on `fixtures/faces/artemis-2-crew-original.jpg` —
+the untouched 5878x7348, 5 424 279-byte Commons original of the group fixture,
+four faces at four scales:
+
+| Long edge sent | Bytes | Worst box off the hand-marked one | Worst box moved from the full-size detection | Worst Face Print cosine against its own full-size print |
+|---|---|---|---|---|
+| full size, 7348 | 5.42 MB | 0.0113 | — | — |
+| 2048 | 0.56 MB | 0.0117 | 0.0009 | 0.9677 |
+| **1600** | **0.36 MB** | **0.0116** | **0.0019** | **0.9644** |
+| 1280 | 0.25 MB | 0.0115 | 0.0008 | 0.9593 |
+| 640 | 0.08 MB | 0.0113 | 0.0004 | — |
+
+Read it as three separate claims:
+
+- **Detection cannot tell.** The tolerance the hand-marked boxes are judged
+  against is 0.03, and no box moves as much as 0.002 between full size and any
+  cap. That is expected rather than lucky: YuNet is fed a 640 px long edge
+  whatever it is handed, so everything above that is thrown away inside the
+  service anyway. Detect also gets faster — 109 ms to 12 ms on this photograph,
+  most of it the decode.
+- **Embedding does move, and it does not matter.** A Face Print off the bounded
+  copy is 0.96 cosine to the print off the original, because the warp reads real
+  pixels of the face. Identity is untouched: on the fixtures the worst
+  same-person cosine goes 0.7146 to 0.7117 and the best different-person cosine
+  0.2985 to 0.2979, against a `MATCH_THRESHOLD` of 0.5 in `src/people.ts` — a
+  gap of 0.42 that the bound moves by 0.003. There is headroom below 1600 too:
+  the same print is still 0.79 at a 320 px long edge and only collapses to 0.34
+  at 160 px.
+- **Nothing needs remapping.** Both routes answer in fractions of the image, and
+  a fraction does not change with resolution. The one number that does is the
+  size, so `detectFaces` reports the photograph's own size rather than the size
+  it sent — which is what "is this face big enough to enrol" is measured in.
+
+Reproduce all of it with `pnpm test:detect` and `pnpm test:embed`; both print the
+numbers whether they pass or fail. `pnpm test:http` holds the other half: its
+stand-in enforces the same 4.5 MB the platform does, so the boundary that hid
+this bug is now inside a suite.
+
+Raising the platform cap was not pursued. Sending 5 MB over the rewrite so a
+detector can look at a 640 px grid is waste even where it is allowed.
+
 ### Prove the detector still finds faces
 
 ```
@@ -292,9 +346,10 @@ pnpm test:detect
 
 Runs `POST /detect` in-process over three public-domain photographs — four
 faces, one face, none — and fails if a box moves more than 3 % of the image away
-from the hand-marked one in `fixtures/faces/expected.json`. It also checks that
-an unauthenticated request is refused and that `/health` names the model and the
-ONNX Runtime version.
+from the hand-marked one in `fixtures/faces/expected.json`. It also detects the
+full-size original of the group photograph at four long edges, which is what
+holds the bound above honest, checks that an unauthenticated request is refused,
+and that `/health` names the model and the ONNX Runtime version.
 
 ### Prove a Face Print still means what it meant
 
@@ -302,7 +357,7 @@ ONNX Runtime version.
 pnpm test:embed
 ```
 
-Checks the three things that can be wrong with an embedder without anything
+Checks the four things that can be wrong with an embedder without anything
 throwing.
 
 - **The warp.** Five landmarks are placed by a known similarity transform, drawn
@@ -326,6 +381,10 @@ throwing.
   this package. So this test re-embeds every fixture face and fails on any
   difference at all. A stale file would otherwise fail nowhere and calibrate a
   threshold against numbers no deployed model produces.
+- **The bound.** A Face Print off the group original bounded to 2048, 1600 and
+  1280 px has to stay nearer its own full-size print than any other face's, by a
+  wide margin. That is what licenses `LONG_EDGE` in `src/faces.ts`; the numbers
+  are in **What meco sends** above.
 
 ### Prove no stranger is given a name
 

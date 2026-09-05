@@ -12,9 +12,20 @@ side and re-encoded as JPEG at quality 88**, so that a repository about image
 rendering does not carry 60 MB of fixtures. Nothing was cropped, rotated or
 retouched. Go to the source page below for the untouched original.
 
+`artemis-2-crew-original.jpg` is the one exception: 5878x7348 and 5 424 279
+bytes, byte for byte the Commons original. It is here because a photograph that
+size is the thing under test — a Vercel Function refuses a request body over
+4.5 MB, so before issue #30 this exact file could not reach the face service at
+all. A downscaled copy of it could not stand in: it is the bytes, the pixels and
+the native-resolution detail that the bound in `src/faces.ts` is measured
+against. It is the same photograph as `artemis-2-crew.jpg`, so the hand-marked
+boxes in `expected.json` are its boxes too — fractions do not change with
+resolution.
+
 | File | Source page | Photographer | Licence |
 |---|---|---|---|
 | `artemis-2-crew.jpg` | <https://commons.wikimedia.org/wiki/File:Artemis_2_Crew_Portrait.jpg> | Josh Valcarcel, NASA | Public domain (PD-USGov-NASA) |
+| `artemis-2-crew-original.jpg` | <https://commons.wikimedia.org/wiki/File:Artemis_2_Crew_Portrait.jpg> | Josh Valcarcel, NASA | Public domain (PD-USGov-NASA) |
 | `astronaut-portrait.jpg` | <https://commons.wikimedia.org/wiki/File:Jonny_Kim_official_portrait.jpg> | Bill Stafford, NASA | Public domain (PD-USGov-NASA) |
 | `astronaut-portrait-2.jpg` | <https://commons.wikimedia.org/wiki/File:Jonny_Kim_portrait.jpg> | Robert Markowitz, NASA (jsc2017e067117) | Public domain (PD-USGov-NASA) |
 | `soyuz-crew.jpg` | <https://commons.wikimedia.org/wiki/File:Soyuz_MS-27_crew.jpg> | Bill Ingalls, NASA | Public domain (PD-USGov-NASA) |

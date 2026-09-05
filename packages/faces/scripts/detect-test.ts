@@ -106,6 +106,101 @@ for (const image of expected.images) {
   }
 }
 
+// -------------------------------------------- the same photograph, made smaller
+
+/**
+ * What a Crop's caller loses by never sending the photograph at full size.
+ *
+ * meco bounds a Source Image to `LONG_EDGE` before `/detect` ever sees it, because
+ * a Vercel Function refuses a body over 4.5 MB and an ordinary 12 MP photograph
+ * is larger than that — issue #30. The bound is only defensible if detection does
+ * not depend on the resolution it is handed, and this is where that is measured
+ * rather than assumed.
+ *
+ * `artemis-2-crew-original.jpg` is the untouched 5878x7348 Commons original of
+ * the group fixture, so the hand-marked boxes of `artemis-2-crew.jpg` are its
+ * boxes too: a box is a fraction of the image and a fraction does not change with
+ * resolution. That is also the claim being checked — if any coordinate mapping
+ * were needed after a resize, these numbers would move.
+ *
+ * The caps span both sides of meco's, so this keeps meaning what it means if that
+ * number is ever retuned. There is no import of it: the detector is a separate
+ * service and must not learn what its caller happens to be configured with.
+ */
+const ORIGINAL = "artemis-2-crew-original.jpg";
+const originalOf = "artemis-2-crew.jpg";
+const marked = expected.images.find((i) => i.file === originalOf);
+
+if (!marked) {
+  check(false, `${originalOf} is in expected.json`, "the group fixture's marked boxes are missing");
+} else {
+  const bytes = await readFile(`${FIXTURES}${ORIGINAL}`);
+  const atFullSize = await detectFaces(bytes);
+
+  check(
+    atFullSize.width === 5878 && atFullSize.height === 7348,
+    `${ORIGINAL} is the untouched original`,
+    `${String(atFullSize.width)}x${String(atFullSize.height)}, ${String(bytes.length)} bytes`,
+  );
+
+  /** Each hand-marked face paired with the detection nearest to it. */
+  const claim = (faces: Face[]) => {
+    const unclaimed = new Set(faces);
+    return marked.faces.map(({ label, box }) => {
+      let best: Face | undefined;
+      let bestBy = Infinity;
+      for (const face of unclaimed) {
+        const d = deviation(box, face.box);
+        if (d < bestBy) {
+          bestBy = d;
+          best = face;
+        }
+      }
+      if (best) unclaimed.delete(best);
+      return { label, off: bestBy, face: best };
+    });
+  };
+
+  const truth = claim(atFullSize.faces);
+  check(
+    atFullSize.faces.length === marked.faces.length &&
+      truth.every((f) => f.off <= expected.tolerance),
+    `${ORIGINAL} at full size`,
+    truth.map((f) => `${f.label} ${f.off.toFixed(4)}`).join(", "),
+  );
+
+  for (const longEdge of [2048, 1600, 1280, 640]) {
+    const smaller = await sharp(bytes)
+      .rotate()
+      .resize({ width: longEdge, height: longEdge, fit: "inside" })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+    const found = await detectFaces(smaller);
+    const paired = claim(found.faces);
+
+    check(
+      found.faces.length === marked.faces.length && paired.every((f) => f.off <= expected.tolerance),
+      `${ORIGINAL} at ${String(longEdge)} px finds the same faces`,
+      `${(smaller.length / 1e6).toFixed(2)} MB, ` +
+        paired.map((f) => `${f.label} ${f.off.toFixed(4)}`).join(", "),
+    );
+
+    // Against the full-size answer rather than against the hand-marked boxes:
+    // a human's box has a few per cent of slack in it, and this has to catch a
+    // shift far smaller than that slack would hide.
+    const moved = Math.max(
+      ...paired.map((f, i) =>
+        f.face && truth[i]?.face ? deviation(f.face.box, truth[i].face.box) : Infinity,
+      ),
+    );
+    check(
+      moved <= 0.005,
+      `${ORIGINAL} at ${String(longEdge)} px puts them in the same places`,
+      `worst coordinate moved ${moved.toFixed(4)} from the full-size detection`,
+    );
+  }
+}
+
 // ------------------------------------------------------- awkward colour input
 
 // A photograph is not always three 8-bit channels on the way in. sharp converts
