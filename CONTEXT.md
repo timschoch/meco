@@ -51,7 +51,7 @@ The part of a Source Image that must survive a Crop — a face, a person, a prod
 _Avoid_: foreground, region of interest, focal subject
 
 **Subject Box**:
-One rectangle in a Source Image, in fractions 0..1, with a priority and a `keep` flag. Every producer of framing — the Crop Anchor, saliency, later a face or a Person — yields Subject Boxes, and the solver consumes them. A producer that knows a point rather than a region yields a box of zero extent.
+One rectangle in a Source Image, in fractions 0..1, with a priority and a `keep` flag. Every producer of framing — the Crop Anchor, saliency, a face, a Person, a kart — yields Subject Boxes, and the solver consumes them. A producer that knows a point rather than a region yields a box of zero extent.
 _Avoid_: region, bbox, focal point
 
 **Crop**:
@@ -71,8 +71,18 @@ A place in a Template where a Source Image appears.
 _Avoid_: image field, photo placeholder, media area
 
 **Annotation**:
-What meco found in one Source Image, stored under the hash of its bytes and shaped as IPTC Image Regions. One machine region per detected face. A record, never a stored output, so the Gallery does not list it. The same photograph is analysed once however many Crops are cut from it.
+What meco found in one Source Image, stored under the hash of its bytes and shaped as IPTC Image Regions. One machine region per detected face and one per Detected Object. A record, never a stored output, so the Gallery does not list it. The same photograph is analysed once however many Crops are cut from it, and it names which detectors have run so a photograph seen before a detector existed is looked at again rather than trusted.
 _Avoid_: metadata, tags, detection result
+
+**Detected Object**:
+Something meco-faces saw that is not a face, carrying the word its model was trained with. The vocabulary is COCO's and it is not meco's: COCO has no kart, so a kart comes back as `motorbike` — the nearest thing that vocabulary holds, and measured the class that actually finds one. A Detected Object is never a Subject on its own; the Kart Producer is what turns some of them into one.
+_Avoid_: detection, object box, thing, entity
+
+**Kart Producer**:
+The producer that frames a Crop on a kart and its driver together. It takes the highest-scoring `motorbike` Detected Object, unions it with every `person` overlapping it, and yields one Subject Box — falling back to the strongest `person` when no kart was found. It sits between the face and saliency in the ladder: a photograph with a visible face is a photograph of that person, and a photograph with neither is still framed by saliency.
+
+Named for what it frames, not for what detects it. The Subject of a karting photograph is neither the kart nor the driver but both — a frame on the driver's head loses the livery the photograph was taken for, and a frame on the kart cuts the helmet off. A helmet is also not a face, which is the reason this producer exists at all: measured on 32 on-track photographs, the face detector puts a box on the leading driver's head in 9 of them.
+_Avoid_: vehicle producer, motorbike producer, kart detector
 
 **Subject Area**:
 The part of an Image Slot that a Template requires the Subject to fill, given as fractions of the output. A Template declares it and a caller may name one for a single Crop; either way the Crop must satisfy it, and the answer says whether it did.

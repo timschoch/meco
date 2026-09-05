@@ -279,6 +279,105 @@ export async function detectFaces(image: Buffer): Promise<Detection> {
   return { ...parsed.data, width: source.sourceWidth, height: source.sourceHeight };
 }
 
+// -------------------------------------------------------------------- objects
+
+/**
+ * One thing meco-faces saw that is not a face, in COCO's vocabulary.
+ *
+ * The label is the model's word, not meco's. COCO has no kart, so a kart comes
+ * back as `motorbike` — the nearest thing the vocabulary holds, and measured on
+ * 32 on-track photographs the class that actually finds one. Translating that
+ * into a Subject is `kartSubjectBox` in `./crop.js`; this module only carries it.
+ *
+ * The label and not the class index, which meco-faces has and does not send. An
+ * index is that model's internal numbering: matching on it would tie meco to
+ * D-FINE's ordering, and ADR-0002's whole point is that the detector can be
+ * swapped without touching anything here. The index also cannot survive an
+ * Annotation, since a stored region carries the word rather than the number.
+ */
+export interface DetectedObject {
+  label: string;
+  score: number;
+  box: FaceBox;
+}
+
+export interface ObjectDetection {
+  /** Size of the Source Image as a viewer sees it, after EXIF orientation. */
+  width: number;
+  height: number;
+  objects: DetectedObject[];
+}
+
+const objectDetection = z.object({
+  width: z.number().positive(),
+  height: z.number().positive(),
+  objects: z.array(
+    z.object({
+      label: z.string(),
+      score: z.number(),
+      box: z.object({
+        x: z.number(),
+        y: z.number(),
+        width: z.number(),
+        height: z.number(),
+      }),
+    }),
+  ),
+});
+
+/**
+ * Every object in one Source Image.
+ *
+ * Bounded through `boundedSource` for exactly the reason `/detect` is: it is the
+ * same photograph over the same platform rewrite, which refuses a body over
+ * 4.5 MB (issue #30). There is no second unbounded path to the same service.
+ *
+ * The bound costs even less here than it does for a face. D-FINE stretches
+ * whatever it is handed into a 640x640 square, so every pixel above that is
+ * discarded inside the service — and unlike `/embed`, nothing downstream reads
+ * the original resolution back out.
+ *
+ * Throws on anything that went wrong, like `detectFaces`. The caller decides
+ * what a Crop does about it; here it is a failure with a message worth reading.
+ */
+export async function detectObjects(image: Buffer): Promise<ObjectDetection> {
+  const base = facesBaseUrl();
+  if (!base) {
+    throw new Error(`${FACES_URL} is not set — meco cannot reach meco-faces.`);
+  }
+
+  const source = await boundedSource(image);
+  const token = process.env.MECO_TOKEN;
+  let res: Response;
+  try {
+    res = await fetch(`${base}/objects`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        ...(token ? { "x-auth-token": token } : {}),
+      },
+      body: new Uint8Array(source.bytes),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new Error(`meco-faces at ${base} did not answer: ${(err as Error).message}`);
+  }
+
+  if (!res.ok) {
+    throw new Error(
+      `meco-faces at ${base} answered ${String(res.status)}: ${(await res.text()).slice(0, 200)}`,
+    );
+  }
+
+  const parsed = objectDetection.safeParse(await res.json());
+  if (!parsed.success) {
+    throw new Error(`meco-faces at ${base} answered something that is not an object detection.`);
+  }
+  // The boxes are fractions and survive the bound untouched; the size does not,
+  // for the reason `detectFaces` gives.
+  return { ...parsed.data, width: source.sourceWidth, height: source.sourceHeight };
+}
+
 // ---------------------------------------------------------------- face prints
 
 /**

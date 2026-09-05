@@ -20,8 +20,9 @@ import {
   type SubjectArea,
   type SubjectBox,
 } from "./crop-solver.js";
+import { KART_CLASSES } from "./annotations.js";
 import { blurFaces, facesInFrame, unknownFaces } from "./face-blur.js";
-import type { DetectedFace } from "./faces.js";
+import type { DetectedFace, DetectedObject, FaceBox } from "./faces.js";
 import type { Match } from "./people.js";
 
 export type { SubjectArea };
@@ -29,12 +30,22 @@ export type { SubjectArea };
 /**
  * What a Crop is asked to frame itself on, when the caller has a preference.
  *
- * A preference and not an instruction: `person` still falls through to the faces
- * and then to saliency when nobody was recognised, because a Crop always has to
- * come out. Only `attention` is exclusive — it is how a caller says "ignore the
- * faces", which is otherwise unsayable once meco can see them.
+ * A preference and not an instruction: `person` still falls through to the
+ * faces, then the kart, then saliency when nobody was recognised, because a Crop
+ * always has to come out.
+ *
+ * Two of the four step over the producers above them, and they are the two whose
+ * whole purpose is to say "not the face":
+ *
+ * - `attention` says "ignore what you detected, let the picture decide". It goes
+ *   straight to saliency, past the kart as well as past the faces.
+ * - `kart` says "the thing in this photograph is a kart and its driver". It goes
+ *   past the faces — which is the point, since a helmet is what the face
+ *   detector finds when it finds anything at all — and falls through to saliency
+ *   when there is no kart, because measured on 32 on-track photographs saliency
+ *   frames every photograph the detector misses.
  */
-export const PIN_TO = ["person", "faces", "attention"] as const;
+export const PIN_TO = ["person", "faces", "kart", "attention"] as const;
 
 export type PinTo = (typeof PIN_TO)[number];
 
@@ -80,10 +91,16 @@ const ANCHOR_AT: Record<CropAnchor, FractionPoint> = {
  * saliency point is a guess at what a photograph is of, and a face is an answer.
  * A matched Person outranks the face for the same reason again — a face says
  * "the picture is of somebody", a Match says who.
+ *
+ * The kart sits between them, above saliency and below the face. It is a
+ * detection rather than a statistic, so it outranks the guess; and it is a
+ * vehicle rather than a person, so a photograph with a real visible face is
+ * still a photograph of that person.
  */
 const PRIORITY: Record<CropProducer, number> = {
   person: 50,
   face: 40,
+  kart: 45,
   saliency: 30,
   anchor: 20,
   centre: 10,
@@ -125,6 +142,14 @@ export interface CropRequest {
    * pixels. `src/api.ts` owns it.
    */
   matches?: readonly (Match | null)[];
+  /**
+   * The objects already found in this Source Image, from its Annotation.
+   *
+   * Passed in for the same reason the faces are, and read by the same producer
+   * ladder: this module is the half that touches pixels, and finding them means
+   * a hash, a store and a network call. `src/api.ts` owns that half.
+   */
+  objects?: readonly DetectedObject[];
   /**
    * What to frame on. Defaults to `person`, which is the same as `faces` until
    * something matches, so a caller who never heard of a Person is unaffected.
@@ -318,13 +343,122 @@ export function faceSubjectBoxes(
   }));
 }
 
+// ------------------------------------------------------------- the kart producer
+
+/**
+ * How much of the smaller box has to sit inside the seed before it joins it.
+ *
+ * Intersection over the *smaller* area, not intersection over union: a driver's
+ * box is a fraction of the size of the kart's, so their IoU is small even when
+ * the driver is entirely inside the kart. Using IoU here would reject exactly
+ * the pair the rule exists to join.
+ *
+ * A quarter is the figure the research measured the set at. It is loose enough
+ * that a driver leaning out of frame still counts, and tight enough that a
+ * spectator standing behind the kart does not — which is the whole reason the
+ * union beats taking the `person` boxes on their own, where a crowd shot returns
+ * twenty-three spectators and no driver.
+ */
+const KART_OVERLAP = 0.25;
+
+/** Share of the *smaller* box that two boxes have in common. */
+function overlapOfSmaller(a: FaceBox, b: FaceBox): number {
+  const left = Math.max(a.x, b.x);
+  const top = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  if (right <= left || bottom <= top) return 0;
+  const smaller = Math.min(a.width * a.height, b.width * b.height);
+  if (smaller <= 0) return 0;
+  return ((right - left) * (bottom - top)) / smaller;
+}
+
+/** The smallest rectangle holding all of them. */
+function union(boxes: readonly FaceBox[]): FaceBox {
+  const x = Math.min(...boxes.map((b) => b.x));
+  const y = Math.min(...boxes.map((b) => b.y));
+  const right = Math.max(...boxes.map((b) => b.x + b.width));
+  const bottom = Math.max(...boxes.map((b) => b.y + b.height));
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+/**
+ * The kart and whoever is on it, as one Subject Box — or null.
+ *
+ * The Subject of a karting photograph is neither the kart nor the driver: it is
+ * both, and a Crop framed on either alone is wrong in a way the brand notices. A
+ * frame on the driver's head loses the livery and the sponsor decals, which is
+ * what the photograph was taken for; a frame on the kart cuts the helmet off.
+ *
+ * The rule, measured on 32 on-track photographs in
+ * `docs/research/kart-and-driver-subjects.md` Q11:
+ *
+ * 1. **Seed on the highest-scoring `motorbike`.** COCO has no kart class, so a
+ *    detector trained on it resolves a kart to the nearest thing in its
+ *    vocabulary — an open-wheeled seated vehicle with a rider — and that
+ *    approximation finds the kart on 21 of 32. The boxes are tight on the kart,
+ *    not on the grandstand.
+ * 2. **Union it with every `person` overlapping it.** That is "the kart and
+ *    whoever is on it", and it is also what makes the crowd problem disappear
+ *    without a rule about crowds: a spectator does not overlap the kart.
+ * 3. **With no `motorbike`, seed on the highest-scoring `person` instead** and
+ *    union it with whoever overlaps *them*. This is not a footnote — it is the
+ *    only thing that answers `on-track-dark-visor.jpg`, the photograph YuNet
+ *    returns zero faces on, where the detector finds two drivers and no kart
+ *    under either of them.
+ *
+ * Seeded on the score and not on the size, which is a choice with a known cost:
+ * the research found two photographs where the highest-scoring kart is a distant
+ * one and the frame walks away from the foreground subject. A largest-box rule
+ * would probably fix both and was not tested, so it is not adopted here on a
+ * guess.
+ *
+ * Exported because it is the whole of the kart producer and it is arithmetic:
+ * `scripts/crop-solver-test.ts` drives it with boxes it wrote down, which is how
+ * the union rule is held to its measured behaviour with no service, no model and
+ * no image in the way.
+ */
+export function kartSubjectBox(objects: readonly DetectedObject[]): SubjectBox | null {
+  const usable = objects.filter((o) => (KART_CLASSES as readonly string[]).includes(o.label));
+  if (usable.length === 0) return null;
+
+  const strongest = (label: string) =>
+    usable
+      .filter((o) => o.label === label)
+      .reduce<DetectedObject | null>((best, o) => (best && best.score >= o.score ? best : o), null);
+
+  const seed = strongest("motorbike") ?? strongest("person");
+  if (!seed) return null;
+
+  const joined = usable.filter(
+    (o) => o === seed || overlapOfSmaller(seed.box, o.box) > KART_OVERLAP,
+  );
+
+  const box = union(joined.map((o) => o.box));
+  return {
+    ...box,
+    producer: "kart",
+    priority: PRIORITY.kart,
+    keep: true,
+  };
+}
+
 /**
  * Every Subject Box this Crop has to go on, from the producers in order.
  *
- * Faces first, because a face is the answer the others are guessing at. Then
+ * Faces first, because a face is the answer the others are guessing at. Then the
+ * kart, which is an answer too but about a vehicle rather than a person. Then
  * saliency when the caller asked the picture to decide, then the Crop Anchor the
  * caller named, then the centre — the anchor nobody named. The first producer
  * that yields a box wins the framing.
+ *
+ * The kart is a rung above saliency rather than a replacement for it, and that
+ * is the measured shape of the thing rather than caution. On the same 32 on-track
+ * photographs saliency frames 25 usably and the detector 21 — but they fail on
+ * *disjoint* pictures. The detector fixes two of saliency's three head-cut
+ * failures, saliency covers all seven of the detector's, and **no photograph
+ * defeats both**. Ordered this way the pair is effectively complete; either one
+ * alone is not.
  */
 async function subjectBoxes(
   data: Buffer,
@@ -349,13 +483,27 @@ async function subjectBoxes(
   // frame on a face and differ only in whether a name is allowed to change which
   // face leads — so `faces` is served by handing the producer no Matches, which
   // is exactly what "ignore who they are" means.
-  if (pinTo !== "attention" && req.faces && req.faces.length > 0) {
+  if (pinTo !== "attention" && pinTo !== "kart" && req.faces && req.faces.length > 0) {
     return faceSubjectBoxes(req.faces, pinTo === "person" ? (req.matches ?? []) : []);
+  }
+
+  // The kart is skipped only by `attention`, which is the one value that means
+  // "ignore every detector". `person`, `faces` and `kart` all reach it: the
+  // first two because they have run out of faces, the third because it asked
+  // for it — and a caller who pinned to the kart of a photograph that has no
+  // kart is asking for the next rung down, not for a refusal.
+  if (pinTo !== "attention") {
+    const kart = kartSubjectBox(req.objects ?? []);
+    if (kart) return [kart];
   }
 
   // Asking to pin on attention is asking the picture to decide, so it selects
   // the saliency producer on its own rather than needing a strategy beside it.
-  const strategy = req.strategy ?? (pinTo === "attention" ? "attention" : undefined);
+  // `kart` selects it for the same reason once there is no kart: saliency is
+  // measured to frame every on-track photograph the detector misses, so falling
+  // past it to a Crop Anchor would throw away the rung that covers this one.
+  const strategy =
+    req.strategy ?? (pinTo === "attention" || pinTo === "kart" ? "attention" : undefined);
   if (strategy) {
     const found = await saliencyPoint(data, source, aspect, strategy);
     if (found) return [point("saliency", found)];

@@ -37,7 +37,14 @@ import { createHash } from "node:crypto";
 
 import sharp from "sharp";
 
-import { detectFaces, facesBaseUrl, type DetectedFace, type FaceBox } from "./faces.js";
+import {
+  detectFaces,
+  detectObjects,
+  facesBaseUrl,
+  type DetectedFace,
+  type DetectedObject,
+  type FaceBox,
+} from "./faces.js";
 import type { Storage } from "./storage.js";
 
 /** Annotations are filed here. Not one of the Gallery's kinds. */
@@ -75,6 +82,15 @@ export interface ImageRegion {
   "meco:score"?: number;
   /** YuNet's five points, fractions of the image. Face Blur and Match need them. */
   "meco:landmarks"?: DetectedFace["landmarks"];
+  /**
+   * The detector's own word for this region — `motorbike`, `person`.
+   *
+   * Only on an object region, and deliberately not folded into `RegionName`:
+   * IPTC's name is a label for a human to read, and this is the class an
+   * algorithm has to match on. Keeping them apart is what stops the kart
+   * producer from selecting on a display string.
+   */
+  "meco:label"?: string;
 }
 
 export interface Annotation {
@@ -87,13 +103,56 @@ export interface Annotation {
   };
   /** When the regions were found. ISO 8601. */
   annotatedAt: string;
+  /**
+   * Which detectors have run over this Source Image.
+   *
+   * An Annotation is cached under the hash of the bytes and nothing ever
+   * expires it, so a photograph annotated before a detector existed would keep
+   * answering as though that detector had found nothing — silently, and
+   * permanently, for exactly the photographs the new detector was added for.
+   * Recording who ran turns that into a cache miss instead. Absent on an
+   * Annotation written before this field existed, which reads as "nobody", which
+   * is the right answer for it.
+   */
+  "meco:producers"?: string[];
   ImageRegion: ImageRegion[];
 }
 
 /** What `detectFaces` said, as it will be read back out of the store. */
 const FACE_PRODUCER = "yunet";
 
+/** What `detectObjects` said. The model name, so a swap invalidates the cache. */
+const OBJECT_PRODUCER = "dfine-n-coco";
+
+/**
+ * Every detector a complete Annotation has been through.
+ *
+ * A stored Annotation missing any of these is re-detected rather than trusted.
+ * Adding a detector to this list is therefore also the migration: it costs one
+ * detection per photograph, once.
+ */
+const PRODUCERS = [FACE_PRODUCER, OBJECT_PRODUCER] as const;
+
+/**
+ * The COCO classes meco keeps out of an object detection.
+ *
+ * Not a filter for tidiness: it is the vocabulary the kart producer reads, and
+ * it is deliberately short. `motorbike` is the class that finds a kart, because
+ * COCO has none and resolves one to the nearest thing it knows; `person` is the
+ * driver on top of it. The research measured `bicycle` as changing nothing and
+ * `car`, `boat` and `train` as firing on the kart *and* on trackside vehicles —
+ * so widening this list is a decision to measure, not a default to loosen.
+ *
+ * Read by `toObjectRegion` when the Annotation is written and by
+ * `kartSubjectBox` when a Crop is framed. One list, because two would drift and
+ * the drift would look like a detector regression.
+ */
+export const KART_CLASSES = ["motorbike", "person"] as const;
+
 const HUMAN: Concept = { name: "human", uri: `${CV_REGION_TYPE}human` };
+
+/** IPTC's type for a kart. `motorbike` is COCO's nearest word; this is IPTC's. */
+const VEHICLE: Concept = { name: "vehicle", uri: `${CV_REGION_TYPE}vehicle` };
 
 /**
  * IPTC's `subjectArea`, which is **not** meco's Subject Area.
@@ -138,6 +197,57 @@ function toRegion(face: DetectedFace, index: number): ImageRegion {
 }
 
 /**
+ * One detected object as an IPTC region.
+ *
+ * `RegionId` is prefixed `object-` rather than continuing the `face-` numbering,
+ * because the two lists are produced by different models and a caller drawing
+ * boxes has to be able to tell them apart without reading `meco:producer`.
+ */
+function toObjectRegion(object: DetectedObject, index: number): ImageRegion {
+  return {
+    RegionId: `object-${String(index + 1)}`,
+    RegionName: `${object.label} ${String(index + 1)}`,
+    RegionBoundary: {
+      RbShape: "rectangle",
+      RbUnit: "relative",
+      RbX: object.box.x,
+      RbY: object.box.y,
+      RbW: object.box.width,
+      RbH: object.box.height,
+    },
+    rCtype: [object.label === "person" ? HUMAN : VEHICLE],
+    rRole: [IPTC_SUBJECT_AREA_ROLE],
+    "meco:producer": OBJECT_PRODUCER,
+    "meco:score": object.score,
+    "meco:label": object.label,
+  };
+}
+
+/**
+ * The objects an Annotation holds, back in the shape the detector spoke in.
+ *
+ * Selected on `meco:producer` rather than on "has no landmarks", so that the
+ * face list and the object list are each defined by who made them instead of by
+ * a field one of them happens to lack. A region a human drew later will have
+ * neither landmarks nor this producer, and must not silently become a kart.
+ */
+export function objectsOf(annotation: Annotation): DetectedObject[] {
+  const found: DetectedObject[] = [];
+  for (const region of annotation.ImageRegion) {
+    if (region["meco:producer"] !== OBJECT_PRODUCER) continue;
+    const label = region["meco:label"];
+    if (!label) continue;
+    const b = region.RegionBoundary;
+    found.push({
+      label,
+      score: region["meco:score"] ?? 1,
+      box: { x: b.RbX, y: b.RbY, width: b.RbW, height: b.RbH },
+    });
+  }
+  return found;
+}
+
+/**
  * The faces an Annotation holds, back in the shape the detector spoke in.
  *
  * The round trip has to be lossless, because this is what the face producer
@@ -162,6 +272,7 @@ export function facesOf(annotation: Annotation): DetectedFace[] {
 export function faceRegions(annotation: Annotation): { region: ImageRegion; face: DetectedFace }[] {
   const found: { region: ImageRegion; face: DetectedFace }[] = [];
   for (const region of annotation.ImageRegion) {
+    if (region["meco:producer"] !== FACE_PRODUCER) continue;
     const landmarks = region["meco:landmarks"];
     if (!landmarks) continue;
     const b = region.RegionBoundary;
@@ -187,10 +298,17 @@ export interface Annotated {
  * frames itself from its other producers and says nothing — a setting nobody
  * made is not news to report on every request.
  *
- * A detection that fails is different: it produces an Annotation with no regions
- * and a warning, and it is deliberately **not** written to the store. Caching a
- * failure would turn one bad minute into a photograph that permanently has no
- * faces in it.
+ * A detection that fails is different: it produces an Annotation missing that
+ * detector's regions and a warning, and it is deliberately **not** written to
+ * the store. Caching a failure would turn one bad minute into a photograph that
+ * permanently has no faces in it.
+ *
+ * The two detectors run **together**, not one after the other. They are separate
+ * models behind one service and neither reads the other's answer, so the cost of
+ * the second is the slower of the two rather than their sum. Each is allowed to
+ * fail on its own: a Crop of a portrait is not spoiled by an object detector
+ * that timed out, and a Crop of a kart is not spoiled by a face detector that
+ * found nothing to begin with.
  */
 export async function annotate(source: Buffer, storage: Storage): Promise<Annotated | null> {
   if (!facesBaseUrl()) return null;
@@ -201,32 +319,63 @@ export async function annotate(source: Buffer, storage: Storage): Promise<Annota
   const stored = await storage.get(key);
   if (stored) {
     try {
-      return { annotation: JSON.parse(stored.toString("utf8")) as Annotation, cached: true, warnings: [] };
+      const annotation = JSON.parse(stored.toString("utf8")) as Annotation;
+      const ran = new Set(annotation["meco:producers"] ?? []);
+      if (PRODUCERS.every((producer) => ran.has(producer))) {
+        return { annotation, cached: true, warnings: [] };
+      }
+      // Written before one of today's detectors existed. Fall through and
+      // re-detect: the alternative is a photograph that permanently answers
+      // "no karts" because nobody ever looked.
     } catch {
       // Unreadable JSON at a content-addressed key is a truncated write, not a
       // different picture. Detect again and overwrite it.
     }
   }
 
-  try {
-    const detection = await detectFaces(source);
-    const annotation: Annotation = {
-      source: { hash, width: detection.width, height: detection.height },
-      annotatedAt: new Date().toISOString(),
-      ImageRegion: detection.faces.map(toRegion),
-    };
+  const [detected, spotted] = await Promise.all([
+    detectFaces(source).then(
+      (detection) => ({ detection, error: null }),
+      (err: unknown) => ({ detection: null, error: err as Error }),
+    ),
+    detectObjects(source).then(
+      (detection) => ({ detection, error: null }),
+      (err: unknown) => ({ detection: null, error: err as Error }),
+    ),
+  ]);
+
+  const warnings: string[] = [];
+  if (detected.error) warnings.push(`No faces were looked for: ${detected.error.message}`);
+  if (spotted.error) warnings.push(`No objects were looked for: ${spotted.error.message}`);
+
+  // Whichever detector answered knows the size; when neither did, the picture
+  // itself does. Both services measure the photograph rather than the bounded
+  // copy they were sent, so the three agree.
+  const meta = detected.detection ?? spotted.detection ?? (await sharp(source).metadata());
+
+  const ran = [
+    ...(detected.detection ? [FACE_PRODUCER] : []),
+    ...(spotted.detection ? [OBJECT_PRODUCER] : []),
+  ];
+
+  const annotation: Annotation = {
+    source: { hash, width: meta.width ?? 0, height: meta.height ?? 0 },
+    annotatedAt: new Date().toISOString(),
+    "meco:producers": ran,
+    ImageRegion: [
+      ...(detected.detection?.faces ?? []).map(toRegion),
+      ...(spotted.detection?.objects ?? [])
+        .filter((o) => (KART_CLASSES as readonly string[]).includes(o.label))
+        .map(toObjectRegion),
+    ],
+  };
+
+  // Only a complete Annotation is filed. A partial one would be cached as
+  // though it were the whole answer, and the `meco:producers` check above would
+  // then agree that there was nothing more to look for.
+  if (warnings.length === 0) {
     await storage.putAt(key, Buffer.from(JSON.stringify(annotation)), "application/json");
-    return { annotation, cached: false, warnings: [] };
-  } catch (err) {
-    const meta = await sharp(source).metadata();
-    return {
-      annotation: {
-        source: { hash, width: meta.width ?? 0, height: meta.height ?? 0 },
-        annotatedAt: new Date().toISOString(),
-        ImageRegion: [],
-      },
-      cached: false,
-      warnings: [`No faces were looked for: ${(err as Error).message}`],
-    };
   }
+
+  return { annotation, cached: false, warnings };
 }

@@ -1,74 +1,285 @@
 {
-  "$comment": [
-    "What each detection in fixtures/karts/ actually is, decided by a human who",
-    "looked at every box cut out at 2.2x its own size. This is the ground truth",
-    "the Not-a-Face rule is calibrated against, and it is the half of that",
-    "calibration no script can produce: whether a thing is a face meco could",
-    "recognise somebody by is a judgement about a photograph, not a number.",
-    "faces are listed in the order POST /detect returns them, which is the order",
-    "detected.json beside this file records. Nothing sorts them.",
-    "is: face          — a human face turned far enough towards the camera that a",
-    "                    person could name who it is.",
-    "is: not-a-face    — a detection with no such face in it. Still a real",
-    "                    detection and still blurred; it simply cannot be an",
-    "                    identity.",
-    "reference: true   — this print is committed in src/not-a-face-prints.ts and",
-    "                    is what every other print is measured against. Only one",
-    "                    detection carries it, and deliberately one with no human",
-    "                    face in it at all.",
-    "Provenance and licence of the photographs: LICENCE.md beside this file."
-  ],
+  "tolerance": 0.03,
   "images": [
     {
-      "file": "on-track-rear-helmet.jpg",
-      "note": "Driver facing away. The box lands on the back of the helmet, over the number panel.",
-      "faces": [
+      "file": "on-track-dark-visor.jpg",
+      "width": 1400,
+      "height": 875,
+      "note": "Two karts, two drivers, both large and sharp, visors down. YuNet finds zero faces here — this is the photograph the whole feature exists for.",
+      "objects": [
         {
-          "label": "back of the helmet",
-          "is": "not-a-face",
-          "reference": true
+          "label": "boat",
+          "score": 0.401,
+          "box": {
+            "x": 0.0316,
+            "y": 0.4516,
+            "width": 0.9315,
+            "height": 0.2572
+          }
+        },
+        {
+          "label": "person",
+          "score": 0.3427,
+          "box": {
+            "x": 0.5685,
+            "y": 0.1006,
+            "width": 0.2443,
+            "height": 0.4769
+          }
+        },
+        {
+          "label": "person",
+          "score": 0.3039,
+          "box": {
+            "x": 0.2077,
+            "y": 0.3637,
+            "width": 0.1433,
+            "height": 0.2251
+          }
         }
-      ]
+      ],
+      "subject": {
+        "x": 0.5685,
+        "y": 0.1006,
+        "width": 0.2443,
+        "height": 0.4769
+      },
+      "subjectNote": "No motorbike fires, so the strongest person seeds it. The second driver is too far away to join, which is the overlap rule working rather than failing."
+    },
+    {
+      "file": "on-track-rear-helmet.jpg",
+      "width": 600,
+      "height": 400,
+      "note": "The driver faces away and YuNet puts a confident box on the back of the helmet. D-FINE finds both the kart and the driver.",
+      "objects": [
+        {
+          "label": "motorbike",
+          "score": 0.4209,
+          "box": {
+            "x": 0.1383,
+            "y": 0.4014,
+            "width": 0.5902,
+            "height": 0.3804
+          }
+        },
+        {
+          "label": "person",
+          "score": 0.3914,
+          "box": {
+            "x": 0.3507,
+            "y": 0.2549,
+            "width": 0.2095,
+            "height": 0.3674
+          }
+        }
+      ],
+      "subject": {
+        "x": 0.1383,
+        "y": 0.2549,
+        "width": 0.5902,
+        "height": 0.5268
+      },
+      "subjectNote": "The union case in its clearest form: the motorbike box stops below the helmet, the person box reaches above it, and together they are the Subject."
     },
     {
       "file": "on-track-visor-open.jpg",
-      "note": "A different driver, helmet on, visor up. Held out of the reference set on purpose, so its rejection is measured out of sample rather than assumed.",
-      "faces": [
+      "width": 1015,
+      "height": 1015,
+      "note": "The counterweight to dark-visor: a large, sharp, unmissable driver that person does not find at all, while motorbike finds the kart under them.",
+      "objects": [
         {
-          "label": "helmet, visor up",
-          "is": "not-a-face"
+          "label": "motorbike",
+          "score": 0.3462,
+          "box": {
+            "x": 0.0234,
+            "y": 0.4231,
+            "width": 0.9062,
+            "height": 0.4466
+          }
         }
-      ]
-    },
-    {
-      "file": "on-track-dark-visor.jpg",
-      "note": "Two drivers, both large and sharp, visors down. The detector returns nothing, so there is nothing here to classify.",
-      "faces": []
+      ],
+      "subject": {
+        "x": 0.0234,
+        "y": 0.4231,
+        "width": 0.9062,
+        "height": 0.4466
+      },
+      "subjectNote": "Motorbike alone, so the box stops at the top of the bodywork and the helmet sits above it. The solver's headroom rule pulls the head back into the frame."
     },
     {
       "file": "paddock-mixed.jpg",
-      "note": "Nine detections in a paddock. Eight are faces a person could name; one is the back of a head. This is the false-positive guard: a rule that refuses any of the eight is worse than the bug it fixes.",
-      "faces": [
-        { "label": "man pointing", "is": "face" },
-        { "label": "man in sunglasses", "is": "face" },
-        { "label": "man with a moustache", "is": "face" },
-        { "label": "boy in a race suit", "is": "face" },
-        { "label": "driver in a helmet, visor up, face towards the camera", "is": "face" },
-        { "label": "woman with long hair", "is": "face" },
-        { "label": "youth in a cap, in profile", "is": "face" },
-        { "label": "man in glasses, seen from behind", "is": "not-a-face" },
-        { "label": "small child looking down", "is": "face" }
-      ]
-    },
-    {
-      "file": "podium-trophy.jpg",
-      "note": "The same driver as podium-trophy-2.jpg, helmet off, at a different event. The pair that must go on matching each other.",
-      "faces": [{ "label": "driver with a trophy", "is": "face", "person": "A" }]
+      "width": 1400,
+      "height": 933,
+      "note": "A paddock crowd with one kart in it. Eight standing people and one motorbike.",
+      "objects": [
+        {
+          "label": "person",
+          "score": 0.5398,
+          "box": {
+            "x": 0.8157,
+            "y": 0,
+            "width": 0.1064,
+            "height": 0.5609
+          }
+        },
+        {
+          "label": "motorbike",
+          "score": 0.3707,
+          "box": {
+            "x": 0.2752,
+            "y": 0.4756,
+            "width": 0.2883,
+            "height": 0.2845
+          }
+        },
+        {
+          "label": "person",
+          "score": 0.3695,
+          "box": {
+            "x": 0.6029,
+            "y": 0,
+            "width": 0.1328,
+            "height": 0.539
+          }
+        },
+        {
+          "label": "person",
+          "score": 0.3574,
+          "box": {
+            "x": 0.9032,
+            "y": 0.038,
+            "width": 0.0655,
+            "height": 0.2436
+          }
+        },
+        {
+          "label": "person",
+          "score": 0.3507,
+          "box": {
+            "x": 0.7322,
+            "y": 0.0102,
+            "width": 0.0524,
+            "height": 0.3014
+          }
+        },
+        {
+          "label": "person",
+          "score": 0.3472,
+          "box": {
+            "x": 0.9027,
+            "y": 0.2095,
+            "width": 0.0786,
+            "height": 0.2223
+          }
+        },
+        {
+          "label": "person",
+          "score": 0.3437,
+          "box": {
+            "x": 0.2886,
+            "y": 0.0205,
+            "width": 0.108,
+            "height": 0.4729
+          }
+        },
+        {
+          "label": "person",
+          "score": 0.3024,
+          "box": {
+            "x": 0.1379,
+            "y": 0.0273,
+            "width": 0.1088,
+            "height": 0.548
+          }
+        },
+        {
+          "label": "person",
+          "score": 0.2919,
+          "box": {
+            "x": 0.896,
+            "y": 0.0311,
+            "width": 0.0337,
+            "height": 0.2244
+          }
+        }
+      ],
+      "subject": {
+        "x": 0.2752,
+        "y": 0.4756,
+        "width": 0.2883,
+        "height": 0.2845
+      },
+      "subjectNote": "The kart alone: nobody standing in the paddock overlaps it. This is the crowd problem disappearing without a rule about crowds."
     },
     {
       "file": "podium-trophy-2.jpg",
-      "note": "The same driver again, a second event.",
-      "faces": [{ "label": "driver on the podium", "is": "face", "person": "A" }]
+      "width": 1129,
+      "height": 1400,
+      "note": "A prize-giving, helmet off. YuNet detects this face at 0.92, so the face producer leads and the kart producer never runs.",
+      "objects": [
+        {
+          "label": "person",
+          "score": 0.3212,
+          "box": {
+            "x": 0.1655,
+            "y": 0.3031,
+            "width": 0.6489,
+            "height": 0.686
+          }
+        }
+      ],
+      "subject": {
+        "x": 0.1655,
+        "y": 0.3031,
+        "width": 0.6489,
+        "height": 0.686
+      },
+      "subjectNote": "One person and no kart, so the box is that person."
+    },
+    {
+      "file": "podium-trophy.jpg",
+      "width": 1120,
+      "height": 1400,
+      "note": "A prize-giving with a press photographer in shot. YuNet detects the driver at 0.92 and leads.",
+      "objects": [
+        {
+          "label": "person",
+          "score": 0.4807,
+          "box": {
+            "x": 0.6121,
+            "y": 0.3793,
+            "width": 0.3877,
+            "height": 0.6141
+          }
+        },
+        {
+          "label": "person",
+          "score": 0.3615,
+          "box": {
+            "x": 0.241,
+            "y": 0.1283,
+            "width": 0.4016,
+            "height": 0.868
+          }
+        },
+        {
+          "label": "baseball glove",
+          "score": 0.3577,
+          "box": {
+            "x": 0.3324,
+            "y": 0.898,
+            "width": 0.2355,
+            "height": 0.0973
+          }
+        }
+      ],
+      "subject": {
+        "x": 0.6121,
+        "y": 0.3793,
+        "width": 0.3877,
+        "height": 0.6141
+      },
+      "subjectNote": "Records a known failure of the highest-score seed: the photographer outscores the driver, so the box lands on the wrong person. Q11 predicted this and it is why the kart producer sits BELOW the face producer."
     }
   ]
 }

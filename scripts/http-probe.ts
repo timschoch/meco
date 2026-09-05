@@ -27,7 +27,12 @@ import sharp from "sharp";
 import { createApp } from "../src/app.js";
 import { CROP_PRODUCERS, solveCrop } from "../src/crop-solver.js";
 import { faceSubjectBoxes } from "../src/crop.js";
-import { FACES_URL, boundedSource, type Detection } from "../src/faces.js";
+import {
+  FACES_URL,
+  boundedSource,
+  type Detection,
+  type ObjectDetection,
+} from "../src/faces.js";
 import { MIN_FACE_PX, facePrintsFor, personPrefix } from "../src/people.js";
 import { LocalStorage, isPrivateKey } from "../src/storage.js";
 
@@ -399,6 +404,20 @@ const canned = new Map<string, Detection>();
 const detectCalls: string[] = [];
 
 /**
+ * Recorded object detections, keyed the same way.
+ *
+ * From `fixtures/karts/objects.json`, which is the real D-FINE answer for each
+ * committed karting photograph — rendered over the photograph and looked at. So
+ * the framing under test here is the framing a real kart gets, without a second
+ * ONNX model in this process.
+ */
+const cannedObjects = new Map<string, ObjectDetection>();
+/** One entry per object detection the stand-in was asked to serve. */
+const objectCalls: string[] = [];
+/** Set while proving what a Crop does when only the object detector is down. */
+let objectsDown = false;
+
+/**
  * Vercel's request-body cap, enforced here because that is where it really is.
  *
  * The face service runs in a container behind a rewrite, and the rewrite is a
@@ -575,6 +594,24 @@ const facesService = createServer((req, res) => {
         return;
       }
       const asked = new URL(req.url ?? "/", "http://local");
+      // `/objects` is the third route on the same service. It has to be a third
+      // route on the stand-in too, or the kart producer would be tested against
+      // a shape meco-faces does not have.
+      if (asked.pathname === "/objects") {
+        objectCalls.push(sha(body));
+        if (objectsDown) {
+          res.writeHead(503, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "the object model would not load" }));
+          return;
+        }
+        const seen = cannedObjects.get(sha(body));
+        const meta = seen ?? { ...(await sharp(body).metadata()), objects: [] };
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({ width: meta.width, height: meta.height, objects: seen?.objects ?? [] }),
+        );
+        return;
+      }
       // `/embed` turns faces the caller already found into Face Prints. It is a
       // second route on the same service, so the stand-in has to be one too, or
       // enrolment would be tested against a shape meco-faces does not have.
@@ -3054,6 +3091,264 @@ await del(`/v1/people/${kim.id}?brand=laica`);
 await del(`/v1/people/${other.id}?brand=laica`);
 await del(`/v1/people/${twin.id}?brand=hopefamily`);
 
+// --------------------------------------------------------------------- karts
+
+console.log("\nkarts");
+
+/**
+ * The rung between the face and saliency, on the photographs it was built for.
+ *
+ * A helmet is not a face, and meco already believed it was: measured on 32
+ * on-track karting photographs, YuNet puts a box on the leading driver's head in
+ * 9 of them, nothing at all in 19, and a confident box on a spectator in 4. The
+ * kart producer is what answers the middle column of that table, and
+ * `on-track-dark-visor.jpg` is the case with no ambiguity in it — two large,
+ * sharp, well-lit drivers, visors down, and **zero** faces.
+ */
+{
+  const karts = JSON.parse(
+    await readFile(fileURLToPath(new URL("../fixtures/karts/objects.json", import.meta.url)), "utf8"),
+  ) as {
+    images: { file: string; width: number; height: number; objects: ObjectDetection["objects"] }[];
+  };
+
+  const kartPhoto = async (name: string) => {
+    const bytes = await readFile(
+      fileURLToPath(new URL(`../fixtures/karts/${name}`, import.meta.url)),
+    );
+    const hash = sha(bytes);
+    const recorded = karts.images.find((i) => i.file === name)!;
+    cannedObjects.set(hash, {
+      width: recorded.width,
+      height: recorded.height,
+      objects: recorded.objects,
+    });
+    return { url: `data:image/jpeg;base64,${bytes.toString("base64")}`, hash };
+  };
+
+  // The headline case. YuNet finds nothing here, so the stand-in answers no
+  // faces for it — which is the truth, not a convenience.
+  const DARK_VISOR = await kartPhoto("on-track-dark-visor.jpg");
+  const REAR_HELMET = await kartPhoto("on-track-rear-helmet.jpg");
+
+  const framed = await post("/v1/crop", {
+    source: DARK_VISOR.url,
+    width: 540,
+    height: 675,
+  });
+  cropKeys.add(String(framed.json.key));
+  check(
+    "a helmeted driver no face detector can see is framed by the kart producer",
+    framed.status === 200 && framed.json.resolvedBy === "kart",
+    `${String(framed.status)} resolvedBy=${String(framed.json.resolvedBy)} ` +
+      `satisfied=${String(framed.json.satisfied)}`,
+  );
+  check(
+    "and it needed no warning to get there",
+    framed.json.warnings === undefined,
+    JSON.stringify(framed.json.warnings),
+  );
+
+  // A face outranks a kart by default, because a photograph with a visible face
+  // in it is a photograph of that person. This is the check that the new rung
+  // was inserted below the old one and not above it.
+  const faceWins = await post("/v1/crop", { source: PORTRAIT.url, width: 1080, height: 1350 });
+  cropKeys.add(String(faceWins.json.key));
+  check(
+    "a photograph with a real face still resolves by the face, not the kart",
+    faceWins.json.resolvedBy === "face",
+    String(faceWins.json.resolvedBy),
+  );
+
+  // `pinTo: "kart"` is how a caller says "the subject is wearing a helmet".
+  // `on-track-rear-helmet.jpg` is the photograph that makes it worth having:
+  // YuNet is confident about the *back* of the helmet, so the face producer
+  // would frame on a number panel.
+  const pinned = await post("/v1/crop", {
+    source: REAR_HELMET.url,
+    pinTo: "kart",
+    width: 540,
+    height: 675,
+  });
+  cropKeys.add(String(pinned.json.key));
+  check(
+    "pinTo kart steps over a face that is really a helmet",
+    pinned.json.resolvedBy === "kart",
+    String(pinned.json.resolvedBy),
+  );
+
+  // `attention` means "ignore every detector", and the kart is a detector.
+  const overKart = await post("/v1/crop", {
+    source: DARK_VISOR.url,
+    pinTo: "attention",
+    width: 540,
+    height: 675,
+  });
+  cropKeys.add(String(overKart.json.key));
+  check(
+    "pinTo attention steps over the kart as well as over the faces",
+    overKart.json.resolvedBy === "saliency",
+    String(overKart.json.resolvedBy),
+  );
+
+  // A photograph with no kart in it has to behave exactly as it did before this
+  // rung existed. Its own picture rather than `LANDSCAPE`, because a Crop here
+  // files an Annotation and the section that turns the face service off later
+  // needs a photograph nobody has annotated yet — and `photo` is deterministic,
+  // so a second call at the same size would be the same bytes and the same hash.
+  const EMPTY = await photo(1500, 900);
+  const noKart = await post("/v1/crop", {
+    source: EMPTY,
+    width: 1080,
+    height: 1350,
+    anchor: "top",
+  });
+  cropKeys.add(String(noKart.json.key));
+  check(
+    "a photograph with no kart falls through the ladder unchanged",
+    noKart.json.resolvedBy === "anchor" && noKart.json.warnings === undefined,
+    `${String(noKart.json.resolvedBy)} ${JSON.stringify(noKart.json.warnings)}`,
+  );
+
+  // The objects are filed in the Annotation beside the faces, so a preview can
+  // draw them before anyone commits to a shape — and so a second Crop of the
+  // same photograph costs no second detection.
+  const seen = await post("/v1/subjects", { source: DARK_VISOR.url });
+  const regions = (seen.json.ImageRegion ?? []) as {
+    RegionId: string;
+    "meco:producer": string;
+    "meco:label"?: string;
+  }[];
+  const objects = regions.filter((r) => r["meco:producer"] === "dfine-n-coco");
+  check(
+    "find subjects lists the objects as regions of their own",
+    seen.status === 200 && objects.length === 2 && objects.every((r) => r["meco:label"] === "person"),
+    objects.map((r) => `${r.RegionId} ${String(r["meco:label"])}`).join(", ") || "none",
+  );
+  check(
+    "and only the classes the kart producer reads are filed",
+    !objects.some((r) => r["meco:label"] === "boat"),
+    // The recorded detection has a `boat` in it at a higher score than either
+    // driver — COCO resolving two karts side by side to the nearest thing it
+    // knows. Filing it would put a region on the Annotation that nothing reads.
+    `${String(karts.images.find((i) => i.file === "on-track-dark-visor.jpg")!.objects.length)} detected, ${String(objects.length)} filed`,
+  );
+
+  const before = objectCalls.length;
+  await post("/v1/subjects", { source: DARK_VISOR.url });
+  check(
+    "a second look at the same photograph costs no second object detection",
+    objectCalls.length === before,
+    `${String(objectCalls.length - before)} detections`,
+  );
+
+  /**
+   * Only the object model down, which is the failure this rung introduces.
+   *
+   * The face half of the service still answers, so this is not "the service is
+   * down" — it is one of two detectors failing, and the Crop has to lose exactly
+   * one rung and say exactly which. Landing on `saliency` rather than on `kart`
+   * is the whole claim.
+   */
+  const NO_KART_YET = await kartPhoto("on-track-visor-open.jpg");
+  objectsDown = true;
+  const halfDown = await post("/v1/crop", {
+    source: NO_KART_YET.url,
+    pinTo: "kart",
+    width: 540,
+    height: 675,
+  });
+  objectsDown = false;
+  cropKeys.add(String(halfDown.json.key));
+  const halfWarnings = (halfDown.json.warnings ?? []) as string[];
+  check(
+    "an object detector that fails costs the Crop one rung, not the Crop",
+    halfDown.status === 200 && halfDown.json.resolvedBy === "saliency",
+    `${String(halfDown.status)} resolvedBy=${String(halfDown.json.resolvedBy)}`,
+  );
+  check(
+    "and it says so, naming the objects rather than the faces",
+    halfWarnings.length === 1 && halfWarnings[0]!.startsWith("No objects were looked for"),
+    JSON.stringify(halfWarnings),
+  );
+
+  // The half-failed answer is not filed at all, which is the older half of the
+  // same rule: `annotate` has never cached a failure, because caching one turns
+  // a bad minute into a photograph that permanently has nothing in it. Read off
+  // the store rather than inferred from the next request, so it is a claim about
+  // what was written and not about what was read back.
+  check(
+    "and nothing was filed for it either",
+    !(await readdir(join(root, "annotations"))).includes(`${NO_KART_YET.hash}.json`),
+    `looking for ${NO_KART_YET.hash.slice(0, 12)}….json`,
+  );
+
+  // A partial answer must not be filed, or the next request would read a cached
+  // Annotation whose `meco:producers` claims there was nothing left to look for.
+  const retried = await post("/v1/crop", {
+    source: NO_KART_YET.url,
+    pinTo: "kart",
+    width: 540,
+    height: 675,
+  });
+  cropKeys.add(String(retried.json.key));
+  check(
+    "a half-failed detection is not cached, so the next Crop gets its rung back",
+    retried.json.resolvedBy === "kart" && retried.json.warnings === undefined,
+    `${String(retried.json.resolvedBy)} ${JSON.stringify(retried.json.warnings)}`,
+  );
+
+  /**
+   * An Annotation written before the object detector existed.
+   *
+   * This is the migration, and it is the one part of the feature that cannot be
+   * reached by asking meco to do something: an Annotation is filed under the
+   * hash of the bytes and nothing expires it, so every photograph a deployment
+   * has already seen carries a record that predates this rung. Without the
+   * `meco:producers` check those photographs would answer "no kart" for ever —
+   * silently, and for exactly the pictures the rung was added for.
+   *
+   * So the old record is written by hand, in the shape the previous version
+   * produced: face regions, and no `meco:producers` field at all.
+   */
+  const LEGACY = await kartPhoto("paddock-mixed.jpg");
+  await storage.putAt(
+    `annotations/${LEGACY.hash}.json`,
+    Buffer.from(
+      JSON.stringify({
+        source: { hash: LEGACY.hash, width: 1400, height: 933 },
+        annotatedAt: new Date().toISOString(),
+        ImageRegion: [],
+      }),
+    ),
+    "application/json",
+  );
+  const migrated = await post("/v1/crop", {
+    source: LEGACY.url,
+    pinTo: "kart",
+    width: 540,
+    height: 675,
+  });
+  cropKeys.add(String(migrated.json.key));
+  check(
+    "an Annotation written before the object detector is looked at again",
+    migrated.json.resolvedBy === "kart",
+    `${String(migrated.json.resolvedBy)} — a cache that trusted the old record would say saliency`,
+  );
+
+  const unknownPin = await post("/v1/crop", {
+    source: DARK_VISOR.url,
+    pinTo: "trolley",
+    width: 540,
+    height: 675,
+  });
+  check(
+    "an unknown pinTo is still refused by the schema",
+    unknownPin.status === 400,
+    String(unknownPin.status),
+  );
+}
+
 // ------------------------------------------------------ a face service down
 
 /**
@@ -3080,7 +3375,16 @@ check(
 );
 check(
   "and it says the faces were not looked for",
-  warnings.length === 1 && warnings[0]!.includes("did not answer"),
+  warnings.some((w) => w.startsWith("No faces were looked for") && w.includes("did not answer")),
+  JSON.stringify(warnings),
+);
+// Two detectors, two warnings. Merging them into one would hide which half of
+// the service is down, and they fail independently — see the kart section, where
+// only the object model is out.
+check(
+  "and that the objects were not either",
+  warnings.length === 2 &&
+    warnings.some((w) => w.startsWith("No objects were looked for")),
   JSON.stringify(warnings),
 );
 check(

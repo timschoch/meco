@@ -21,6 +21,7 @@
     "typecheck:faces": "pnpm --filter meco-faces typecheck",
     "build:faces": "pnpm --filter meco-faces build",
     "test:detect": "pnpm --filter meco-faces test:detect",
+    "test:objects": "pnpm --filter meco-faces test:objects",
     "test:embed": "pnpm --filter meco-faces test:embed"
   },
   "dependencies": {

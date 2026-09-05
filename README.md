@@ -110,8 +110,8 @@ second-best Person by a margin — so "nobody" is a valid answer and, in any
 photograph with a stranger in it, the usual one. A Match wins the anchor whatever
 size the face is, `resolvedBy` says `person`, and the answer lists every Match by
 name and score. `persons` limits which People may be recognised; `pinTo` chooses
-between `person`, `faces` and `attention`. A Person belongs to exactly one Brand
-and is never matched for another.
+between `person`, `faces`, `kart` and `attention`. A Person belongs to exactly
+one Brand and is never matched for another.
 
 `blurUnknownFaces` then hides every face that is **not** a Match, behind an
 elliptical mask, and says how many in `blurred`. Without a `brand` there are no
@@ -128,6 +128,15 @@ could not look at one of these faces" otherwise arrive as the same empty
 
 Where the threshold and the margin came from, and what they are worth, is
 [ADR-0003](docs/adr/0003-face-recognition-licence-consent-and-threshold.md).
+
+**A helmet is not a face**, and on a race track that is most of the photographs.
+So a Crop has one more rung between the face and saliency: an object detector
+finds the kart and its driver and frames on the two together, which is what a
+karting photograph is of — a frame on the driver's head loses the livery it was
+taken for. `resolvedBy` says `kart`, and `pinTo: "kart"` steps over the faces for
+a subject whose face is behind a visor. Measured on 32 on-track photographs, the
+face detector puts a box on the leading driver's head in 9 of them; the kart
+producer and saliency together leave none of them unframed.
 
 A `subjectArea` says which rectangle of the result the Subject has to fill, as
 fractions from the top-left. Without one the solver uses its golden-ratio grid.

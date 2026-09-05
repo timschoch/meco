@@ -7,7 +7,7 @@
  */
 import { z } from "zod";
 
-import { annotate, faceRegions, facesOf, type Annotated } from "./annotations.js";
+import { annotate, faceRegions, facesOf, objectsOf, type Annotated } from "./annotations.js";
 import { BRANDS } from "./brands.js";
 import { slidesToPdf } from "./carousel.js";
 import { PLACEMENTS, resolvePlacements, type PlacementId } from "./channels.js";
@@ -278,6 +278,10 @@ export async function crop(input: CropInput, storage: Storage) {
   // warning, which is the difference between "nobody asked" and "we could not".
   const annotated = await annotate(source, storage);
   const faces = annotated ? facesOf(annotated.annotation) : [];
+  // The objects come out of the same Annotation as the faces and cost nothing
+  // extra to read. Which of them frames the Crop — if any — is the producer
+  // ladder's decision, one layer down.
+  const objects = annotated ? objectsOf(annotated.annotation) : [];
 
   // Matching needs the Brand, so a Crop without one frames on faces and blurs
   // every one of them — which is what a Crop did before Persons existed.
@@ -289,6 +293,7 @@ export async function crop(input: CropInput, storage: Storage) {
     width: input.width,
     height: input.height,
     ...(faces.length > 0 ? { faces } : {}),
+    ...(objects.length > 0 ? { objects } : {}),
     ...(named.matches.length > 0 ? { matches: named.matches } : {}),
     ...(input.pinTo ? { pinTo: input.pinTo } : {}),
     ...(input.anchor ? { anchor: input.anchor } : {}),

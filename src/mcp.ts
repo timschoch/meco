@@ -203,7 +203,9 @@ export function createMecoMcpHandler(storage: Storage) {
           "brand and a Person the Brand has enrolled is recognised and framed on " +
           "instead, whatever size their face is. Otherwise give an anchor to " +
           "choose the region yourself, or a strategy to let the image decide — " +
-          "'attention' keeps the most salient area. Give a subjectArea to say " +
+          "'attention' keeps the most salient area. For motorsport, pinTo " +
+          "'kart' frames the kart and its driver together, which is what a " +
+          "helmet makes impossible to do from a face. Give a subjectArea to say " +
           "where in the result the Subject has to land. Set blurUnknownFaces to " +
           "hide every face that is not a recognised Person. With a brand the " +
           "answer carries facesNotCompared when meco could not look at a face " +
@@ -225,9 +227,11 @@ export function createMecoMcpHandler(storage: Storage) {
             .optional()
             .describe(
               "What to frame on: 'person' a recognised Person, falling back to " +
-                "the faces; 'faces' the largest face whoever it is; 'attention' " +
-                "the most salient area, ignoring the faces. Default 'person' " +
-                "with a brand, 'faces' without one.",
+                "the faces; 'faces' the largest face whoever it is; 'kart' the " +
+                "kart and its driver, ignoring the faces, for a helmeted " +
+                "subject no face detector can see; 'attention' the most salient " +
+                "area, ignoring every detector. Default 'person' with a brand, " +
+                "'faces' without one.",
             ),
           persons: z
             .array(z.string())

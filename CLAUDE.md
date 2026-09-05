@@ -26,11 +26,13 @@ Full gate:
 ```
 pnpm typecheck && pnpm typecheck:faces && pnpm build && pnpm build:faces \
   && pnpm test:crop && pnpm test:http && pnpm test:mcp && pnpm test:ui \
-  && pnpm test:detect && pnpm test:embed && pnpm test:match
+  && pnpm test:detect && pnpm test:embed && pnpm test:objects && pnpm test:match
 ```
 
 `pnpm test:storage` runs against the live Blob store: it needs `.env.local`
-and takes ~10 minutes. It is not part of the gate.
+and takes ~10 minutes. It is not part of the gate. Neither is
+`pnpm --filter meco-faces exec tsx scripts/verify-dfine.ts`, which re-checks the
+committed object model against its source over the network — see `DEPLOY.md`.
 
 **Prove a test can fail.** Mutate the code it covers and confirm the suite
 catches it. Three tickets in the Subject-aware Crop feature did this; two found

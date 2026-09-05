@@ -14,6 +14,12 @@
  * number. It is fed real detections recorded in `fixtures/faces/detected.json`,
  * so the claim is made about the faces the detector actually finds and not about
  * a convenient rectangle.
+ *
+ * The kart producer is here for the same reason again, and fed the same way from
+ * `fixtures/karts/objects.json`. Its union rule is four lines of geometry with
+ * one genuinely surprising choice in it — overlap measured against the smaller
+ * box rather than against the union — and the difference between the two shows
+ * up on a real photograph as a Crop framed on a kart with no driver on it.
  */
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -27,8 +33,8 @@ import {
   type SubjectArea,
   type SubjectBox,
 } from "../src/crop-solver.js";
-import { faceSubjectBoxes } from "../src/crop.js";
-import type { DetectedFace } from "../src/faces.js";
+import { faceSubjectBoxes, kartSubjectBox } from "../src/crop.js";
+import type { DetectedFace, DetectedObject } from "../src/faces.js";
 
 const problems: string[] = [];
 
@@ -476,6 +482,163 @@ for (const shape of [
     holds(window, CREW_PHOTO.faces[CREW_MATCH]!, CREW_SIZE),
     `window=${String(window.width)}x${String(window.height)}@${String(window.left)},${String(window.top)}` +
       ` fallback=${window.fallback ?? "none"}`,
+  );
+}
+
+// ------------------------------------------------------------- kart producer
+
+console.log("\nkart producer");
+
+interface KartFixture {
+  file: string;
+  note: string;
+  subjectNote: string;
+  objects: DetectedObject[];
+  subject: { x: number; y: number; width: number; height: number };
+}
+
+const karts = JSON.parse(
+  await readFile(fileURLToPath(new URL("../fixtures/karts/objects.json", import.meta.url)), "utf8"),
+) as { tolerance: number; images: KartFixture[] };
+
+/** A detected object with the parts a hand-written case does not care about. */
+const seen = (
+  label: string,
+  score: number,
+  box: { x: number; y: number; width: number; height: number },
+): DetectedObject => ({ label, score, box });
+
+/**
+ * The union case, written out rather than recorded.
+ *
+ * A kart from (0.1, 0.4) to (0.7, 0.8) with a driver sitting in it from
+ * (0.35, 0.25) to (0.55, 0.62). The driver's head is above the kart's box and
+ * their legs are inside it, which is what a karting photograph looks like from a
+ * detector's point of view. The union is (0.1, 0.25) to (0.7, 0.8).
+ */
+const KART = seen("motorbike", 0.42, { x: 0.1, y: 0.4, width: 0.6, height: 0.4 });
+const DRIVER = seen("person", 0.39, { x: 0.35, y: 0.25, width: 0.2, height: 0.37 });
+/** Far enough away to share no pixels with the kart at all. */
+const SPECTATOR = seen("person", 0.55, { x: 0.85, y: 0.05, width: 0.08, height: 0.3 });
+
+const joined = kartSubjectBox([KART, DRIVER]);
+check(
+  "the kart and its driver become one Subject Box",
+  joined !== null &&
+    Math.abs(joined.x - 0.1) < 1e-9 &&
+    Math.abs(joined.y - 0.25) < 1e-9 &&
+    Math.abs(joined.width - 0.6) < 1e-9 &&
+    Math.abs(joined.height - 0.55) < 1e-9,
+  joined
+    ? `x=${joined.x.toFixed(3)} y=${joined.y.toFixed(3)} w=${joined.width.toFixed(3)} h=${joined.height.toFixed(3)}`
+    : "no box",
+);
+check(
+  "and it names itself kart, which is what resolvedBy reports",
+  joined !== null && solveCrop([joined], SOURCE, SHAPES[0]!).resolvedBy === "kart",
+);
+
+/**
+ * The reason the overlap is measured against the smaller box.
+ *
+ * These two share 0.0444 of area. Against the union that is 0.156 — *below* the
+ * quarter the rule asks for, so an intersection-over-union test would refuse to
+ * join a driver to the kart they are sitting in. Against the smaller of the two
+ * it is 0.600, comfortably above. The driver's box is a fraction of the kart's
+ * by construction, and that is exactly what makes IoU the wrong measure here.
+ */
+check(
+  "a driver joins their kart even though the two have a low IoU",
+  (() => {
+    const overlap = 0.2 * 0.222;
+    const both = 0.6 * 0.4 + 0.2 * 0.37 - overlap;
+    return overlap / both < 0.25 && overlap / (0.2 * 0.37) > 0.25;
+  })(),
+  "IoU 0.156, overlap of the smaller box 0.600",
+);
+
+const withCrowd = kartSubjectBox([KART, DRIVER, SPECTATOR]);
+check(
+  "a spectator behind the track does not join the kart",
+  withCrowd !== null && Math.abs(withCrowd.width - 0.6) < 1e-9,
+  withCrowd ? `w=${withCrowd.width.toFixed(3)} (0.600 is the kart and its driver)` : "no box",
+);
+
+/**
+ * The spectator outscores both. A `person`-only rule would frame on them — which
+ * is measured, not hypothetical: on the two crowd-heavy photographs of the
+ * research set the detector returns 23 and 13 spectators and no driver at all.
+ * Seeding on the kart is what makes the crowd irrelevant instead of dominant.
+ */
+check(
+  "the kart seeds the box even when a spectator scores higher",
+  withCrowd !== null && Math.abs(withCrowd.x - 0.1) < 1e-9,
+  withCrowd ? `x=${withCrowd.x.toFixed(3)} (the spectator is at 0.850)` : "no box",
+);
+
+const noKart = kartSubjectBox([DRIVER, SPECTATOR]);
+check(
+  "with no kart the strongest person seeds it instead",
+  noKart !== null && Math.abs(noKart.x - 0.85) < 1e-9 && Math.abs(noKart.width - 0.08) < 1e-9,
+  noKart ? `x=${noKart.x.toFixed(3)} w=${noKart.width.toFixed(3)}` : "no box",
+);
+
+check(
+  "a photograph with nothing usable in it yields no box at all",
+  kartSubjectBox([]) === null &&
+    kartSubjectBox([seen("boat", 0.4, { x: 0.1, y: 0.1, width: 0.3, height: 0.3 })]) === null,
+);
+
+/**
+ * `boat`, `car` and `train` fire on a kart *and* on trackside vehicles, so they
+ * are measured as not worth the precision and are not in `KART_CLASSES`. This is
+ * the check that notices if one is ever quietly added: the boat here outscores
+ * and encloses the kart, so admitting it would move the box.
+ */
+check(
+  "a boat that outscores the kart is ignored rather than unioned",
+  (() => {
+    const boat = seen("boat", 0.9, { x: 0.02, y: 0.35, width: 0.95, height: 0.3 });
+    const box = kartSubjectBox([KART, DRIVER, boat]);
+    return box !== null && Math.abs(box.x - 0.1) < 1e-9 && Math.abs(box.width - 0.6) < 1e-9;
+  })(),
+);
+
+// The six committed photographs, through the real detections recorded from the
+// real model. This is where the rule meets a picture rather than a diagram.
+for (const image of karts.images) {
+  const box = kartSubjectBox(image.objects);
+  const off = box
+    ? Math.max(
+        Math.abs(box.x - image.subject.x),
+        Math.abs(box.y - image.subject.y),
+        Math.abs(box.width - image.subject.width),
+        Math.abs(box.height - image.subject.height),
+      )
+    : Infinity;
+  check(
+    `${image.file} frames where it was measured to`,
+    off <= 1e-3,
+    `off by ${off.toFixed(4)} — ${image.subjectNote}`,
+  );
+}
+
+/**
+ * The photograph the whole feature exists for, stated as its own check.
+ *
+ * YuNet returns **zero** faces on `on-track-dark-visor.jpg`, so before this
+ * producer the Crop fell to saliency or to the centre. The kart producer has to
+ * yield a box on it, and the box has to be a region rather than a sliver: a
+ * detection of 0.1 % of the frame is a marshal in the distance, not the subject.
+ */
+{
+  const dark = karts.images.find((i) => i.file === "on-track-dark-visor.jpg");
+  const box = dark ? kartSubjectBox(dark.objects) : null;
+  const area = box ? box.width * box.height : 0;
+  check(
+    "the photograph YuNet cannot see at all is framed by the kart producer",
+    box !== null && box.producer === "kart" && area > 0.05,
+    box ? `${pct(area)} of the frame` : "no box",
   );
 }
 

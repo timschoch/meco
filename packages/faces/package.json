@@ -12,6 +12,8 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test:detect": "tsx scripts/detect-test.ts",
+    "test:objects": "tsx scripts/objects-test.ts",
+    "verify:dfine": "tsx scripts/verify-dfine.ts",
     "test:embed": "tsx scripts/embed-test.ts",
     "dump:aligned": "tsx scripts/align-dump.ts",
     "dump:prints": "tsx scripts/print-dump.ts",
