@@ -74,7 +74,8 @@ export const MAX_OCCLUSION_ZONES: 16;
 
 - **Pure.** No clock, no random, no I/O. The same input gives byte-identical output.
 - **The source size comes from the Annotation** (`width`, `height`, after EXIF orientation). frame takes no size argument, so the two can never disagree.
-- **frame throws on exactly one thing**: more than `MAX_OCCLUSION_ZONES` Occlusion Zones, a `RangeError`. Everything the contracts schema already refuses, frame assumes. Every geometric shortfall is answered, never thrown.
+- **frame throws on nothing that is geometry.** Every geometric shortfall is answered with the best window there is and a flag saying what was missed.
+- **The occlusion cap is the contracts schema's wall, not frame's.** `FramingRequest.occlusion` is `z.array(Box).max(16)`, so the gateway refuses a longer list with a `400` and frame never sees one. frame keeps a `RangeError` above `MAX_OCCLUSION_ZONES` as a defensive invariant, because the Free Area sweep is polynomial in the zone count and an unbounded list has no best-effort answer to give, only work to refuse. Decided on [contracts: FramingRequest and Match schemas with defaults #93](https://github.com/timschoch/meco/issues/93).
 - **`window` is whole pixels, inside the Source Image, and within one pixel of the target aspect.**
 - **Matches are filtered to `request.brand`.** `identify` guarantees it; frame checks anyway, because a Match crossing the Brand wall would show as a stranger leading somebody else's Crop.
 
@@ -128,6 +129,14 @@ Written down because determinism is a promise the tests check: the Golden Line t
 - **`models` defines `vehicle`** as a road vehicle a person rides or drives ([`CONTEXT.md`, Region Kind](../../CONTEXT.md#contracts)). Measured consequence and the fixture that proves it: [ADR-0006](../adr/0006-frame-solves-in-closed-form-over-regions.md), Consequences.
 - **`contracts` assigns Region ids** by sorted position, so the `regionId` tie-break is stable across runs.
 - **`identify` scopes Matches to one Brand.** frame filters anyway.
+- **`contracts` caps `occlusion` at 16 rectangles**, so the gateway refuses a longer list before frame is called.
+
+### What crosses to compose
+
+`compose` receives `windowFraction` as a plain contracts `Box`, passed by the gateway, and does the cut and the scale into the Image Slot. It does not import `@meco/frame`, so no frame vocabulary crosses that seam. Two things `compose` must know and cannot read off the type:
+
+- **Scale with `fill`, never `cover`.** `window` is whole pixels, so its aspect matches the target only to within that rounding, at most one pixel on the larger axis. Covering it a second time would re-crop it and undo the framing.
+- **The target size is not in the Framing.** It is on the FramingRequest, which the gateway holds. Duplicating it would make two places that could disagree about what was asked for.
 
 ## Testing decisions
 
