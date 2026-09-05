@@ -7,6 +7,7 @@
     ".": "./index.ts"
   },
   "dependencies": {
-    "@meco/contracts": "workspace:*"
+    "@meco/contracts": "workspace:*",
+    "sharp": "^0.35.4"
   }
 }
