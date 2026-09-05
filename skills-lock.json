@@ -348,12 +348,6 @@
       "sourceType": "github",
       "skillPath": "bundles/workflow/skills/writing-rules/SKILL.md",
       "computedHash": "6edcd0448bd4fd5072f96437a2d6ee356bad32b243872e4dddea22d427d7da88"
-    },
-    "writing-shape": {
-      "source": "timschoch/mattpocock-skills",
-      "sourceType": "github",
-      "skillPath": "skills/in-progress/writing-shape/SKILL.md",
-      "computedHash": "90899c7b3853a80da0d9ef634844b22871cc3ea6aa1bc9e4299f40484ac05392"
     }
   }
 }
