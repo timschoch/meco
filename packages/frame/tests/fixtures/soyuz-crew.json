@@ -1,0 +1,129 @@
+{
+  "schema": 1,
+  "hash": "bdbf0b30d7f4a0a8350a629c72c0722f979fda0c809a5f4694548880759727e1",
+  "mime": "image/jpeg",
+  "width": 1600,
+  "height": 777,
+  "producedBy": [
+    {
+      "name": "yunet",
+      "version": "prototype"
+    }
+  ],
+  "regions": [
+    {
+      "id": "face-1",
+      "kind": "face",
+      "label": "face",
+      "box": {
+        "x": 0.72757,
+        "y": 0.157755,
+        "width": 0.088465,
+        "height": 0.2381
+      },
+      "score": 0.926859,
+      "model": {
+        "name": "yunet",
+        "version": "prototype"
+      },
+      "landmarks": {
+        "rEye": {
+          "x": 0.748117,
+          "y": 0.247331
+        },
+        "lEye": {
+          "x": 0.788144,
+          "y": 0.246431
+        },
+        "nose": {
+          "x": 0.765392,
+          "y": 0.296113
+        },
+        "rMouth": {
+          "x": 0.751242,
+          "y": 0.330038
+        },
+        "lMouth": {
+          "x": 0.785224,
+          "y": 0.332035
+        }
+      }
+    },
+    {
+      "id": "face-2",
+      "kind": "face",
+      "label": "face",
+      "box": {
+        "x": 0.178499,
+        "y": 0.246816,
+        "width": 0.089332,
+        "height": 0.262317
+      },
+      "score": 0.932361,
+      "model": {
+        "name": "yunet",
+        "version": "prototype"
+      },
+      "landmarks": {
+        "rEye": {
+          "x": 0.202602,
+          "y": 0.341289
+        },
+        "lEye": {
+          "x": 0.24791,
+          "y": 0.342408
+        },
+        "nose": {
+          "x": 0.225241,
+          "y": 0.392053
+        },
+        "rMouth": {
+          "x": 0.202971,
+          "y": 0.431787
+        },
+        "lMouth": {
+          "x": 0.242468,
+          "y": 0.432697
+        }
+      }
+    },
+    {
+      "id": "face-3",
+      "kind": "face",
+      "label": "face",
+      "box": {
+        "x": 0.412264,
+        "y": 0.311479,
+        "width": 0.088629,
+        "height": 0.234005
+      },
+      "score": 0.935227,
+      "model": {
+        "name": "yunet",
+        "version": "prototype"
+      },
+      "landmarks": {
+        "rEye": {
+          "x": 0.434487,
+          "y": 0.398301
+        },
+        "lEye": {
+          "x": 0.472371,
+          "y": 0.400243
+        },
+        "nose": {
+          "x": 0.451538,
+          "y": 0.447643
+        },
+        "rMouth": {
+          "x": 0.437538,
+          "y": 0.478285
+        },
+        "lMouth": {
+          "x": 0.470203,
+          "y": 0.483684
+        }
+      }
+    }
+  ]
+}

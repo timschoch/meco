@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "hash": "168fdc3cd0d068b27b24f6cecfc70c287f9af54e45e9f6ce50fc856c94d4a8ed",
+  "mime": "image/jpeg",
+  "width": 1280,
+  "height": 1600,
+  "producedBy": [
+    {
+      "name": "yunet",
+      "version": "prototype"
+    }
+  ],
+  "regions": [
+    {
+      "id": "face-1",
+      "kind": "face",
+      "label": "face",
+      "box": {
+        "x": 0.403308,
+        "y": 0.126491,
+        "width": 0.249461,
+        "height": 0.281135
+      },
+      "score": 0.947189,
+      "model": {
+        "name": "yunet",
+        "version": "prototype"
+      },
+      "landmarks": {
+        "rEye": {
+          "x": 0.464219,
+          "y": 0.240016
+        },
+        "lEye": {
+          "x": 0.578836,
+          "y": 0.238851
+        },
+        "nose": {
+          "x": 0.516952,
+          "y": 0.290893
+        },
+        "rMouth": {
+          "x": 0.470678,
+          "y": 0.331361
+        },
+        "lMouth": {
+          "x": 0.575873,
+          "y": 0.329666
+        }
+      }
+    }
+  ]
+}
