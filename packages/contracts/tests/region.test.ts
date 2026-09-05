@@ -47,6 +47,19 @@ describe("Region", () => {
     ).toBe(false);
   });
 
+  it("refuses an embedding on a region that is not a face", () => {
+    const vehicle = {
+      id: "vehicle-1",
+      kind: "vehicle",
+      label: "motorbike",
+      box,
+      score: 0.8,
+      model,
+      embedding: { model, vector: [0.6, 0.8] },
+    };
+    expect(Region.safeParse(vehicle).success).toBe(false);
+  });
+
   it("accepts an embedding vector that is unit length within 1e-3", () => {
     const vector = [0.6, 0.8];
     expect(
