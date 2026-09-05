@@ -2404,6 +2404,103 @@ const WIDE = { width: 1920, height: 1080 };
     JSON.stringify(helmeted.json.warnings),
   );
 
+  // --------------------------------------- a helmet against a real enrolled Person
+
+  /**
+   * The other direction, and the one the gallery filter cannot reach.
+   *
+   * Above, the unusable record was the helmet, so dropping it was enough. Here
+   * the Brand has enrolled a **real human face** — and the helmet detection still
+   * scores 0.5601 against her print, over the 0.50 threshold. Nothing about the
+   * gallery is wrong, so nothing is dropped from it; the only thing standing
+   * between meco and naming a crash helmet after a real person is the check on
+   * the detection itself.
+   *
+   * The print is `paddock-mixed#4`'s, a 49 px face of a driver with the visor up.
+   * It is planted rather than enrolled because at 49 px in a 1400 px photograph
+   * meco would enrol it from the paddock picture, not from a portrait — and what
+   * this needs is her print in a gallery, not a second enrolment path.
+   */
+  const paddockDriverPrint = kartPrints.prints.find(
+    (p) => p.file === "paddock-mixed.jpg" && p.index === 4,
+  )!;
+  const paddockPerson = (await post("/v1/people", { brand: "laica", name: "Paddock Driver" }))
+    .json as PersonJson;
+  const paddockPhotoId = "paddockdriver00000000000000000000".slice(0, 32);
+  await storage.putAt(
+    `${personPrefix("laica", paddockPerson.id)}/person.json`,
+    Buffer.from(
+      JSON.stringify({
+        ...paddockPerson,
+        brand: "laica",
+        photos: [
+          {
+            photoId: paddockPhotoId,
+            face: { x: 0.5, y: 0.42, width: 0.035, height: 0.06 },
+            format: "jpg",
+            enrolledAt: "2026-09-01T00:00:00.000Z",
+            consentAt: "2026-09-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    ),
+    "application/json",
+  );
+  await storage.putAt(
+    `${personPrefix("laica", paddockPerson.id)}/${paddockPhotoId}.print.json`,
+    Buffer.from(
+      JSON.stringify({
+        personId: paddockPerson.id,
+        photoId: paddockPhotoId,
+        print: paddockDriverPrint.print,
+        printedAt: "2026-09-01T00:00:00.000Z",
+      }),
+    ),
+    "application/json",
+  );
+
+  const helmetPrintNumbers = helmetPrint.print;
+  const againstHer = helmetPrintNumbers.reduce(
+    (sum, v, i) => sum + v * paddockDriverPrint.print[i]!,
+    0,
+  );
+  check(
+    "a helmet really does clear the match threshold against this real Person's print",
+    againstHer > 0.5,
+    `${againstHer.toFixed(4)} against a threshold of 0.50 — so the trap below is a real one`,
+  );
+
+  const helmetVsRealPerson = await post("/v1/crop", {
+    source: REAR_HELMET.url,
+    brand: "laica",
+    width: 1080,
+    height: 1350,
+    blurUnknownFaces: true,
+  });
+  cropKeys.add(String(helmetVsRealPerson.json.key));
+  check(
+    "and meco still refuses to name the back of a helmet after her",
+    matchesOf(helmetVsRealPerson.json).length === 0 &&
+      helmetVsRealPerson.json.resolvedBy !== "person",
+    `matches=${JSON.stringify(helmetVsRealPerson.json.matches)} ` +
+      `resolvedBy=${String(helmetVsRealPerson.json.resolvedBy)}`,
+  );
+  check(
+    "so the helmet is blurred rather than published as her",
+    helmetVsRealPerson.json.blurred === 1,
+    `blurred=${String(helmetVsRealPerson.json.blurred)}`,
+  );
+  // Her record is untouched by any of this: she is a real Person with a real
+  // face, and the refusal was about the photograph that arrived, not about her.
+  check(
+    "her Reference Photo is not the thing that was refused",
+    ((helmetVsRealPerson.json.warnings ?? []) as string[]).every(
+      (w) => !w.includes("Paddock Driver"),
+    ),
+    JSON.stringify(helmetVsRealPerson.json.warnings ?? []),
+  );
+  await del(`/v1/people/${paddockPerson.id}?brand=laica`);
+
   // ------------------------------------------------------ the false-positive side
 
   /**

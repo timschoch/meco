@@ -650,6 +650,45 @@ check(
   );
 
   /**
+   * The size rule is not decoration, and this is the number that says so.
+   *
+   * `MIN_FACE_PX` was written for enrolment and now runs when matching too. On
+   * these fixtures it changes no verdict — every face it refuses would have been
+   * refused by the print or was never going to be named — so it would be easy to
+   * mistake for a belt-and-braces line and delete.
+   *
+   * It is not. It is what leaves the print threshold any room at all. Below the
+   * size rule a real face and a helmet converge: `paddock-mixed`'s 36 px child
+   * reaches 0.6920 against the committed Not-a-Face Print, and the furthest
+   * non-face is 0.6935. Without the size rule the band a threshold has to fit
+   * inside is those two numbers, and nothing can be calibrated in it.
+   */
+  const tooSmall = measured.filter(
+    (e) => !e.reference && e.detection !== null && e.pixels < MIN_FACE_PX,
+  );
+  const bandWithoutTheSizeRule =
+    bestNotAFace - Math.max(...[...realFaces, ...tooSmall.filter((e) => e.is === "face")].map((e) => e.cosine));
+  check(
+    bandWithoutTheSizeRule < 0.01 && worstFace < bestNotAFace,
+    "the size rule is what leaves the print threshold a band to sit in",
+    `${(bestNotAFace - worstFace).toFixed(4)} wide with it, ` +
+      `${bandWithoutTheSizeRule.toFixed(4)} without`,
+  );
+
+  const notRefusedBySize = tooSmall.filter((e) => {
+    const d = e.detection!;
+    const why = whyNotAnIdentity(d.face, e.print, d.width, d.height);
+    return why === null || !why.includes("px");
+  });
+  check(
+    tooSmall.length > 0 && notRefusedBySize.length === 0,
+    "and no face below it is asked to carry a name, when matching as well as enrolling",
+    notRefusedBySize.length === 0
+      ? `${String(tooSmall.length)} detections under ${String(MIN_FACE_PX)} px, all refused for their size`
+      : notRefusedBySize.map((e) => e.name).join(", "),
+  );
+
+  /**
    * The floor an unseen helmet has to be caught below.
    *
    * `docs/research/kart-and-driver-subjects.md` measured nine helmets over 36
