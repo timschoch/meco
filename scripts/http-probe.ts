@@ -2823,11 +2823,16 @@ const WIDE = { width: 1920, height: 1080 };
   // meco cannot read is not dropped from the Annotation, it simply cannot carry
   // a name. `find subjects` is where that is observable.
   const regions = await post("/v1/subjects", { source: PADDOCK.url, brand: "laica" });
+  // Counted by producer rather than by list length: an Annotation now also holds
+  // the object regions the kart producer frames from, and this claim is about
+  // the faces.
+  const faceRegionsSeen = ((regions.json.ImageRegion ?? []) as { "meco:producer": string }[])
+    .filter((r) => r["meco:producer"] === "yunet");
   check(
     "the unreadable face is still a Subject Box, not dropped from the Annotation",
-    ((regions.json.ImageRegion ?? []) as unknown[]).length === faceCount,
-    `${String(((regions.json.ImageRegion ?? []) as unknown[]).length)} regions for ` +
-      `${String(faceCount)} faces`,
+    faceRegionsSeen.length === faceCount,
+    `${String(faceRegionsSeen.length)} face regions for ${String(faceCount)} faces, ` +
+      `of ${String(((regions.json.ImageRegion ?? []) as unknown[]).length)} in all`,
   );
 
   /**
