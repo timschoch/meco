@@ -4,7 +4,7 @@
     "gateway": {
       "root": ".",
       "runtime": "container",
-      "entrypoint": "Containerfile.gateway",
+      "entrypoint": "Containerfile",
       "bindings": [
         {
           "type": "service",
@@ -17,7 +17,7 @@
     "models": {
       "root": ".",
       "runtime": "container",
-      "entrypoint": "Containerfile.models"
+      "entrypoint": "Dockerfile.vercel"
     }
   },
   "rewrites": [

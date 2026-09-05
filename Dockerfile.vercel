@@ -1,7 +1,10 @@
-# This file sits at the repository root because buildah takes the build context
-# from the Containerfile's own directory, NOT from the service's `root`. A pnpm
-# workspace cannot install from a single package directory, so the context has
-# to be the top. See DEPLOY.md.
+# models — the private service, reached only over the binding.
+#
+# The name of this file carries no meaning and cannot be made to. Vercel
+# validates the `entrypoint` basename against a fixed list before it builds
+# anything, and buildah then takes the build context from this file's own
+# directory. So: a root-level file, named from that list, and `vercel.json`
+# says which service it is. See DEPLOY.md.
 FROM node:22-alpine AS build
 WORKDIR /app
 # husky's install step needs a .git directory that is not in the build context.
