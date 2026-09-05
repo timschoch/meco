@@ -59,7 +59,7 @@ A stored image cut from a Source Image to a required shape, reachable at a stabl
 _Avoid_: resize, thumbnail, transform, variant
 
 **Face Blur**:
-An option on a Crop: every face showing in the finished frame that meco cannot name is hidden behind an elliptical mask. A face the crop window left out is not in the picture and so is neither hidden nor counted. Never a property of a Source Image — the Source Image is untouched, and only the Crop carries the blur.
+The Redaction Mask `redact` paints over every Unknown Face when the FramingRequest's Redaction says `blurUnknownFaces`. It is applied to the Source Image's pixels before the cut, so every Unknown Face is hidden whether or not the window later keeps it; which hidden faces landed in the finished frame is the gateway's arithmetic. See Unknown Face and Redaction Mask under `## redact`.
 _Avoid_: anonymise, pixelate, censor
 
 **Crop Anchor**:
