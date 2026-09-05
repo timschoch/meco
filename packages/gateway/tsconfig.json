@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "declarationDir": "dist/types"
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["dist"],
+  "references": [
+    {
+      "path": "../contracts"
+    }
+  ]
+}
