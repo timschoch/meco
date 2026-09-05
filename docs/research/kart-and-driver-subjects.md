@@ -16,9 +16,9 @@
 
 4. **The thing that ships this week needs no new model.** Measured: `pinTo: "attention"` — the saliency producer that is already merged — frames the kart and its driver well in **25 of 32**, acceptably in **29 of 32**, and loses the driver's head in **3 of 32**. That is not close to the face producer's 9 of 32. The change is one line of policy, not one line of ML: **stop letting a face outrank saliency when the "face" is a helmet.**
 
-5. **The recommendation, when the 9% matters: a fine-tuned D-FINE-N kart detector feeding RTMPose-t.** Both Apache-2.0, both with a real ONNX artefact, **+6.0 MB and +13.4 MB** on an image that is 129 MB in the registry today. That is the plan's own proposal and this study did not find a reason to change it — but it did find that **two of the facts Q5 recorded about D-FINE-N are wrong**, and the correction costs real work. See [Q5](#q5--the-recommendation-and-the-two-q5-facts-that-turned-out-to-be-wrong).
+5. **The recommendation, when the 9% matters: a D-FINE-N kart detector feeding RTMPose-t — and [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning) found the fine-tuning is not a prerequisite.** Measured: the *pretrained* COCO model yields a usable kart-and-driver box in **21 of 32** with no dataset at all, because `motorbike` resolves a kart and `person` resolves the driver. It is worse than saliency's 25 — but the two fail on **disjoint** photographs and neither fails hard on the same one, so the answer is a ladder, not a replacement.
 
-6. **Second choice: RF-DETR-Nano, and it lost on size, not on accuracy.** The premise that killed it in Q5 — "no pre-exported ONNX" — is now false. `onnx-community/rfdetr_nano-ONNX` exists, is properly tagged `apache-2.0`, and is **19.0 MB at q4f16 against D-FINE-N's 6.0 MB**. It buys +5.7 COCO AP for 3.2× the bytes and an identical amount of TypeScript decode work. Cited. Take it only if a pilot shows 42.8 AP cannot find a kart.
+6. **Second choice: RF-DETR-Nano, and it lost on size, not on accuracy.** The premise that killed it in Q5 — "no pre-exported ONNX" — is now false. `onnx-community/rfdetr_nano-ONNX` exists and is properly tagged `apache-2.0`. But [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning) measured the quantised D-FINE build as slower *and* less accurate than fp32, so the honest comparison is fp32 to fp32: **108.1 MB against 15.3 MB**, seven times the bytes for +5.7 COCO AP and an identical amount of TypeScript decode work. Cited. Take it only if a pilot shows 42.8 AP cannot find a kart.
 
 7. **Reading the race number will not identify a driver, and the honest version of that sentence is uncomfortable.** The one published dataset with this exact geometry — professional photographers, numbers on a vehicle panel *and on the helmet*, motion blur, glare, occlusion — reports state-of-the-art scene-text spotters at **0.12–0.15 end-to-end F1 out of the box** and **0.527 after fine-tuning on 2,400 in-domain images**, with the authors writing that even the fine-tuned models "fall short of real-world viability". Cited. Do not put OCR in the crop path. If the number is wanted, buy it offline: **$16 per 100,000 photographs** on Gemini 2.5 Flash-Lite, cited, and design the consumer to accept "unknown" about half the time.
 
@@ -30,7 +30,7 @@
 |---|---|---|---|
 | **Now** | Saliency outranks a helmet: don't let the face producer lead when the detected "face" is not a face | **0** | This week |
 | **Now** | Refuse to Match a face whose print is helmet-shaped — or gate Matching on the paddock case | **0** | Same change |
-| **Next** | Fine-tuned D-FINE-N kart detector → `kart` Subject Box | +6.0 MB (q4f16) | After a labelling pass |
+| **Next** | **Pretrained** D-FINE-N → `kart` Subject Box above saliency ([Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning)) | +15.3 MB (fp32; **not** q4f16) | No dataset needed |
 | **Next** | RTMPose-t on the kart box → driver's head, eye line on the visor | +13.4 MB | With the above |
 | **Not** | OCR of the race number in the crop path | +6.6 MB, 0.22 s | Never |
 | **Maybe** | Race number read offline by a VLM, stored on the Annotation | 0 in the image | If someone asks for it |
@@ -258,7 +258,7 @@ The alternative to two models is one model that does both. None qualifies:
 
 All cited.
 
-**It loses on 13 MB.** At q4f16 it is 3.2× the bytes for +5.7 AP, on a container that scales to zero and pays its cold start on a real request. And the one advantage Q5 imagined for D-FINE — a decoded graph — turns out not to exist, so RF-DETR's "raw tensors" objection no longer distinguishes them: **both hand back undecoded `logits` and `pred_boxes` and both need the same TypeScript**. The shape-ambiguity trap Q5 warned about is real and is now the only differentiator, and it is a code-review problem, not an architecture one.
+**It loses on size, and by more than this table first suggested.** Q11 measured D-FINE's q4f16 build as 2.3× slower than fp32 and worse at finding a kart, which makes the q4f16 row a comparison of two builds neither model should ship. fp32 to fp32 it is **108,074,865 B against 15,258,358 B** — seven times the bytes for +5.7 AP, on a container that scales to zero and pays its cold start on a real request. And the one advantage Q5 imagined for D-FINE — a decoded graph — turns out not to exist, so RF-DETR's "raw tensors" objection no longer distinguishes them: **both hand back undecoded `logits` and `pred_boxes` and both need the same TypeScript**. The shape-ambiguity trap Q5 warned about is real and is now the only differentiator, and it is a code-review problem, not an architecture one.
 
 It is a genuinely safe fallback. Take it if a pilot shows 42.8 AP cannot reliably find a kart — and note it declares its licence on the artefact, which D-FINE-N does not.
 
@@ -374,9 +374,10 @@ The delta this adds:
 
 | Option | On disk | Cold-start cost |
 |---|---|---|
-| **D-FINE-N q4f16 + RTMPose-t** ← recommended | **+19.4 MB** | Two more ORT sessions. Not measured; must be measured before merge |
-| D-FINE-N fp32 + RTMPose-t | +28.6 MB | as above |
-| RF-DETR-Nano q4f16 + RTMPose-t | +32.4 MB | as above |
+| **D-FINE-N fp32 + RTMPose-t** ← recommended | **+28.6 MB** | Two more ORT sessions. D-FINE's own session create measured at **167 ms** (Q11); the pair is still unmeasured |
+| D-FINE-N fp32 alone, no pose | +15.3 MB | 167 ms session create, 28 ms warm — both measured |
+| D-FINE-N q4f16 + RTMPose-t | +19.4 MB | **Rejected** — Q11 measured q4f16 at 2.3× the inference time of fp32 and worse accuracy |
+| RF-DETR-Nano fp32 + RTMPose-t | +121.4 MB | as above |
 | PP-OCRv6-tiny, both stages | +6.6 MB | +0.22 s **per request**, not per boot |
 
 On a 129 MB registry image the recommended pair is roughly **+15 %**, and most of that is RTMPose-t rather than the detector.
@@ -421,6 +422,126 @@ Ships in a day. Fixes the visible problem for the brand that has it.
 
 ---
 
+## Q11 — Does an off-the-shelf COCO detector find the driver, with no fine-tuning?
+
+*Added 5 Sep 2026, after the rest of this document. It asks whether the fine-tuning in [Q10](#q10--staged-plan) stage 1 is actually a prerequisite. **It is not**, and the reason is not the class anybody expected.*
+
+Q5 and Q10 both assume a **fine-tuned** kart detector, which means a labelled dataset, which is a project rather than a week. But the thing that has to be framed is a *driver*, and `person` is a COCO class that every pretrained detector ships with. So the assumption was tested rather than carried.
+
+### Method
+
+**D-FINE-N**, `onnx-community/dfine_n_coco-ONNX`, `onnx/model.onnx`, **fp32, 15,258,358 B** — the byte count re-confirmed by downloading it. `onnxruntime-node@1.29.0`, CPU, Apple M4, the same 32 on-track photographs as Q1 and Q4, so every number here is directly comparable.
+
+The decode was written to [Q5's correction](#q5--the-recommendation-and-the-two-q5-facts-that-turned-out-to-be-wrong), and writing it confirmed that correction in every particular: one input `pixel_values`, outputs `logits [1,300,80]` **raw** and `pred_boxes [1,300,4]` **cxcywh normalised**, no `orig_target_sizes`, **no NMS**. Stretch-resize to 640 × 640, rescale 1/255, **no** ImageNet normalisation, per `preprocessor_config.json`. Sigmoid and a max over the 80 classes per query, threshold 0.28, then **NMS at IoU 0.6 written by hand** — with 300 queries and no suppression in the graph, near-duplicates are the norm and an un-suppressed count is meaningless.
+
+Every box was rendered over its photograph and looked at, as in Q1.
+
+### Result 1 — `person` alone
+
+| Outcome | Count | Share |
+|---|---|---|
+| `person` box on the **leading driver** | **20** | 63% |
+| `person` boxes only on **spectators or marshals** | 5 | 16% |
+| No `person` at all | 7 | 22% |
+
+Against the face producer's 9 of 32, that is more than double. Against saliency's 25 of 32, it is worse.
+
+And the 5 failures are the **same failures**, on the same photographs. On the two crowd-heavy shots where YuNet found only spectators, D-FINE finds 23 and 13 spectators and misses the driver entirely. A detector trained on COCO is very good at people standing behind a fence, and a person folded into a kart seat at speed is not what "person" looks like in COCO.
+
+### Result 2 — `motorbike` is the class that works
+
+This was not the hypothesis, and it is the finding.
+
+| Class | Fires on the right object | Share |
+|---|---|---|
+| `motorbike` → **the kart** | **21 / 32** | 66% |
+| `person` → the driver | 20 / 32 | 63% |
+| **Neither, nothing at all** | 3 / 32 | 9% |
+
+COCO has no kart class, so a kart is resolved to the nearest thing in the vocabulary — and `motorbike` is a remarkably good nearest thing: an open-wheeled, seated vehicle with a rider on it. The boxes are tight on the kart, not on the grandstand. The confusions when it misses are `boat`, `car` and `train`, which are all *also* roughly the right region and the wrong word.
+
+### Result 3 — the combined box, which is what a producer would actually yield
+
+The natural rule needs no model at all: **take the highest-scoring `motorbike` box, add every `person` box that overlaps it by more than 25 % of the smaller box, and union them.** That is "the kart and whoever is on it", and it fixes the crowd problem for free — a spectator does not overlap the kart.
+
+| Outcome | Count | Share |
+|---|---|---|
+| Union box **usable to frame on** — the leading kart, its driver, tight | **21** | 66% |
+| Right subject, but the driver's head is clipped above the box, or the subject is distant | 4 | 13% |
+| **Wrong subject or nothing** | 7 | 22% |
+
+Box tightness, measured: median area **24.4 % of the frame**, range 0.1 %–80.4 %. Three of 29 exceed 60 %; the four under 2 % are exactly the spectator-and-marshal failures. **A grandstand box never happened.** This is question 2 answered: the box is a Subject Box, not a region proposal.
+
+### Result 4 — is `person` enough on its own?
+
+No, and the margin is not small.
+
+- `motorbike` **rescues 6 photographs** where `person` found nothing (4) or only the crowd (2). Four of those are photographs where YuNet also found nothing — genuinely new coverage.
+- `motorbike` **hurts twice**, both the same way: the highest-scoring kart is a *distant* one, so the union walks away from the foreground subject. A largest-box rule instead of a highest-score rule would probably fix both, and was not tested.
+
+Adding `bicycle` changed nothing on this set. Do not add `car`, `boat` or `train`: they fire on the kart *and* on trackside vehicles, and the precision is not worth it.
+
+### Result 5 — size and speed, measured
+
+| | fp32 | q4f16 |
+|---|---|---|
+| Bytes | **15,258,358** | 5,966,346 |
+| Session create | **167 ms** | 223 ms |
+| First inference | 35 ms | 41 ms |
+| **Warm median, 20 runs** | **28 ms** | **64 ms** |
+| `motorbike` present, of 32 | **21** | 17 |
+| `person` present, of 32 | **25** | 23 |
+
+**Do not ship the quantised build.** It is 2.3× *slower* and less accurate — it loses four kart detections and two driver detections out of 32, and it drops two photographs the fp32 build handles, including the helmet portrait. This is the same trap Q5 recorded for MoveNet, where the int8 build measured 31.83 ms against 14.41 ms for fp32, and it should now be treated as the default expectation for this runtime rather than a surprise.
+
+So the honest budget is **+15,258,358 B and ~28 ms**, not the +6.0 MB the TL;DR table quoted. Note also that `sharp` decode and resize of a 1920 × 1440 JPEG measured **31 ms** — more than the inference. The model is not the cost.
+
+### The verdict, and it is not "replace saliency"
+
+A pretrained detector is **worse than saliency** on this set: 21 usable boxes against 25. That could end the section. It should not, because **the two fail on disjoint photographs**:
+
+| | Saliency | Pretrained detector |
+|---|---|---|
+| Usable | 25 | 21 |
+| Fails hard | **3** — the driver's head is cut off, the kart's bodywork won the frame | **7** — a spectator, a marshal, a distant kart, or nothing |
+| Photographs where **both** fail hard | **0** | |
+
+The detector fixes **two of saliency's three failures** outright: on both, saliency framed the bodywork and lost the helmet, and a `person` box lands squarely on the driver. And saliency handles **all seven** of the detector's failures, because a crowd is not salient and a kart is.
+
+**So the shape of the feature is a fallback ladder, which is what `subjectBoxes` already is.** The detector does not replace the saliency producer; it sits above it and yields when it has nothing:
+
+```
+kart (person ∪ motorbike, pretrained)  →  saliency  →  anchor  →  centre
+```
+
+This is strictly additive, needs no dataset, no labelling pass and no GPU hour, and it plugs in exactly as [Q8](#q8--how-it-plugs-in) describes.
+
+### What this does to the staged plan
+
+[Q10](#q10--staged-plan) stage 1 said "label karts, fine-tune, then build the producer". That ordering is now wrong. Replace it with:
+
+1. **Ship the pretrained producer first.** `POST /kart` runs D-FINE-N fp32, returns the union box. Roughly 60 lines of decode plus the NMS, all of it already written once for this study.
+2. **Then decide whether fine-tuning is worth it**, against a real number rather than an assumption.
+
+Fine-tuning still buys three specific things, and they are now improvements rather than prerequisites: the 3 photographs where the detector sees nothing at all, the wrong-kart selection in a pack, and the `boat`/`car`/`train` confusions. Whether that is worth a labelled dataset is a decision the owner can now make against **21 of 32**, which is the point of measuring it.
+
+### The fixtures reproduce it
+
+Run against the six committed photographs in `fixtures/karts/`, D-FINE-N fp32 at threshold 0.28:
+
+| Fixture | What it finds | Against YuNet |
+|---|---|---|
+| `on-track-dark-visor.jpg` | **`person` 0.34 and 0.30, on both drivers** | YuNet: **zero faces** |
+| `on-track-rear-helmet.jpg` | `person` 0.43 on the driver, `motorbike` 0.28 on the kart | YuNet: one box, on the back of the helmet |
+| `on-track-visor-open.jpg` | `motorbike` 0.35 on the kart, **no `person`** | YuNet: 0.81 on the visor |
+| `paddock-mixed.jpg` | 8 × `person`, `motorbike` 0.37 | YuNet: 9 faces |
+| `podium-trophy.jpg` | `person` 0.48 | YuNet: 0.92 |
+| `podium-trophy-2.jpg` | `person` 0.32 | YuNet: 0.92 |
+
+The first row is the whole argument in one line. **The photograph the face detector cannot see at all is a photograph where a pretrained COCO detector puts a box on each driver** — and the third row is the honest counterweight: a large, sharp, unmissable driver that `person` does not find, while `motorbike` finds the kart underneath them. Neither model is reliable alone. Together with saliency, they cover the set.
+
+---
+
 ## What could not be determined
 
 Listed because a gap that is not written down gets filled with a guess.
@@ -432,13 +553,15 @@ Listed because a gap that is not written down gets filled with a guess.
 5. **RTMPose-t's helmet confidence at scale.** Q5's finding rests on three photographs by one photographer in daylight. Not re-measured here. `fixtures/karts/` is where to widen it.
 6. **VLM accuracy on race numbers.** No published figure for any VLM on this task. The $16 is a real price for an unmeasured result.
 7. **Whether the 44-photograph sample resembles Swiss Hutless's own photography.** Wikimedia karting skews amateur and mid-2000s. A professional shooting one team at one circuit produces a tighter, more consistent distribution — which should help every number in Q1 and Q4, but that is a prediction, not a measurement.
-8. **The D-FINE ONNX licence chain.** Apache-2.0 is established for the upstream code and the base model. The artefact meco would ship declares nothing and links to a 404. Not a blocker; is a thing to write down before it ships.
+8. **Whether a largest-box rule beats a highest-score rule** for picking the kart in a pack. Q11's two wrong-kart failures both chose a distant kart over the foreground one. Not tested; it is one line.
+9. **Whether fine-tuning is worth it at all**, now that the pretrained baseline is 21 of 32 rather than an assumption. That is the owner's call and it now has a number under it.
+10. **The D-FINE ONNX licence chain.** Apache-2.0 is established for the upstream code and the base model. The artefact meco would ship declares nothing and links to a 404. Not a blocker; is a thing to write down before it ships.
 
 ---
 
 ## Sources
 
-Verified 5 Sep 2026. Everything under "measured" in this document was run against `https://meco-teal.vercel.app` on that date.
+Verified 5 Sep 2026. Face detection and Face Print numbers were measured against `https://meco-teal.vercel.app` on that date. [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning)'s object-detection numbers were measured locally: `onnxruntime-node@1.29.0`, CPU execution provider, Apple M4 (10 cores), `sharp@0.35.3`, against `onnx/model.onnx` downloaded from the model card below.
 
 **Models**
 - D-FINE ONNX — <https://huggingface.co/onnx-community/dfine_n_coco-ONNX> · base model <https://huggingface.co/ustc-community/dfine-nano-coco> · upstream <https://github.com/Peterande/D-FINE> (LICENSE, `README.md`, `tools/deployment/export_onnx.py`, `src/zoo/dfine/postprocessor.py`)
