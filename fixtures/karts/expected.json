@@ -1,0 +1,74 @@
+{
+  "$comment": [
+    "What each detection in fixtures/karts/ actually is, decided by a human who",
+    "looked at every box cut out at 2.2x its own size. This is the ground truth",
+    "the Not-a-Face rule is calibrated against, and it is the half of that",
+    "calibration no script can produce: whether a thing is a face meco could",
+    "recognise somebody by is a judgement about a photograph, not a number.",
+    "faces are listed in the order POST /detect returns them, which is the order",
+    "detected.json beside this file records. Nothing sorts them.",
+    "is: face          — a human face turned far enough towards the camera that a",
+    "                    person could name who it is.",
+    "is: not-a-face    — a detection with no such face in it. Still a real",
+    "                    detection and still blurred; it simply cannot be an",
+    "                    identity.",
+    "reference: true   — this print is committed in src/not-a-face-prints.ts and",
+    "                    is what every other print is measured against. Only one",
+    "                    detection carries it, and deliberately one with no human",
+    "                    face in it at all.",
+    "Provenance and licence of the photographs: LICENCE.md beside this file."
+  ],
+  "images": [
+    {
+      "file": "on-track-rear-helmet.jpg",
+      "note": "Driver facing away. The box lands on the back of the helmet, over the number panel.",
+      "faces": [
+        {
+          "label": "back of the helmet",
+          "is": "not-a-face",
+          "reference": true
+        }
+      ]
+    },
+    {
+      "file": "on-track-visor-open.jpg",
+      "note": "A different driver, helmet on, visor up. Held out of the reference set on purpose, so its rejection is measured out of sample rather than assumed.",
+      "faces": [
+        {
+          "label": "helmet, visor up",
+          "is": "not-a-face"
+        }
+      ]
+    },
+    {
+      "file": "on-track-dark-visor.jpg",
+      "note": "Two drivers, both large and sharp, visors down. The detector returns nothing, so there is nothing here to classify.",
+      "faces": []
+    },
+    {
+      "file": "paddock-mixed.jpg",
+      "note": "Nine detections in a paddock. Eight are faces a person could name; one is the back of a head. This is the false-positive guard: a rule that refuses any of the eight is worse than the bug it fixes.",
+      "faces": [
+        { "label": "man pointing", "is": "face" },
+        { "label": "man in sunglasses", "is": "face" },
+        { "label": "man with a moustache", "is": "face" },
+        { "label": "boy in a race suit", "is": "face" },
+        { "label": "driver in a helmet, visor up, face towards the camera", "is": "face" },
+        { "label": "woman with long hair", "is": "face" },
+        { "label": "youth in a cap, in profile", "is": "face" },
+        { "label": "man in glasses, seen from behind", "is": "not-a-face" },
+        { "label": "small child looking down", "is": "face" }
+      ]
+    },
+    {
+      "file": "podium-trophy.jpg",
+      "note": "The same driver as podium-trophy-2.jpg, helmet off, at a different event. The pair that must go on matching each other.",
+      "faces": [{ "label": "driver with a trophy", "is": "face", "person": "A" }]
+    },
+    {
+      "file": "podium-trophy-2.jpg",
+      "note": "The same driver again, a second event.",
+      "faces": [{ "label": "driver on the podium", "is": "face", "person": "A" }]
+    }
+  ]
+}

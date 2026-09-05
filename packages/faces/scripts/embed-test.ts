@@ -31,6 +31,7 @@ import { createFacesApp } from "../src/app.js";
 import { detectFaces } from "../src/detect.js";
 import { PRINT_LENGTH, embedFaces } from "../src/embed.js";
 import { LANDMARK_NAMES, type Landmarks, type Point } from "../src/yunet.js";
+import { NOT_A_FACE_PRINTS } from "../../../src/not-a-face-prints.js";
 import { FIXTURES, atLongEdge, cosineSimilarity, readFixtureFaces } from "./fixture-faces.js";
 
 interface Reference {
@@ -451,6 +452,90 @@ if (atFullSize.faces.length === 4) {
       `own face ${worstMine.toFixed(4)} at worst, any other face ${bestOther.toFixed(4)} at best`,
     );
   }
+}
+
+// ------------------------------------------------- the kart prints meco ships
+
+/**
+ * The committed kart numbers still are what this model produces.
+ *
+ * Three files are generated from these fixtures by `pnpm dump:karts` and then
+ * committed: `fixtures/karts/detected.json`, `fixtures/karts/face-prints.json`
+ * and `src/not-a-face-prints.ts`. meco reads the last of those to decide whether
+ * a Face Print is an identity at all, and it cannot check the number itself —
+ * ADR-0002 keeps ONNX Runtime out of its dependency tree, so nothing over there
+ * can tell a current print from a stale one.
+ *
+ * That makes this the only place the check can live, and it is worth more than
+ * housekeeping. A swapped or re-exported embedder would move every print at
+ * once; meco would go on comparing new prints against an old one, find nothing
+ * alike, and quietly stop refusing helmets. The failure would be silent and in
+ * the dangerous direction. So the fixtures are re-embedded here and the
+ * committed numbers have to still match, to the last float.
+ *
+ * Reading meco's source from this package is the thing to justify, and the
+ * justification is that this is a script rather than the service: nothing in
+ * `packages/faces/src/` learns anything about its caller, exactly as
+ * `fixture-faces.ts` reads `fixtures/` without the detector knowing.
+ */
+{
+  const KARTS = fileURLToPath(new URL("../../../fixtures/karts/", import.meta.url));
+  const committed = JSON.parse(await readFile(`${KARTS}face-prints.json`, "utf8")) as {
+    prints: { file: string; index: number; label: string; reference: boolean; print: number[] }[];
+  };
+
+  let worstDrift = 0;
+  let stale = "";
+  for (const entry of committed.prints) {
+    const bytes = await readFile(`${KARTS}${entry.file}`);
+    const detected = await detectFaces(bytes);
+    const face = detected.faces[entry.index];
+    if (!face) {
+      stale = `${entry.file}#${String(entry.index)} is no longer detected`;
+      break;
+    }
+    const [fresh] = await embedFaces(bytes, [{ landmarks: face.landmarks }]);
+    const drift = Math.max(...entry.print.map((v, i) => Math.abs(v - fresh![i]!)));
+    worstDrift = Math.max(worstDrift, drift);
+    if (drift > 1e-6) {
+      stale = `${entry.file}#${String(entry.index)} moved by ${drift.toFixed(8)}`;
+      break;
+    }
+  }
+  check(
+    stale === "",
+    "every committed kart Face Print is still what the model returns",
+    stale === ""
+      ? `${String(committed.prints.length)} prints, worst float off by ${worstDrift.toExponential(1)}`
+      : `${stale} — re-run \`pnpm dump:karts\` and re-read scripts/match-calibration.ts`,
+  );
+
+  // The one print meco actually ships, checked as itself and not only as a row
+  // in the file it was cut from. These are two artefacts and a regeneration that
+  // wrote one and not the other is exactly the drift this is here to catch.
+  let shipped = "";
+  for (const reference of NOT_A_FACE_PRINTS) {
+    const [file, index] = reference.name.split("#") as [string, string];
+    const source = committed.prints.find(
+      (p) => p.file === file && p.index === Number(index) && p.reference,
+    );
+    if (!source) {
+      shipped = `${reference.name} is not a reference in fixtures/karts/face-prints.json`;
+      break;
+    }
+    const drift = Math.max(...source.print.map((v, i) => Math.abs(v - reference.print[i]!)));
+    if (drift > 1e-12) {
+      shipped = `${reference.name} differs from its fixture by ${drift.toFixed(12)}`;
+      break;
+    }
+  }
+  check(
+    shipped === "",
+    "and src/not-a-face-prints.ts holds exactly the ones marked reference",
+    shipped === ""
+      ? NOT_A_FACE_PRINTS.map((r) => `${r.name} — ${r.what}`).join(", ")
+      : shipped,
+  );
 }
 
 // ------------------------------------------------------------------- the API

@@ -7,7 +7,7 @@
  */
 import { z } from "zod";
 
-import { annotate, faceRegions, facesOf } from "./annotations.js";
+import { annotate, faceRegions, facesOf, type Annotated } from "./annotations.js";
 import { BRANDS } from "./brands.js";
 import { slidesToPdf } from "./carousel.js";
 import { PLACEMENTS, resolvePlacements, type PlacementId } from "./channels.js";
@@ -242,6 +242,7 @@ const reportMatches = (matches: readonly (Match | null)[]) =>
 async function matchIfBrand(
   input: { brand?: string; persons?: string[] },
   source: Buffer,
+  annotated: Annotated | null,
   faces: readonly DetectedFace[],
   storage: Storage,
 ) {
@@ -250,6 +251,17 @@ async function matchIfBrand(
     {
       brand: input.brand,
       source,
+      // The Annotation's size, not the Source Image's own metadata: they are the
+      // same number, and taking it from the Annotation means matching judges the
+      // frame the faces were found in rather than one it measured itself.
+      //
+      // Zero when there is no Annotation, and reached rather than short-circuited
+      // here. No Annotation means no faces, and `matchFaces` answers from the
+      // empty list long before it looks at a size — but it checks the Brand
+      // first, and a deployment with no face service must still refuse a Brand
+      // that does not exist.
+      width: annotated?.annotation.source.width ?? 0,
+      height: annotated?.annotation.source.height ?? 0,
       faces,
       ...(input.persons ? { persons: input.persons } : {}),
     },
@@ -269,7 +281,7 @@ export async function crop(input: CropInput, storage: Storage) {
 
   // Matching needs the Brand, so a Crop without one frames on faces and blurs
   // every one of them — which is what a Crop did before Persons existed.
-  const named = await matchIfBrand(input, source, faces, storage);
+  const named = await matchIfBrand(input, source, annotated, faces, storage);
   const warnings = [...(annotated?.warnings ?? []), ...named.warnings];
 
   const result = await cropImage({
@@ -351,6 +363,7 @@ export async function findSubjects(input: SubjectsInput, storage: Storage) {
   const named = await matchIfBrand(
     input,
     source,
+    annotated,
     regions.map((r) => r.face),
     storage,
   );

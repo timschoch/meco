@@ -482,6 +482,44 @@ function loadRealPrints(name: string, hash: string): void {
   realPrints.set(hash, prints);
 }
 
+/**
+ * The kart fixtures, which is where a helmet comes from.
+ *
+ * Recorded and printed by `packages/faces/scripts/kart-dump.ts` the same way the
+ * face fixtures are, and joined more simply: `fixtures/karts/face-prints.json`
+ * carries each print's position in the detection order outright, so nothing here
+ * has to re-derive a pairing by sorting.
+ *
+ * These are what make issue #34 reproducible in this file rather than only
+ * against production. A made-up print cannot carry the bug: the whole defect is
+ * that EdgeFace maps a helmet onto approximately one identity, and only the real
+ * numbers do that.
+ */
+const kartFixtures = (path: string) =>
+  fileURLToPath(new URL(`../fixtures/karts/${path}`, import.meta.url));
+
+const kartRecorded = JSON.parse(await readFile(kartFixtures("detected.json"), "utf8")) as {
+  images: Record<string, Detection>;
+};
+const kartPrints = JSON.parse(await readFile(kartFixtures("face-prints.json"), "utf8")) as {
+  prints: { file: string; index: number; is: string; print: number[] }[];
+};
+
+/** One kart photograph, canned into the stand-in with its real Face Prints. */
+async function kartPhoto(name: string): Promise<{ url: string; hash: string }> {
+  const bytes = await readFile(kartFixtures(name));
+  const hash = sha(bytes);
+  const detection = kartRecorded.images[name];
+  if (!detection) throw new Error(`${name} is not in fixtures/karts/detected.json`);
+  canned.set(hash, detection);
+
+  const prints: number[][] = [];
+  for (const p of kartPrints.prints.filter((p) => p.file === name)) prints[p.index] = p.print;
+  realPrints.set(hash, prints);
+
+  return { url: `data:image/jpeg;base64,${bytes.toString("base64")}`, hash };
+}
+
 /** Which face of a recorded detection this is, by its landmarks. -1 if none. */
 function faceIndexOf(
   detection: Detection | undefined,
@@ -2211,6 +2249,420 @@ const WIDE = { width: 1920, height: 1080 };
   );
 }
 
+// ------------------------------------------------------- a helmet is not a face
+
+/**
+ * Issue #34, reproduced and then fixed, in the order it happened in production.
+ *
+ * A Person was enrolled from `on-track-rear-helmet.jpg` — a driver facing away,
+ * with YuNet's 0.65 box on the *back* of the helmet, over the number panel.
+ * There is no face in it in any sense. A photograph of a **different** human in a
+ * helmet then matched that Person at 0.7092 against a `MATCH_THRESHOLD` of 0.50,
+ * so the Crop pinned on a stranger and `blurUnknownFaces` blurred nothing at all.
+ * The privacy option failed open, silently, on the one brand that needs it.
+ *
+ * Every cosine below is a real EdgeFace number from
+ * `fixtures/karts/face-prints.json`. That matters more here than anywhere else on
+ * this page: the bug *is* the model's behaviour on a non-face, so a made-up print
+ * could not exhibit it and a test built on one would pass against the old code.
+ */
+{
+  const REAR_HELMET = await kartPhoto("on-track-rear-helmet.jpg");
+  const VISOR_OPEN = await kartPhoto("on-track-visor-open.jpg");
+  const PODIUM = await kartPhoto("podium-trophy.jpg");
+  const PODIUM_AGAIN = await kartPhoto("podium-trophy-2.jpg");
+
+  // ---------------------------------------------------------- at enrolment
+
+  const helmetPerson = (await post("/v1/people", { brand: "laica", name: "Helmet A" }))
+    .json as PersonJson;
+  const refused = await post(`/v1/people/${helmetPerson.id}/photos`, {
+    brand: "laica",
+    source: REAR_HELMET.url,
+    consent: true,
+  });
+  const refusal = String((refused.json as EnrolJson).results[0]?.error ?? "");
+  check(
+    "the back of a crash helmet cannot be enrolled as a Person",
+    refused.status === 400 && (refused.json as EnrolJson).results[0]?.status === "rejected",
+    `${String(refused.status)} ${refusal.slice(0, 120)}`,
+  );
+  check(
+    "and the refusal says no face was found, not something about a size or a score",
+    refusal.includes("No face was found") && refusal.includes("helmet"),
+    refusal,
+  );
+  check(
+    "nothing of the refused photograph reached the store",
+    !(await everyStoredKey()).some((k) => k.includes(helmetPerson.id) && !k.endsWith("person.json")),
+    (await everyStoredKey()).filter((k) => k.includes(helmetPerson.id)).join(" "),
+  );
+
+  /**
+   * The same refusal for a helmet meco has never seen.
+   *
+   * The check above is worth less than it looks: `on-track-rear-helmet.jpg` is
+   * the photograph the committed Not-a-Face Print was taken from, so it scores
+   * 1.0000 against itself and would be refused by any threshold at all.
+   * `on-track-visor-open.jpg` is a different driver, a different helmet and a
+   * different event, held out of the reference set on purpose — it is refused at
+   * 0.6935, which is a measurement rather than a tautology.
+   */
+  const outOfSample = await post(`/v1/people/${helmetPerson.id}/photos`, {
+    brand: "laica",
+    source: VISOR_OPEN.url,
+    consent: true,
+  });
+  check(
+    "and so is a helmet meco has never been shown, which is the real claim",
+    outOfSample.status === 400 &&
+      String((outOfSample.json as EnrolJson).results[0]?.error ?? "").includes("No face was found"),
+    String((outOfSample.json as EnrolJson).results[0]?.error ?? "").slice(0, 130),
+  );
+
+  // ------------------------------------------- a Brand that already holds one
+
+  /**
+   * The Person production actually had, planted straight into the store.
+   *
+   * Enrolment now refuses this photograph, which is the point — and which is
+   * exactly why the record has to be written by hand to test the other half.
+   * Every Brand that enrolled before this rule existed still holds whatever it
+   * enrolled, and a fix that only guards the front door would leave every one of
+   * them naming strangers. This is that Brand.
+   */
+  const helmetPrint = kartPrints.prints.find(
+    (p) => p.file === "on-track-rear-helmet.jpg" && p.index === 0,
+  )!;
+  const plantedPhotoId = "helmetprint00000000000000000000";
+  await storage.putAt(
+    `${personPrefix("laica", helmetPerson.id)}/person.json`,
+    Buffer.from(
+      JSON.stringify({
+        ...helmetPerson,
+        brand: "laica",
+        photos: [
+          {
+            photoId: plantedPhotoId,
+            face: { x: 0.44, y: 0.33, width: 0.07, height: 0.1 },
+            format: "jpg",
+            enrolledAt: "2026-09-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    ),
+    "application/json",
+  );
+  await storage.putAt(
+    `${personPrefix("laica", helmetPerson.id)}/${plantedPhotoId}.print.json`,
+    Buffer.from(
+      JSON.stringify({
+        personId: helmetPerson.id,
+        photoId: plantedPhotoId,
+        print: helmetPrint.print,
+        printedAt: "2026-09-01T00:00:00.000Z",
+      }),
+    ),
+    "application/json",
+  );
+  check(
+    "a Brand can hold a Face Print of a helmet enrolled before the rule existed",
+    (await facePrintsFor("laica", storage)).some((p) => p.photoId === plantedPhotoId),
+    plantedPhotoId,
+  );
+
+  const helmeted = await post("/v1/crop", {
+    source: VISOR_OPEN.url,
+    brand: "laica",
+    width: 1080,
+    height: 1350,
+    blurUnknownFaces: true,
+  });
+  cropKeys.add(String(helmeted.json.key));
+  const faceCount = kartRecorded.images["on-track-visor-open.jpg"]!.faces.length;
+  check(
+    "a different human in a helmet is not named as the enrolled one",
+    helmeted.status === 200 && matchesOf(helmeted.json).length === 0,
+    `${String(helmeted.status)} matches=${JSON.stringify(helmeted.json.matches)} ` +
+      `resolvedBy=${String(helmeted.json.resolvedBy)}`,
+  );
+  check(
+    "so Face Blur hides every face in the picture instead of none",
+    helmeted.json.blurred === faceCount,
+    `blurred=${String(helmeted.json.blurred)} of ${String(faceCount)} faces`,
+  );
+  check(
+    "and the Crop is not pinned on the stranger it used to be pinned on",
+    helmeted.json.resolvedBy !== "person",
+    String(helmeted.json.resolvedBy),
+  );
+  check(
+    "the Brand is told which Reference Photo is unusable, since only they can replace it",
+    ((helmeted.json.warnings ?? []) as string[]).some(
+      (w) => w.includes("Helmet A") && w.includes(plantedPhotoId),
+    ),
+    JSON.stringify(helmeted.json.warnings),
+  );
+
+  // --------------------------------------- a helmet against a real enrolled Person
+
+  /**
+   * The other direction, and the one the gallery filter cannot reach.
+   *
+   * Above, the unusable record was the helmet, so dropping it was enough. Here
+   * the Brand has enrolled a **real human face** — and the helmet detection still
+   * scores 0.5601 against her print, over the 0.50 threshold. Nothing about the
+   * gallery is wrong, so nothing is dropped from it; the only thing standing
+   * between meco and naming a crash helmet after a real person is the check on
+   * the detection itself.
+   *
+   * The print is `paddock-mixed#4`'s, a 49 px face of a driver with the visor up.
+   * It is planted rather than enrolled because at 49 px in a 1400 px photograph
+   * meco would enrol it from the paddock picture, not from a portrait — and what
+   * this needs is her print in a gallery, not a second enrolment path.
+   */
+  const paddockDriverPrint = kartPrints.prints.find(
+    (p) => p.file === "paddock-mixed.jpg" && p.index === 4,
+  )!;
+  const paddockPerson = (await post("/v1/people", { brand: "laica", name: "Paddock Driver" }))
+    .json as PersonJson;
+  const paddockPhotoId = "paddockdriver00000000000000000000".slice(0, 32);
+  await storage.putAt(
+    `${personPrefix("laica", paddockPerson.id)}/person.json`,
+    Buffer.from(
+      JSON.stringify({
+        ...paddockPerson,
+        brand: "laica",
+        photos: [
+          {
+            photoId: paddockPhotoId,
+            face: { x: 0.5, y: 0.42, width: 0.035, height: 0.06 },
+            format: "jpg",
+            enrolledAt: "2026-09-01T00:00:00.000Z",
+            consentAt: "2026-09-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    ),
+    "application/json",
+  );
+  await storage.putAt(
+    `${personPrefix("laica", paddockPerson.id)}/${paddockPhotoId}.print.json`,
+    Buffer.from(
+      JSON.stringify({
+        personId: paddockPerson.id,
+        photoId: paddockPhotoId,
+        print: paddockDriverPrint.print,
+        printedAt: "2026-09-01T00:00:00.000Z",
+      }),
+    ),
+    "application/json",
+  );
+
+  const helmetPrintNumbers = helmetPrint.print;
+  const againstHer = helmetPrintNumbers.reduce(
+    (sum, v, i) => sum + v * paddockDriverPrint.print[i]!,
+    0,
+  );
+  check(
+    "a helmet really does clear the match threshold against this real Person's print",
+    againstHer > 0.5,
+    `${againstHer.toFixed(4)} against a threshold of 0.50 — so the trap below is a real one`,
+  );
+
+  const helmetVsRealPerson = await post("/v1/crop", {
+    source: REAR_HELMET.url,
+    brand: "laica",
+    width: 1080,
+    height: 1350,
+    blurUnknownFaces: true,
+  });
+  cropKeys.add(String(helmetVsRealPerson.json.key));
+  check(
+    "and meco still refuses to name the back of a helmet after her",
+    matchesOf(helmetVsRealPerson.json).length === 0 &&
+      helmetVsRealPerson.json.resolvedBy !== "person",
+    `matches=${JSON.stringify(helmetVsRealPerson.json.matches)} ` +
+      `resolvedBy=${String(helmetVsRealPerson.json.resolvedBy)}`,
+  );
+  check(
+    "so the helmet is blurred rather than published as her",
+    helmetVsRealPerson.json.blurred === 1,
+    `blurred=${String(helmetVsRealPerson.json.blurred)}`,
+  );
+  // Her record is untouched by any of this: she is a real Person with a real
+  // face, and the refusal was about the photograph that arrived, not about her.
+  check(
+    "her Reference Photo is not the thing that was refused",
+    ((helmetVsRealPerson.json.warnings ?? []) as string[]).every(
+      (w) => !w.includes("Paddock Driver"),
+    ),
+    JSON.stringify(helmetVsRealPerson.json.warnings ?? []),
+  );
+  await del(`/v1/people/${paddockPerson.id}?brand=laica`);
+
+  // ------------------------------------------------------ the false-positive side
+
+  /**
+   * The other half of the ticket, and the one that decides whether the fix is an
+   * improvement at all: a rule that refuses real people would be worse than the
+   * bug it fixes.
+   *
+   * The same driver, helmet off, at two different events — 0.7921 between them.
+   * If the Not-a-Face rule reached any further than it should, this is where it
+   * would show, because these two prints are the closest thing the kart fixtures
+   * have to a genuine identity.
+   */
+  await del(`/v1/people/${helmetPerson.id}?brand=laica`);
+  const driver = (await post("/v1/people", { brand: "laica", name: "Kart Driver" }))
+    .json as PersonJson;
+  const driverEnrolled = await post(`/v1/people/${driver.id}/photos`, {
+    brand: "laica",
+    source: PODIUM.url,
+    consent: true,
+  });
+  check(
+    "a driver photographed with his helmet off enrols normally",
+    driverEnrolled.status === 200 &&
+      (driverEnrolled.json as EnrolJson).results[0]?.status === "enrolled",
+    JSON.stringify((driverEnrolled.json as EnrolJson).results[0]).slice(0, 140),
+  );
+
+  const recognised = await post("/v1/crop", {
+    source: PODIUM_AGAIN.url,
+    brand: "laica",
+    width: 1080,
+    height: 1350,
+    blurUnknownFaces: true,
+  });
+  cropKeys.add(String(recognised.json.key));
+  const named = matchesOf(recognised.json);
+  check(
+    "and is still recognised at a second event, which is what the rule must not break",
+    named.length === 1 && named[0]?.personId === driver.id,
+    named.map((m) => `${m.name} ${m.score.toFixed(4)}`).join(", ") || "nobody",
+  );
+  check(
+    "so his face is left sharp rather than blurred",
+    recognised.json.blurred === 0 && recognised.json.resolvedBy === "person",
+    `blurred=${String(recognised.json.blurred)} resolvedBy=${String(recognised.json.resolvedBy)}`,
+  );
+
+  // And the helmet is still refused with a real Person in the gallery, which is
+  // the deployed shape: the rule has to hold for a Brand that has somebody real
+  // enrolled, not only for the pathological one that has nothing else.
+  const helmetAgainstDriver = await post("/v1/crop", {
+    source: VISOR_OPEN.url,
+    brand: "laica",
+    width: 1080,
+    height: 1350,
+    blurUnknownFaces: true,
+  });
+  cropKeys.add(String(helmetAgainstDriver.json.key));
+  check(
+    "a helmet is nobody even when the Brand has a real Person enrolled",
+    matchesOf(helmetAgainstDriver.json).length === 0 &&
+      helmetAgainstDriver.json.blurred === faceCount,
+    `matches=${JSON.stringify(helmetAgainstDriver.json.matches)} ` +
+      `blurred=${String(helmetAgainstDriver.json.blurred)}`,
+  );
+
+  await del(`/v1/people/${driver.id}?brand=laica`);
+}
+
+// ------------------------------------------------- a body that is not JSON
+
+/**
+ * Every JSON route answers 400 for a body that is not JSON, not 500.
+ *
+ * Issue #34 found this by posting a photograph as multipart to `/v1/crop` and
+ * `/v1/subjects`: both called `c.req.json()` outside their own `try`, so the
+ * throw escaped the handler and the platform answered 500 Internal Server Error
+ * for a plain caller mistake. The other three JSON routes had the same shape.
+ *
+ * Checked on all five rather than on the two the ticket named, because the fix is
+ * one helper and a route that stopped using it would otherwise be caught by
+ * nobody.
+ */
+{
+  const notJson = async (path: string, body: string, contentType: string) => {
+    const res = await app.fetch(
+      new Request(`http://local${path}`, {
+        method: "POST",
+        headers: { "content-type": contentType, "x-auth-token": TOKEN },
+        body,
+      }),
+    );
+    return { status: res.status, json: (await res.json()) as Json };
+  };
+
+  // A real multipart upload of a real photograph, which is what the ticket did:
+  // a caller who meant to enrol a Reference Photo and posted to the wrong route.
+  const form = new FormData();
+  form.set("brand", "laica");
+  form.append(
+    "file",
+    new File([new Uint8Array(await readFile(fixtures("astronaut-portrait.jpg")))], "photo.jpg", {
+      type: "image/jpeg",
+    }),
+  );
+
+  for (const path of [
+    "/v1/crop",
+    "/v1/subjects",
+    "/v1/render",
+    "/v1/carousel",
+    "/v1/people",
+  ]) {
+    const multipart = await app.fetch(
+      new Request(`http://local${path}`, {
+        method: "POST",
+        headers: { "x-auth-token": TOKEN },
+        body: form,
+      }),
+    );
+    const body = (await multipart.json()) as Json;
+    check(
+      `POST ${path} with a multipart upload is a 400, not a 500`,
+      multipart.status === 400 && String(body.error).includes("not JSON"),
+      `${String(multipart.status)} ${String(body.error).slice(0, 90)}`,
+    );
+
+    const empty = await notJson(path, "", "application/json");
+    check(
+      `POST ${path} with an empty body is a 400 too`,
+      empty.status === 400,
+      `${String(empty.status)} ${String(empty.json.error).slice(0, 60)}`,
+    );
+  }
+
+  // The route that really does take multipart still does. The helper must not
+  // have turned the one upload endpoint in the API into a JSON-only one.
+  const person = (await post("/v1/people", { brand: "laica", name: "Upload Check" }))
+    .json as PersonJson;
+  const upload = new FormData();
+  upload.set("brand", "laica");
+  upload.append(
+    "file",
+    new File([new Uint8Array(await readFile(fixtures("astronaut-portrait.jpg")))], "portrait.jpg", {
+      type: "image/jpeg",
+    }),
+  );
+  const uploaded = await app.fetch(
+    new Request(`http://local/v1/people/${person.id}/photos`, {
+      method: "POST",
+      headers: { "x-auth-token": TOKEN },
+      body: upload,
+    }),
+  );
+  check(
+    "and the one route that takes multipart still takes it",
+    uploaded.status === 200,
+    String(uploaded.status),
+  );
+  await del(`/v1/people/${person.id}?brand=laica`);
+}
+
 // ------------------------------------------------------------------- over MCP
 
 {
@@ -2305,6 +2757,28 @@ check(
   "find subjects on a deployment with no face service names the setting",
   unconfigured.status === 400 && String(unconfigured.json.error).includes(FACES_URL),
   `${String(unconfigured.status)} ${String(unconfigured.json.error)}`,
+);
+
+/**
+ * A Brand that does not exist is still refused with no face service configured.
+ *
+ * The Brand is checked inside `matchFaces`, which a Crop only reaches by way of
+ * the Annotation. Short-circuiting the call when there is no Annotation would
+ * skip that check — a nonsense Brand would then be answered with a Crop and no
+ * complaint on exactly the deployment least able to notice. Cheap to state and
+ * the only place it can be observed.
+ */
+const nonsenseBrand = await post("/v1/crop", {
+  source: LANDSCAPE,
+  brand: "nobody",
+  width: 1080,
+  height: 1080,
+  strategy: "attention",
+});
+check(
+  "a Crop for a Brand that does not exist is refused even with no face service",
+  nonsenseBrand.status === 400 && String(nonsenseBrand.json.error).includes("nobody"),
+  `${String(nonsenseBrand.status)} ${String(nonsenseBrand.json.error).slice(0, 70)}`,
 );
 
 facesService.closeAllConnections();

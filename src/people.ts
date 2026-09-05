@@ -25,6 +25,7 @@ import { z } from "zod";
 
 import { BRANDS } from "./brands.js";
 import { detectFaces, embedFaces, sentScale, type DetectedFace, type FaceBox } from "./faces.js";
+import { NOT_A_FACE_PRINTS } from "./not-a-face-prints.js";
 import { PRIVATE_PREFIX, type Storage } from "./storage.js";
 
 /**
@@ -299,6 +300,140 @@ export const MATCH_THRESHOLD = 0.5;
  */
 export const MATCH_MARGIN = 0.05;
 
+/**
+ * How alike a Face Print must be to a Not-a-Face Print before meco refuses to
+ * read any identity out of it at all.
+ *
+ * ## Why a threshold on a print, and not on the landmarks or the score
+ *
+ * Issue #34 asked for a geometry check on YuNet's five points, on the reasoning
+ * that they must be arbitrary on the back of a helmet. Measured over every
+ * committed fixture, they are not: the landmark head emits a face-shaped
+ * configuration whatever it is looking at. In an interocular-normalised frame
+ * `on-track-rear-helmet` sits *inside* the real-face envelope and is less
+ * extreme than two of the faces in `paddock-mixed` on both axes — nose asymmetry
+ * 0.356 against their 0.442 and 0.413, mouth drop 1.06 against their 1.46 and
+ * 1.53. Any cutoff that rejects the helmet rejects those two first. `pnpm
+ * test:match` recomputes this from the committed landmarks, so the verdict
+ * cannot quietly stop being true. The detection score (helmets 0.649 and 0.808 against
+ * real faces 0.661 to 0.947), the raw embedding magnitude (0.27 to 0.30 against
+ * 0.27 to 0.34) and flip consistency (the helmet is the *most* consistent of the
+ * 21 at 0.9987) were measured too and separate no better.
+ *
+ * What does separate is the Face Print, because the thing EdgeFace does to a
+ * non-face is the whole defect: it maps every head with no face turned to the
+ * camera close to every other one. That collapse makes helmets match each other
+ * at 0.907 (`docs/research/kart-and-driver-subjects.md`, 36 pairs), and it is
+ * also what makes them recognisable — a print near a committed Not-a-Face Print
+ * names nobody, whoever is under the helmet.
+ *
+ * ## Where 0.60 comes from
+ *
+ * Measured against the one committed Not-a-Face Print, over every kart and face
+ * fixture, counting only detections that clear `MIN_FACE_PX`:
+ *
+ * - 11 real faces of 57 px or more score **0.0971** at worst.
+ * - Two real faces between 40 and 57 px score **0.2329** and **0.5601** — the
+ *   second is the driver in `paddock-mixed` with the visor up, which is exactly
+ *   the Swiss Hutless case and must go on being recognisable. That 0.5601 is the
+ *   whole of the tightness below, and it belongs to a 49 px face.
+ * - `on-track-visor-open`, a different helmet held out of the reference set,
+ *   scores **0.6935**. `paddock-mixed`'s man seen from behind scores 0.7457.
+ *   Both are rejections measured out of sample rather than assumed.
+ * - The worst helmet-to-helmet pair over the research document's 36 pairs is
+ *   **0.639**, which is the floor an unseen helmet has to be caught below.
+ *
+ * So the band is 0.5601 to 0.639 and 0.60 is the middle of it. That is 0.04 of
+ * room either side, against the 0.22 `MATCH_THRESHOLD` enjoys, and the tightness
+ * is real rather than hidden: below about 57 px a small face and a helmet are
+ * genuinely hard to tell apart by print. `pnpm test:match` re-measures all of it.
+ *
+ * It is shipped at that margin because the two mistakes are not the same size. A
+ * face wrongly called a Not-a-Face is never a Match, so it is blurred and not
+ * pinned on — cautious. A Not-a-Face wrongly taken for a face is a stranger's
+ * name in a published post with their face left sharp, which is the failure
+ * issue #34 reported from production. Given a choice this errs towards the first.
+ */
+export const NOT_A_FACE_THRESHOLD = 0.6;
+
+/** What a Face Print turned out to resemble, when it resembles a Not-a-Face. */
+export interface NotAFace {
+  /** Which committed print, so a refusal can be traced to a fixture. */
+  name: string;
+  /** What a human saw there — "back of the helmet". */
+  what: string;
+  score: number;
+}
+
+/**
+ * What this Face Print is, if it is not a face — otherwise null.
+ *
+ * Null is the ordinary answer and the one every real face gets. Returning the
+ * resemblance rather than a boolean is what lets an enrolment refusal say what
+ * meco thinks it is looking at, which is the difference between a caller fixing
+ * their photograph and a caller filing a bug.
+ */
+export function notAFace(print: readonly number[]): NotAFace | null {
+  let closest: NotAFace | null = null;
+  for (const reference of NOT_A_FACE_PRINTS) {
+    const score = cosineSimilarity(print, reference.print);
+    if (score >= NOT_A_FACE_THRESHOLD && (!closest || score > closest.score)) {
+      closest = { name: reference.name, what: reference.what, score };
+    }
+  }
+  return closest;
+}
+
+/**
+ * The face's shorter side in pixels, in the frame `MIN_FACE_PX` is judged in.
+ *
+ * One function for enrolling and for matching, because it is one rule: below
+ * this size EdgeFace is handed an upsampled blur, and the print it returns
+ * describes the interpolation rather than the person.
+ */
+function facePixels(face: DetectedFace, width: number, height: number): number {
+  return Math.min(face.box.width * width, face.box.height * height) * sentScale(width, height);
+}
+
+/**
+ * Whether this is an Identifiable Face — one meco is willing to compare
+ * against a Person at all.
+ *
+ * Two conditions and they are not independent — the second is only trustworthy
+ * because of the first. `MIN_FACE_PX` was written for enrolment and its reasoning
+ * has always applied here too: a print of a 36 px face compares cleanly against
+ * everything and identifies nobody. It is also what keeps the Not-a-Face
+ * threshold honest, since it is under 57 px that a real face starts drifting
+ * towards the Not-a-Face Print — `paddock-mixed`'s 36 px child reaches 0.6920,
+ * which no threshold could tell from a helmet.
+ *
+ * A face that fails is still detected, still a Subject Box, and still hidden by
+ * Face Blur. The only thing it loses is the ability to become a Match.
+ */
+export function whyNotIdentifiable(
+  face: DetectedFace,
+  print: readonly number[],
+  width: number,
+  height: number,
+): string | null {
+  const pixels = facePixels(face, width, height);
+  if (pixels < MIN_FACE_PX) {
+    return (
+      `it is ${String(Math.round(pixels))} px across and meco does not recognise ` +
+      `anyone below ${String(MIN_FACE_PX)} px`
+    );
+  }
+  const resemblance = notAFace(print);
+  if (resemblance) {
+    return (
+      `meco cannot see a face there — it looks like the ${resemblance.what} ` +
+      `(${resemblance.score.toFixed(4)} against ${resemblance.name}, refused at ` +
+      `${String(NOT_A_FACE_THRESHOLD)})`
+    );
+  }
+  return null;
+}
+
 /** A detected face meco is willing to put a name on. See CONTEXT.md. */
 export interface Match {
   personId: string;
@@ -364,6 +499,12 @@ export interface MatchInput {
   brand: string;
   /** The Source Image the faces were found in. `/embed` needs the pixels again. */
   source: Buffer;
+  /**
+   * Size of the Source Image as a viewer sees it, which is what `MIN_FACE_PX` is
+   * judged in. The faces are fractions and say nothing about how big they are.
+   */
+  width: number;
+  height: number;
   faces: readonly DetectedFace[];
   /** Limit the answer to these Person ids. */
   persons?: readonly string[];
@@ -395,15 +536,53 @@ export interface FaceMatches {
  * every face is the honest degradation, and it is what happens when meco cannot
  * tell one face from another. Enrolment does not share this leniency — see
  * `enrolReferencePhoto`, where there is nothing else to fall back to.
+ *
+ * Two things are checked before any name is handed out, and both are new in
+ * issue #34: the enrolled prints, so a Reference Photo that is not a face cannot
+ * lend its name to anybody, and each detection, so a face meco cannot read an
+ * identity out of is unknown rather than whoever it happened to be nearest.
  */
 export async function matchFaces(input: MatchInput, storage: Storage): Promise<FaceMatches> {
   const brand = requireBrand(input.brand);
-  const none = { matches: input.faces.map(() => null), warnings: [] };
   if (input.faces.length === 0) return { matches: [], warnings: [] };
 
-  const enrolled = await facePrintsFor(brand, storage);
+  const stored = await facePrintsFor(brand, storage);
+
+  /**
+   * Reference Photos whose Face Print is not an Identifiable Face, dropped before
+   * anything is compared against them.
+   *
+   * The gallery is checked as well as the detection, and neither is enough
+   * alone. A Brand enrolled its People before this rule existed, so it may hold
+   * a print of a helmet — that is exactly the record issue #34 was reproduced
+   * with. And the two failures are different: a helmet detection against a real
+   * Person is already safe (helmet against face is 0.433 at worst over the
+   * research document's 108 pairs, under `MATCH_THRESHOLD`), but a *real* face
+   * against an enrolled helmet is not — `paddock-mixed`'s driver scores 0.5601
+   * against the committed Not-a-Face Print, which clears 0.50. Only dropping the
+   * record stops meco putting "Helmet A" on a real person.
+   *
+   * A warning rather than a silent skip: the Brand's owner enrolled that
+   * photograph and is the only one who can replace it.
+   */
+  const unusable: EnrolledPrint[] = [];
+  const enrolled: EnrolledPrint[] = [];
+  for (const record of stored) {
+    (notAFace(record.print) ? unusable : enrolled).push(record);
+  }
+  const galleryWarnings = unusable.map(
+    (record) =>
+      `"${record.personName}" has a Reference Photo that is not a face (${record.photoId}), ` +
+      "so it was left out of the comparison. Re-enrol that Person from a photograph " +
+      "showing their face.",
+  );
+
+  // Against everything the Brand has enrolled, not against what survived the
+  // filter: a Person whose only Reference Photo is unusable does exist, and
+  // telling their caller "no such Person" would send them looking for a typo.
+  // They simply cannot be matched, which the warning above already says.
   if (input.persons) {
-    const known = new Set(enrolled.map((e) => e.personId));
+    const known = new Set(stored.map((e) => e.personId));
     const unknown = input.persons.filter((id) => !known.has(id));
     if (unknown.length > 0) {
       throw new Error(
@@ -412,6 +591,8 @@ export async function matchFaces(input: MatchInput, storage: Storage): Promise<F
       );
     }
   }
+
+  const none = { matches: input.faces.map(() => null), warnings: galleryWarnings };
   if (enrolled.length === 0) return none;
 
   let prints: number[][];
@@ -421,12 +602,24 @@ export async function matchFaces(input: MatchInput, storage: Storage): Promise<F
       input.faces.map((face) => ({ landmarks: face.landmarks })),
     );
   } catch (err) {
-    return { ...none, warnings: [`No faces were named: ${(err as Error).message}`] };
+    return {
+      ...none,
+      warnings: [...galleryWarnings, `No faces were named: ${(err as Error).message}`],
+    };
   }
 
+  // Every face is embedded, and only then asked whether it may carry a name.
+  // The print is what the question is about, so it has to exist before it can be
+  // answered — and the face keeps its place in the list either way, because
+  // `unknownFaces` in `./face-blur.js` reads this by position and a shortened
+  // list would blur the wrong faces.
   return {
-    matches: prints.map((print) => matchFacePrint(print, enrolled, input.persons)),
-    warnings: [],
+    matches: prints.map((print, i) =>
+      whyNotIdentifiable(input.faces[i]!, print, input.width, input.height) === null
+        ? matchFacePrint(print, enrolled, input.persons)
+        : null,
+    ),
+    warnings: galleryWarnings,
   };
 }
 
@@ -496,12 +689,6 @@ export interface PickableFace {
 export type Enrolment =
   | { status: "enrolled"; photo: ReferencePhoto }
   | { status: "pick-a-face"; width: number; height: number; faces: PickableFace[] };
-
-function facePixels(face: DetectedFace, width: number, height: number): number {
-  return (
-    Math.min(face.box.width * width, face.box.height * height) * sentScale(width, height)
-  );
-}
 
 export interface EnrolInput {
   brand: string;
@@ -585,6 +772,29 @@ export async function enrolReferencePhoto(
 
   const [print] = await embedFaces(input.source, [{ landmarks: face.landmarks }]);
   if (!print) throw new Error("meco-faces returned no Face Print for that face.");
+
+  /**
+   * A detection the detector was confident about but that holds no identity.
+   *
+   * Refused here and not merely ignored later, because this is the cheapest
+   * place in the whole system to stop it: a Reference Photo that is not a face
+   * is a Person record that will name strangers for as long as it exists, and
+   * issue #34 was reproduced by enrolling exactly one of these — the back of a
+   * crash helmet — after which a different human matched it at 0.7092.
+   *
+   * The size rule above has already run, so what is left here is the print. Both
+   * are asked again at match time; see `whyNotIdentifiable`, which is the same
+   * question and the reason a Brand enrolled before this existed is safe too.
+   */
+  const notIdentifiable = notAFace(print);
+  if (notIdentifiable) {
+    throw new Error(
+      `No face was found in this photograph — ${notIdentifiable.what} is what meco sees ` +
+        `there (${notIdentifiable.score.toFixed(4)} against ${notIdentifiable.name}, refused at ` +
+        `${String(NOT_A_FACE_THRESHOLD)}). A Reference Photo has to show the Person's face, ` +
+        "turned towards the camera and close enough to recognise.",
+    );
+  }
 
   const stored = await storableForm(input.source);
   const photoId = createHash("sha256").update(stored.bytes).digest("hex").slice(0, 32);
