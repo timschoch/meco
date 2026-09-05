@@ -266,7 +266,7 @@ it is arithmetic that `pnpm test:crop` drives with no service and no image.
 | Warm detect, 12 MP photo | **~50 ms** median |
 | Warm embed, 12 MP photo, one face | **~53 ms** median |
 | Warm embed, 12 MP photo, four faces | **~85 ms** median |
-| Warm objects, 12 MP photo | **~130 ms** median, and 175 ms on a machine also building images |
+| Warm objects, 12 MP photo | **~130 ms** median, and 175 ms on a machine also building images. Deployed: ~1 050 ms, of which ~70 ms is the model — see below |
 | Marginal cost of a further face | **10–18 ms** — one warp and one row of a batched inference |
 
 The image size is the `linux/amd64` build, which is what Vercel runs, and both
@@ -360,6 +360,50 @@ a deployment when you want the number a caller in another region actually sees:
 MECO_TOKEN=<preview token> pnpm --filter meco-faces exec tsx scripts/latency.ts \
   https://<deployment>.vercel.app/faces 12
 ```
+
+#### Deployed, with the object model
+
+Measured against `https://meco-teal.vercel.app/faces` from Switzerland, the same
+12 MP photograph, 12 rounds:
+
+| | local container | deployed |
+|---|---|---|
+| Warm `/detect` | ~50 ms | **~870 ms** |
+| Warm `/objects` | ~130 ms | **~1 050 ms** |
+
+**The gap between the two routes survives the trip and the model does not grow.**
+Locally `/objects` costs about 80 ms more than `/detect` on the same body;
+deployed, back to back on the same 12 MP body, it costs about **70 ms** more.
+That is the whole of the object detector as a caller sees it. Everything else in
+those numbers is Switzerland-to-Vercel network time and the platform's routing,
+exactly as the paragraph above says for `/detect`.
+
+**What is worth knowing is the variance, not the median.** At the size meco
+actually sends — a 1600 px, 0.35 MB body — `/objects` is bimodal over fifteen
+back-to-back calls: roughly **700 ms or roughly 2 500 ms**, with little in
+between, while `/detect` on the same bodies stays inside 554–635 ms. The wide
+mode is an instance that has not loaded D-FINE yet paying for it. `/health`
+confirms the shape rather than the cause: it still reports `dfine-n-coco` as
+`"warm": false` after dozens of successful object detections, because a health
+check lands on whichever container answers it and warmth is per-instance. On a
+scale-to-zero fleet the session is created more than once, and the ~143 ms it
+costs on a laptop is worth considerably more on a platform vCPU.
+
+So the honest budget for a Crop that reaches this route is **a second, plus up to
+about two more on an instance meeting the model for the first time**. Nothing
+here is per-request model cost; it is the cold start, paid per instance instead
+of once.
+
+Reproduce with the same script, which now times `/objects` beside the other two:
+
+```
+MECO_TOKEN=<token> pnpm --filter meco-faces exec tsx scripts/latency.ts \
+  https://meco-teal.vercel.app/faces 12
+```
+
+Its "a further face costs …" line is meaningless against a deployment — the
+network noise is larger than the marginal cost it is subtracting, and it prints
+a negative number. Read that one locally.
 
 ### What meco sends
 
