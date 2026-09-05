@@ -111,6 +111,31 @@ and a failed migration is a failed boot with the error on stderr. `/health`'s
 `migrated: true` on a healthy container, and `reachable: true` only after a File
 and its Annotation have been written and read back under a fixed hash.
 
+### models routes
+
+`docs/specs/models.md` is the contract. On the wire:
+
+| Route                       | Answers                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `POST /annotate?models=a,b` | the contracts Annotation for the image bytes in the body; `Server-Timing` set   |
+| `GET /models`               | the Catalogue: `{ name, version, kinds, licence, warm }[]`, licence as its id   |
+| `GET /health`               | `{ ok, service, version, models: [{ name, version, warm }], onnxruntime, rss }` |
+
+`warm` and `rss` are true of the instance that answered, never of the
+deployment. The instance listens before it creates its sessions, so a `/health`
+in the first second of a cold start reports `warm: false` and the first
+`/annotate` waits on the same create.
+
+The probe, against any base URL that reaches `models`:
+
+```
+pnpm --filter @meco/models probe http://127.0.0.1:8791 [fixture] [models]
+```
+
+It prints `/health` before and after, the `/annotate` status, wall time,
+`Server-Timing` and the Annotation. Default fixture:
+`fixtures/faces/artemis-2-crew.jpg`.
+
 ## Env vars
 
 | Var                             | Set by                                  | Purpose                                                                                                                                                                   |
@@ -188,8 +213,23 @@ by hand before running one, and check the host each suite prints.
 
 Each service builds from its own root-level file: multi-stage, pnpm install
 from the workspace lockfile, `esbuild` bundles the entry point to one file, and
-the runtime stage copies that file alone and runs as `node`. The bundle is why the runtime image carries no `node_modules`:
-pnpm's workspace symlinks do not survive a `COPY`.
+the runtime stage runs it as `node`. `gateway` copies the bundle alone and
+carries no `node_modules`: pnpm's workspace symlinks do not survive a `COPY`.
 
-`HUSKY=0` is set in the build stage. Without it, `pnpm install` runs husky's
+`models` differs in three ways, each for a reason in ADR-0007:
+
+- `node:24-slim`, not alpine. `onnxruntime-node` ships glibc binaries only.
+- `onnxruntime-node` and `sharp` stay outside the bundle: both load native
+  binaries by their own paths. `pnpm --filter @meco/models --prod deploy` lays
+  them flat in a `node_modules` the runtime stage copies, with the ONNX Runtime
+  binaries pruned to the build's `TARGETARCH` (the tarball carries five
+  platforms). Measured 6 Sep 2026: 110 MB image for `linux/amd64`.
+- `ORT_DISABLE_TELEMETRY=1` and `ONNXRUNTIME_NODE_INSTALL=skip` in the image.
+  The first stops the 1.29 Linux binary's telemetry; the second stops a
+  postinstall that downloads CUDA libraries. `pnpm-workspace.yaml` refuses that
+  postinstall for local installs too.
+- Each adapter's weights and `LICENCE.txt` are copied into the bundle
+  directory by `packages/models/build.mjs`, never fetched at runtime.
+
+`HUSKY=0` is set in both build stages. Without it, `pnpm install` runs husky's
 `prepare` script, which fails because `.git` is not in the build context.

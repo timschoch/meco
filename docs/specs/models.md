@@ -109,6 +109,37 @@ Memory stays on the platform default (2 GB / 1 vCPU) until `/health`'s `rss` on 
 - **Live**: the probe script against the deployed container is part of every ticket's acceptance. Every serious prototype bug was found this way.
 - **Proved able to fail**: every check names the mutation that turns it red, and the ticket runs it.
 
+## Measurements
+
+The four numbers ticket 1 ([#118](https://github.com/timschoch/meco/issues/118)) owes, each with where and how it was taken. A number without provenance is a trap.
+
+### Local container, 6 Sep 2026
+
+`docker build --platform linux/arm64 -f Dockerfile.vercel`, `docker run --cpus=1 --memory=2g`, Docker Desktop 29.7.2 on Apple silicon, `node:24-slim` (Node 24.20.0), onnxruntime-node 1.29.0, sharp 0.35.4. Probe: `pnpm --filter @meco/models probe`. The platform's own numbers below supersede these where both exist.
+
+| Measurement                                   | Value                                                                                                                                                                                    |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Boot to listening, `yunet` session create     | `yunet warm in 68ms` after `models listening on 80`                                                                                                                                      |
+| `rss` after warm-up, before any inference     | 117 MB                                                                                                                                                                                   |
+| `rss` after one inference (crew, 1280x1600)   | 152 MB                                                                                                                                                                                   |
+| `rss` after the 5878x7348 fixture (5.4 MB)    | 216 MB                                                                                                                                                                                   |
+| `Server-Timing`, crew fixture, first request  | `decode;dur=12.0, yunet;dur=43.6`; wall 93 ms                                                                                                                                            |
+| `Server-Timing`, crew fixture, second request | `decode;dur=19.6, yunet;dur=41.3`; wall 71 ms                                                                                                                                            |
+| `Server-Timing`, 5878x7348 fixture            | `decode;dur=248.1, yunet;dur=69.4`; wall 381 ms. Decode dominates at 43 MP even with shrink-on-load; the detector's cost barely moves because it sees a 1600 px Decoded Image either way |
+| 5.4 MB body                                   | accepted, 200, straight to the container. Says nothing about the binding                                                                                                                 |
+| Telemetry                                     | no telemetry line in the boot log. One `onnxruntime cpuid_info warning: Unknown CPU vendor` line, Docker's CPU emulation, harmless                                                       |
+
+### Deployed container
+
+Filled in from the preview deployment of the PR that closes #118; see the ticket's ledger. Until then each row is open.
+
+| Measurement                                           | Value                                                            |
+| ----------------------------------------------------- | ---------------------------------------------------------------- |
+| (1) a ~6 MB body over the service binding             | open: needs a gateway route that forwards a body to `MODELS_URL` |
+| (2) models reachable from outside without the binding | open                                                             |
+| (3) `rss` after warm-up and after one inference       | open                                                             |
+| (4) per-stage `Server-Timing` at 1 vCPU               | open                                                             |
+
 ## Out of scope
 
 - A store key on the wire (opens only if the body-limit measurement bites).

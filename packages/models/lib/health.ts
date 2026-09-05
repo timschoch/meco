@@ -1,10 +1,15 @@
-import type { ModuleName } from "@meco/contracts";
+import type { ModelId, ModuleName } from "@meco/contracts";
 
-/** What every meco service answers on `GET /health`. */
+/** What `GET /health` answers: this instance's liveness, warmth and memory. */
 export type Health = {
   readonly ok: boolean;
   readonly service: ModuleName;
   readonly version: string;
+  /** Every Model in the Catalogue, and whether it is Warm on this instance. */
+  readonly models: readonly (ModelId & { readonly warm: boolean })[];
+  readonly onnxruntime: string;
+  /** Resident set size in bytes, so a leak or a cold start is visible without a profiler. */
+  readonly rss: number;
 };
 
 /**

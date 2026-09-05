@@ -5,15 +5,19 @@
   "type": "module",
   "exports": {
     ".": "./app.ts",
+    "./catalogue": "./catalogue.ts",
     "./server": "./server.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.7",
     "@meco/contracts": "workspace:*",
-    "hono": "^4.10.7"
+    "hono": "^4.10.7",
+    "onnxruntime-node": "^1.29.0",
+    "sharp": "^0.35.4"
   },
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "probe": "node scripts/probe.ts"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
