@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Box, Point, pixels } from "./geometry";
+import { ContentHash } from "./identifiers";
 
 /** What a Model drew a Region around. meco's closed set; it grows by PR. */
 export const RegionKind = z.enum(["face", "person", "vehicle"]);
@@ -52,7 +53,7 @@ const REGION_ID = new RegExp(
   `^(?:${RegionKind.options.join("|")})-[1-9][0-9]*$`
 );
 
-/** A Region id on its own, for the modules that key by one without the Region. */
+/** The id rule alone, so a Match keys by a Region without restating the shape. */
 export const RegionId = z.string().regex(REGION_ID);
 
 /** One thing a Model found in the bytes. True of the bytes, so cached forever. */
@@ -92,9 +93,6 @@ export const ANNOTATION_SCHEMA = 1;
 
 /** The image formats the models host promises to decode. Grows by PR. */
 const Mime = z.enum(["image/jpeg", "image/png", "image/webp"]);
-
-/** Bare sha256 of the bytes. No algorithm prefix: the schema fixes it. */
-export const ContentHash = z.string().regex(/^[0-9a-f]{64}$/);
 
 const modelKey = (m: z.infer<typeof ModelId>) => `${m.name}@${m.version}`;
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { RegionId } from "./annotation";
+import { Brand, PersonId } from "./identifiers";
 
 /**
  * Who a Region is, for one Brand, on one call. Beside the Annotation and never
@@ -8,8 +9,8 @@ import { RegionId } from "./annotation";
  */
 export const Match = z.strictObject({
   regionId: RegionId,
-  personId: z.string().min(1),
-  brand: z.string().min(1),
+  personId: PersonId,
+  brand: Brand,
   /** Cosine of two Face Prints, so the whole range is legal, not just [0, 1]. */
   similarity: z.number().min(-1).max(1),
 });

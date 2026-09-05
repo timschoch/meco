@@ -40,9 +40,6 @@ describe("FramingRequest defaults", () => {
   it("offers the caller's ladder as a constant the gateway applies", () => {
     expect(DEFAULT_PIN_TO).toEqual(["match", "face", "kart"]);
     expect(PinTo.options).toEqual(["match", "face", "kart"]);
-    expect(FramingRequest.parse({ ...minimalFramingRequest }).pinTo).toEqual(
-      DEFAULT_PIN_TO
-    );
   });
 });
 

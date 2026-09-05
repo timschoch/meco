@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { ContentHash } from "./annotation";
-import { Box, pixels } from "./geometry";
+import { Box, Size } from "./geometry";
+import { Brand, ContentHash, PersonId } from "./identifiers";
 
 /**
  * What the caller wants the Subject composed from, walked in order until one
@@ -25,13 +25,14 @@ export const CropAnchor = z.enum([
   "bottom-right",
 ]);
 
-/** `center`, never `centre`: the spelling contracts fixes for every identifier. */
+/**
+ * The anchor the schema fills in. Unlike `pinTo`, what the caller asked for is
+ * not worth recording: an anchor is only reached once the ladder has failed.
+ */
 export const DEFAULT_ANCHOR: CropAnchor = "center";
 
-/** What the Crop is rendered as. Whole pixels, so nothing downstream rounds twice. */
-export const Target = z.strictObject({
-  width: pixels,
-  height: pixels,
+/** What the Crop is rendered as. A {@link Size}, so target and image size cannot drift. */
+export const Target = Size.extend({
   format: z.enum(["png", "jpeg", "webp"]).optional(),
   quality: z.int().min(1).max(100).optional(),
 });
@@ -42,9 +43,10 @@ export const Redaction = z.strictObject({
 });
 
 /**
- * The most Occlusion Zones one request may declare. frame's free-area sweep is
- * O(n^4) in the zone count and a Template emits two or three, so the cap
- * refuses abuse at the gateway edge and never honest work.
+ * The most Occlusion Zones one request may declare. A design bound, not a
+ * measurement: frame's free-area sweep is O(n^4) in the zone count and a
+ * Template emits two or three, so the cap refuses abuse at the edge where
+ * refusals belong and never honest work. Decided on #82.
  */
 const MAX_OCCLUSION_ZONES = 16;
 
@@ -54,7 +56,7 @@ const MAX_OCCLUSION_ZONES = 16;
  * is exactly what keeps them off the Annotation.
  */
 export const FramingRequest = z.strictObject({
-  brand: z.string().min(1),
+  brand: Brand,
   /** The bytes, by Content Hash. A URL belongs to the gateway's own input type. */
   source: z.strictObject({ hash: ContentHash }),
   target: Target,
@@ -65,7 +67,7 @@ export const FramingRequest = z.strictObject({
       error: "pinTo must not name a rung twice",
     }),
   /** Person ids that may lead. Absent means any named Person may. */
-  persons: z.array(z.string().min(1)).min(1).optional(),
+  persons: z.array(PersonId).optional(),
   anchor: CropAnchor.default(DEFAULT_ANCHOR),
   /** Where the Subject must land, in Image Slot fractions. */
   subjectArea: Box.optional(),
