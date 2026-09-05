@@ -26,7 +26,7 @@ import sharp from "sharp";
 
 import { createApp } from "../src/app.js";
 import { CROP_PRODUCERS, solveCrop } from "../src/crop-solver.js";
-import { faceSubjectBoxes } from "../src/crop.js";
+import { faceSubjectBoxes, isKartClass } from "../src/crop.js";
 import {
   FACES_URL,
   boundedSource,
@@ -3317,9 +3317,7 @@ console.log("\nkarts");
   // size — issue #42 was one — moves the expectation with the fixture instead of
   // failing a number that was only ever a transcription of it.
   const recorded = kartObjects.images.find((i) => i.file === "on-track-dark-visor.jpg")!.objects;
-  const readable = recorded.filter(
-    (o) => o.label === "person" || o.label === "motorbike" || o.label === "bicycle",
-  );
+  const readable = recorded.filter((o) => isKartClass(o.label));
   const countOf = (label: string) => readable.filter((o) => o.label === label).length;
   check(
     "find subjects lists the objects as regions of their own",

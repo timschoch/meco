@@ -131,6 +131,17 @@ there is none — so refusing a *different* face fails the run.
 sends. Callers have always sent 1600 px. The suite was measuring a smaller world
 than the one meco runs in; now it is not.
 
+**Two things issue #42 did not settle, recorded so they are not mistaken for settled.**
+`fixtures/faces/` is still committed at 1400 px, and it is the set
+`MATCH_THRESHOLD` and `MATCH_MARGIN` are calibrated on. The size rule and its
+enforcement cover `fixtures/karts/` only; moving every number in Decision 3's
+calibration is its own change. And the two cosines issue #42 asked to have
+asserted — 0.6489 and 0.5126 — **do not reproduce against the committed bytes**.
+They were measured on a re-encode made while investigating; against the fixture
+now on disk the only pair over `MATCH_THRESHOLD` is 0.5628, and it is a face
+agreeing with a non-face rather than two faces. `scripts/match-calibration.ts`
+asserts the structure that survives and says so in as many words.
+
 **The open question this leaves.** A threshold with no band is a threshold that
 cannot absorb a new fixture. If the reference set grows — and
 ["What this does not fix"](#what-this-does-not-fix) says it should — the next

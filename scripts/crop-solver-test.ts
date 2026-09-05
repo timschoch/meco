@@ -697,8 +697,11 @@ for (const image of karts.images) {
 {
   const dark = karts.images.find((i) => i.file === "on-track-dark-visor.jpg");
   const survivors = (floor: number) => (dark?.objects ?? []).filter((o) => o.score >= floor);
-  const karting = (floor: number) =>
-    survivors(floor).filter((o) => o.label === "motorbike" || o.label === "bicycle");
+  // "motorbike" and not `isKartClass`, because a kart is what has to survive:
+  // `kartSubjectBox` seeds on the largest motorbike and only falls back to a
+  // person when there is none. A person box surviving the higher floor is the
+  // failure this check is about, not a pass.
+  const karting = (floor: number) => survivors(floor).filter((o) => o.label === "motorbike");
   const held = kartSubjectBox(survivors(0.28));
   const raised = kartSubjectBox(survivors(0.3));
   check(

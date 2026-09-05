@@ -42,8 +42,6 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import sharp from "sharp";
-
 import { LONG_EDGE, boundedSource, type DetectedFace, type Detection } from "../src/faces.js";
 import { NOT_A_FACE_PRINTS } from "../src/not-a-face-prints.js";
 import {
@@ -118,9 +116,11 @@ function check(ok: boolean, name: string, detail = ""): void {
 
   for (const [file, natural] of Object.entries(sources)) {
     const bytes = await readFile(`${KARTS}${file}`);
+    // `boundedSource` reports the size *after* EXIF orientation, which is the
+    // frame every fraction downstream is in. Reading `sharp` metadata here
+    // instead would compare a rotated fixture against the wrong edge.
     const bounded = await boundedSource(bytes);
-    const meta = await sharp(bytes).metadata();
-    const longEdge = Math.max(meta.width ?? 0, meta.height ?? 0);
+    const longEdge = Math.max(bounded.sourceWidth, bounded.sourceHeight);
     const wanted = Math.min(LONG_EDGE, Math.max(natural.width, natural.height));
 
     check(
@@ -137,6 +137,9 @@ function check(ok: boolean, name: string, detail = ""): void {
 }
 
 /** One face enrolled for one Person, in the shape the store hands matching. */
+/** A fixture's `file#index`, without the human's label after the dash. */
+const shortName = (e: { name: string }): string => e.name.split(" — ")[0]!;
+
 function enrol(face: FixturePrint): EnrolledPrint {
   return {
     personId: `person-${face.person}`,
@@ -772,7 +775,7 @@ check(
    * make a red run green.
    */
   const REFUSED_ON_RECORD = ["paddock-mixed#8"];
-  const refusedNames = refusedFaces.map((e) => e.name.split(" — ")[0]!).sort();
+  const refusedNames = refusedFaces.map(shortName).sort();
   check(
     refusedNames.join(",") === [...REFUSED_ON_RECORD].sort().join(","),
     "and the real faces it refuses are the ones on record",
@@ -857,28 +860,31 @@ check(
       `${String(tooSmall.length)} detections in the whole set under ${String(MIN_FACE_PX)} px`,
   );
 
-  const notRefusedBySize = tooSmall.filter((e) => {
-    const d = e.detection!;
-    const why = whyNotIdentifiable(d.face, e.print, d.width, d.height);
-    return why === null || !why.includes("px");
-  });
-  check(
-    notRefusedBySize.length === 0,
-    "and any face below the floor is refused for its size",
-    tooSmall.length === 0
-      ? `nothing under ${String(MIN_FACE_PX)} px at this size — the floor is not what is holding this set apart`
-      : `${String(tooSmall.length)} detections under ${String(MIN_FACE_PX)} px, all refused for their size`,
-  );
-
   /**
-   * The pair issue #42 was filed about, asserted rather than described.
+   * The collision issue #42 was filed about — and what re-deriving the fixture
+   * did to the ticket's own numbers.
    *
-   * Two different humans in one paddock photograph whose prints agree well
-   * enough to clear `MATCH_THRESHOLD`. That only happens at production
-   * resolution — at 1400 px the faces involved were under the size floor and
-   * never compared. The claim worth pinning is not the cosine, which moves with
-   * the JPEG encode by about 0.019 (ADR-0003), but the structure: such a pair
-   * exists, and the Not-a-Face rule is what stops it becoming a name.
+   * The ticket asked for two `paddock-mixed` cross-person pairs at **0.6489 and
+   * 0.5126** to be asserted at production resolution. **Neither reproduces**,
+   * and that is recorded here rather than quietly worked around. Those figures
+   * were measured on a re-encode made while investigating, not on the file now
+   * committed; against these bytes the only pair over `MATCH_THRESHOLD` is
+   * `#6`/`#7` at 0.5628. ADR-0003 puts JPEG drift at about 0.019 and this is
+   * 0.086, so the encode explains part of it and the rest is that the pair set
+   * at the margin is not stable. A number measured on bytes nobody committed is
+   * not a number this suite can hold.
+   *
+   * What survives is the structural claim, which is the one that matters: at the
+   * size production sends, two detections that are **not the same human** agree
+   * well enough to clear `MATCH_THRESHOLD`, and the Not-a-Face rule is what
+   * stops that becoming a name. Note what the pair is: `#7` is classified
+   * not-a-face, so this is a face agreeing with a non-face rather than two
+   * faces. There is **no face-to-face pair over the threshold** in this set —
+   * asserting one would be asserting something the committed data does not
+   * contain.
+   *
+   * `MIN_FACE_PX` cannot be the thing separating them: every detection here
+   * clears it, which the check above asserts.
    */
   const paddock = bigEnough.filter((e) => e.name.startsWith("paddock-mixed#"));
   const collisions = paddock.flatMap((a, i) =>
@@ -892,11 +898,11 @@ check(
   );
   check(
     collisions.length > 0 && unguarded.length === 0,
-    "strangers who agree at this size are separated by the Not-a-Face rule",
+    "detections that agree at this size are separated by the Not-a-Face rule",
     collisions.length === 0
       ? `no pair over ${String(MATCH_THRESHOLD)} — this fixture has stopped exercising the case #42 was filed about`
       : collisions
-          .map(({ a, b, together }) => `${a.name.split(" — ")[0]!}/${b.name.split(" — ")[0]!} ${together.toFixed(4)}`)
+          .map(({ a, b, together }) => `${shortName(a)}/${shortName(b)} ${together.toFixed(4)}`)
           .join(", "),
   );
 
