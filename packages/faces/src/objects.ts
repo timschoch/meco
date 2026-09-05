@@ -35,10 +35,26 @@ import { decodeDfine, type DetectedObject } from "./dfine.js";
  * against fp32's 14.41 ms. Quantisation is not a free size saving on this
  * runtime and should not be reached for without measuring again.
  *
- * The licence is the one part of this that is not a plain fact off a model card.
- * `onnx-community/dfine_n_coco-ONNX` declares none; the chain to Apache-2.0 runs
- * through its `base_model` pointer. `models/LICENCE-dfine.txt` records the whole
- * of it, including how to re-verify.
+ * From `AnnotateIt/dfine-nano-coco-onnx` and deliberately not from
+ * `onnx-community/dfine_n_coco-ONNX`, which is the export the research measured.
+ * Two reasons, and the second is the one that changes the answers:
+ *
+ * - The onnx-community repository **declares no licence at all** — no card
+ *   metadata, no tag, no `LICENSE` file — so it can neither state its terms nor
+ *   discharge Apache-2.0 section 4 on our behalf. AnnotateIt's declares
+ *   `apache-2.0` and ships the licence text, which is what makes redistributing
+ *   the weights inside this image a thing with a paper trail.
+ * - Its export is dated 2025-04-30. The base checkpoint it converts was
+ *   **corrected on 2025-08-20** in a commit titled "Fix weights", so that export
+ *   is built from superseded weights. Re-measured on the same 32 photographs
+ *   with the same decode: usable kart-and-driver boxes go from 21 to 29, and
+ *   typical scores from the 0.28-0.55 band to 0.66-0.90, at 27 ms against 28 ms.
+ *   On the committed fixtures the difference is visible one photograph at a
+ *   time: `on-track-visor-open.jpg` gains the driver the old weights could not
+ *   see at all, at 0.847.
+ *
+ * `models/LICENCE-dfine.txt` records the provenance and how to re-verify it;
+ * `scripts/verify-dfine.ts` is the re-verification.
  */
 export const OBJECT_MODEL = {
   name: "dfine-n-coco",

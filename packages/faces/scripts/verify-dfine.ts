@@ -32,18 +32,26 @@ import { CLASS_COUNT, COCO_LABELS, QUERY_COUNT } from "../src/dfine.js";
 import { OBJECT_MODEL } from "../src/objects.js";
 
 /** The repository revision the committed weights were taken from. */
-const REVISION = "380d2839c327efaf65dd0fe0c2c10ab7fadd5473";
-const REPO = "onnx-community/dfine_n_coco-ONNX";
-const SOURCE = `https://huggingface.co/${REPO}/resolve/${REVISION}/onnx/model.onnx`;
-const CONFIG = `https://huggingface.co/${REPO}/resolve/${REVISION}/config.json`;
-const PREPROCESSOR = `https://huggingface.co/${REPO}/resolve/${REVISION}/preprocessor_config.json`;
+const REVISION = "416dc80213e8f2745fcacdfab62980e3c0555306";
+const REPO = "AnnotateIt/dfine-nano-coco-onnx";
+const AT = `https://huggingface.co/${REPO}/resolve/${REVISION}`;
+const SOURCE = `${AT}/model.onnx`;
+const CONFIG = `${AT}/config.json`;
+const PREPROCESSOR = `${AT}/preprocessor_config.json`;
 
 /** What `models/LICENCE-dfine.txt` claims about the file. Both are the claim. */
-const BYTES = 15_258_358;
-const SHA256 = "0f684f409618ee8a822410e754a29caa817d1aa16283ce89cad936d0a48e2f35";
+const BYTES = 15_434_935;
+const SHA256 = "b0ec2e5793f3a3cbd07440d098645a0e102cd450fb92f4f35e713f36e35d152e";
 
-/** The base model whose card carries the licence the chain resolves to. */
-const BASE = "https://huggingface.co/ustc-community/dfine_n_coco";
+/**
+ * The checkpoint the export converts, and the revision it pins.
+ *
+ * The revision is the point. `066438d3` is the 20 Aug 2025 commit titled "Fix
+ * weights"; an export dated before it converts weights that were wrong, which is
+ * what the export the research first measured turned out to be doing.
+ */
+const BASE = "ustc-community/dfine-nano-coco";
+const BASE_REVISION = "066438d3d8f0da137a37b38fdf3368fd4afceced";
 
 const checks: { ok: boolean; label: string; detail: string }[] = [];
 const check = (ok: boolean, label: string, detail = "") => {
@@ -72,34 +80,62 @@ check(
 
 // --------------------------------------------------------- the licence chain
 
-const redirect = await fetch(BASE, { method: "HEAD", redirect: "manual" });
-const location = redirect.headers.get("location") ?? "";
+const artefactCard = await fetch(`${AT}/README.md`).then((r) => r.text());
 check(
-  redirect.status === 307 && location.includes("dfine-nano-coco"),
-  "the base_model pointer still resolves rather than 404ing",
-  `${String(redirect.status)} → ${location || "(nowhere)"}`,
+  /^license:\s*apache-2\.0$/m.test(artefactCard),
+  "the artefact declares Apache-2.0 on its own card",
+  artefactCard.split("---")[1]?.trim().split("\n")[0] ?? "no front-matter",
+);
+
+// Section 4 is the reason this one is a check and not a footnote: a repository
+// that ships no licence text cannot discharge the attribution obligation on our
+// behalf, which is the whole argument for preferring this export.
+const licence = await fetch(`${AT}/LICENSE`).then((r) => r.text());
+check(
+  licence.includes("Apache License") && licence.includes("Version 2.0, January 2004"),
+  "and ships the verbatim licence text, which is what section 4 needs",
+  `${String(licence.length)} bytes`,
 );
 
 const baseCard = await fetch(
-  "https://huggingface.co/ustc-community/dfine-nano-coco/raw/main/README.md",
+  `https://huggingface.co/${BASE}/raw/main/README.md`,
 ).then((r) => r.text());
 check(
   /^license:\s*apache-2\.0$/m.test(baseCard),
-  "and the base model still declares Apache-2.0",
+  "the weights it converts still declare Apache-2.0",
   baseCard.split("---")[1]?.trim().split("\n").join(" · ") ?? "no front-matter",
 );
 
-const artefactCard = await fetch(
-  `https://huggingface.co/${REPO}/raw/${REVISION}/README.md`,
-).then((r) => r.text());
-// The absence is the finding, not a failure. If this ever starts declaring a
-// licence, `models/LICENCE-dfine.txt` can be shortened — so it is worth knowing.
+/**
+ * The export still pins the fixed revision of those weights.
+ *
+ * Not a formality. The export the research first measured is dated four months
+ * before `Fix weights` landed, and converting the earlier commit cost 8 of 29
+ * usable kart boxes across the research set — a difference no licence check and
+ * no graph check would have noticed.
+ */
+const report = (await fetch(`${AT}/validation-report.json`).then((r) => r.json())) as {
+  source: { modelId: string; revision: string };
+  artifact: { bytes: number; sha256: string };
+};
 check(
-  true,
-  "the artefact's own card declares",
-  /^license:/m.test(artefactCard)
-    ? "a licence — LICENCE-dfine.txt can now be shortened"
-    : "no licence, which is why LICENCE-dfine.txt exists",
+  report.source.modelId === BASE && report.source.revision === BASE_REVISION,
+  "and the export still pins the fixed revision of them",
+  `${report.source.modelId}@${report.source.revision.slice(0, 12)}`,
+);
+check(
+  report.artifact.bytes === BYTES && report.artifact.sha256 === SHA256,
+  "the export's own report describes the file we committed",
+  `${String(report.artifact.bytes)} B, ${report.artifact.sha256.slice(0, 16)}…`,
+);
+
+const commits = (await fetch(
+  `https://huggingface.co/api/models/${BASE}/commits/main`,
+).then((r) => r.json())) as { id: string; title: string }[];
+check(
+  commits[0]?.id === BASE_REVISION,
+  "and no newer commit has landed on the weights since",
+  commits[0] ? `head is ${commits[0].id.slice(0, 12)} "${commits[0].title}"` : "no history",
 );
 
 // ------------------------------------------------------------ the graph

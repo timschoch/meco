@@ -230,16 +230,16 @@ that is not a face, in the vocabulary its model was trained with:
 
 ```
 { "width": 600, "height": 400,
-  "objects": [ { "label": "motorbike", "score": 0.421,
-                 "box": { "x": 0.1381, "y": 0.4011, "width": 0.5896, "height": 0.3796 } },
-               { "label": "person", "score": 0.391,
-                 "box": { "x": 0.3511, "y": 0.2549, "width": 0.2098, "height": 0.3671 } } ] }
+  "objects": [ { "label": "motorbike", "score": 0.849,
+                 "box": { "x": 0.1409, "y": 0.4157, "width": 0.5883, "height": 0.3622 } },
+               { "label": "person", "score": 0.711,
+                 "box": { "x": 0.3506, "y": 0.2578, "width": 0.2131, "height": 0.3588 } } ] }
 ```
 
 fractions again, and the same box spelling. **`motorbike` is a kart**, and that
 is not a bug to fix: COCO has no kart class, so the model resolves one to the
 nearest thing in its vocabulary, and measured on 32 on-track photographs that
-approximation finds the kart on 21 of them while the face detector finds the
+approximation finds the kart on 29 of them while the face detector finds the
 driver's head on 9. The word is wrong and the box is right.
 
 The class index the model uses internally is deliberately **not** on the wire.
@@ -255,19 +255,19 @@ it is arithmetic that `pnpm test:crop` drives with no service and no image.
 
 | | |
 |---|---|
-| Image, `linux/amd64` | **143.2 MB**, against **129.4 MB** for the same build with the object model taken out |
+| Image, `linux/amd64` | **143.4 MB**, against **129.4 MB** for the same build with the object model taken out |
 | Image, delta for embed | **+7 MB** on disk, **+6 MB** in the registry — the EdgeFace model and nothing else |
-| Image, delta for objects | **+13.8 MB**, or +10.7 % — the D-FINE model and nothing else |
+| Image, delta for objects | **+14.0 MB**, or +10.8 % — the D-FINE model and nothing else |
 | Detection model | `face_detection_yunet_2026may.onnx`, 229,738 B, MIT, copied in at build time |
 | Recognition model | `edgeface_xs_gamma_06.onnx`, 7,277,244 B, weights CC BY-NC-SA 4.0, copied in at build time |
-| Object model | `dfine_n_coco.onnx`, 15,258,358 B, Apache-2.0 by a chain rather than by declaration — see `models/LICENCE-dfine.txt` — copied in at build time |
-| Cold, 12 MP photo | **~510 ms** from `docker run` to a served detection; 389–924 ms over five boots, unchanged by the third model |
-| Cold to a served object detection | **~730 ms**; 560–845 ms over five boots |
-| Warm detect, 12 MP photo | **~47 ms** median |
-| Warm embed, 12 MP photo, one face | **~52 ms** median |
-| Warm embed, 12 MP photo, four faces | **~83 ms** median |
-| Warm objects, 12 MP photo | **~129 ms** median |
-| Marginal cost of a further face | **~10 ms** — one warp and one row of a batched inference |
+| Object model | `dfine_n_coco.onnx`, 15,434,935 B, Apache-2.0 — see `models/LICENCE-dfine.txt`, which is also the attribution — copied in at build time |
+| Cold, 12 MP photo | **~450 ms** from `docker run` to a served detection; 351–491 ms over five boots, unchanged by the third model |
+| Cold to a served object detection | **~670 ms**; 617–788 ms over five boots |
+| Warm detect, 12 MP photo | **~50 ms** median |
+| Warm embed, 12 MP photo, one face | **~53 ms** median |
+| Warm embed, 12 MP photo, four faces | **~85 ms** median |
+| Warm objects, 12 MP photo | **~130 ms** median, and 175 ms on a machine also building images |
+| Marginal cost of a further face | **10–18 ms** — one warp and one row of a batched inference |
 
 The image size is the `linux/amd64` build, which is what Vercel runs, and both
 figures come from `docker image inspect --format '{{.Size}}'` on this machine —
@@ -300,21 +300,39 @@ crop of it, and why the faces go in one batched call rather than one call each.
 
 **So is object detection, and by a wider margin.** The 129 ms above is a 12 MP
 JPEG, and the model is the small part of it. Measured in-process on a 1400×875
-photograph, medians over 20 warm runs: **sharp decode and resize 10.2 ms,
-inference 26.5 ms, the TypeScript decode of 300 queries under 0.05 ms**, with the
-ORT session costing **139 ms** to create once. The research measured 28 ms and
-167 ms on the same model outside a container, so this reproduces it. What grows
-the number to 129 ms is decoding twelve megapixels, not looking at them —
+photograph, medians over 20 warm runs: **sharp decode and resize 10.5 ms,
+inference 28.6 ms, the TypeScript decode of 300 queries under 0.05 ms**, with the
+ORT session costing **143 ms** to create once. The research measured 27 ms on the
+same model outside a container, so this reproduces it. What grows the number to
+130 ms is decoding twelve megapixels, not looking at them —
 D-FINE stretches whatever it is handed into one 640×640 square and always emits
 exactly 300 queries, so its own cost does not depend on the picture at all.
 
-**fp32, and not the quantised build.** `onnx-community` also publishes a q4f16
-export at 5,966,346 B, a third of the size. It was measured and rejected: 64 ms
-warm against 28 ms — **2.3× slower** — while also finding four fewer karts and
-two fewer drivers across the 32-photograph set. The same trap the research
-recorded for MoveNet, where int8 measured 31.83 ms against fp32's 14.41 ms.
-Quantisation is not a free size saving on this runtime; measure before assuming
-otherwise.
+**fp32, and not a quantised build.** A q4f16 export of this model exists at
+5,966,346 B, a third of the size. It was measured and rejected: 64 ms warm
+against 28 ms — **2.3× slower** — while also finding four fewer karts and two
+fewer drivers across the 32-photograph set. The same trap the research recorded
+for MoveNet, where int8 measured 31.83 ms against fp32's 14.41 ms. Quantisation
+is not a free size saving on this runtime; measure before assuming otherwise.
+
+**Which export, and why it is not the obvious one.** The weights come from
+`AnnotateIt/dfine-nano-coco-onnx`, not from `onnx-community/dfine_n_coco-ONNX`,
+which is the repository the research first measured. Two reasons, and the second
+is the one that changes what a Crop does:
+
+- onnx-community declares **no licence at all** — no card metadata, no tag, no
+  `LICENSE` file — so it states no terms and cannot discharge Apache-2.0
+  section 4 on anyone's behalf. AnnotateIt's declares `apache-2.0`, ships the
+  licence text, and publishes the source checkpoint's revision and SHA-256.
+- Its export is dated 2025-04-30. The checkpoint it converts was **corrected on
+  2025-08-20** in a commit titled "Fix weights", so it converts superseded
+  weights. Re-measured across the research's 32 photographs, that costs 8 of 29
+  usable kart-and-driver boxes and roughly half the confidence — typical scores
+  move from the 0.28–0.55 band to 0.66–0.90, at the same speed and +176,577 B.
+
+`models/LICENCE-dfine.txt` records the whole chain and
+`scripts/verify-dfine.ts` re-checks it, including that no newer commit has
+landed on the weights since.
 
 **The third model does not slow the face path.** Cold to a served *detection* is
 unchanged, because the sessions are created lazily and `/detect` never touches
@@ -469,17 +487,19 @@ pnpm --filter meco-faces exec tsx scripts/verify-dfine.ts
 Not in the gate, because it reaches the network. It re-downloads nothing but the
 metadata and checks the committed weights against the record in
 `packages/faces/models/LICENCE-dfine.txt`: the byte count, the SHA-256, that the
-pinned Hugging Face revision still serves those bytes, that the `base_model`
-pointer still redirects rather than 404s, that the base model still declares
-`apache-2.0`, that preprocessing is still rescale-only with no normalisation,
-that `COCO_LABELS` is still the model's own `id2label` in its order, and that the
-graph still hands back raw logits rather than probabilities.
+pinned Hugging Face revision still serves those bytes, that the artefact still
+declares `apache-2.0` **and ships the licence text**, that the checkpoint it
+converts still declares it too, that the export still pins the fixed revision of
+those weights and that **no newer commit has landed on them since**, that
+preprocessing is still rescale-only with no normalisation, that `COCO_LABELS` is
+still the model's own `id2label` in its order, and that the graph still hands
+back raw logits rather than probabilities.
 
-That last one is not paranoia about a file changing on disk. The artefact's own
-model card declares **no licence**, so its provenance rests on a redirect and a
-byte count, and a Hugging Face repository is community-editable. Run this when
-the weights change, when the licence record is questioned, or before a release
-that ships them.
+The revision checks are the point rather than a formality. The export this
+repository first reached for was built four months before its own base
+checkpoint was fixed, and no licence check and no graph check would have
+noticed — only the dates did. Run this when the weights change, when the licence
+record is questioned, or before a release that ships them.
 
 ### Prove a Face Print still means what it meant
 

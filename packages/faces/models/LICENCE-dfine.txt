@@ -1,58 +1,77 @@
-The D-FINE ONNX artefact declares no licence of its own. This file records the
-chain that resolves it to Apache-2.0, because the resolution rests on evidence
-that lives outside the file and would otherwise be lost. See issue #36 and
-docs/research/kart-and-driver-subjects.md Q11.
+D-FINE-N is Apache-2.0. This file is the attribution that licence requires, and
+the record of which artefact was shipped and why. See issue #36 and
+docs/research/kart-and-driver-subjects.md Q12.
 
 The file: models/dfine_n_coco.onnx
-  onnx/model.onnx from huggingface.co/onnx-community/dfine_n_coco-ONNX
-  repo revision 380d2839c327efaf65dd0fe0c2c10ab7fadd5473, last modified
-  2025-04-30. 15,258,358 bytes, sha256
-  0f684f409618ee8a822410e754a29caa817d1aa16283ce89cad936d0a48e2f35
-
-The gap: that repository's README front-matter is two lines —
-  library_name: transformers.js
-  base_model: ustc-community/dfine_n_coco
-There is no `license:` key, no licence tag, and no licence badge on the card.
-Nothing about the artefact itself states its terms.
+  model.onnx from huggingface.co/AnnotateIt/dfine-nano-coco-onnx
+  repo revision 416dc80213e8f2745fcacdfab62980e3c0555306
+  15,434,935 bytes, sha256
+  b0ec2e5793f3a3cbd07440d098645a0e102cd450fb92f4f35e713f36e35d152e
+  which is the value that repository's own SHA256SUMS publishes for it.
 
 The chain, verified 5 Sep 2026 and reproducible with curl:
 
-1. huggingface.co/ustc-community/dfine_n_coco — the base_model the card names —
-   answers HTTP 307 to /ustc-community/dfine-nano-coco. The research note
-   recorded this link as a 404; it is not, and the difference is the whole of
-   the resolution. Hugging Face keeps a rename alias.
+1. huggingface.co/AnnotateIt/dfine-nano-coco-onnx declares `license: apache-2.0`
+   in its card metadata and as a Hugging Face tag, and ships the verbatim
+   Apache-2.0 text as a LICENSE file. It is a format conversion, not a training
+   run, and it says what it converted:
+     source     ustc-community/dfine-nano-coco
+     revision   066438d3d8f0da137a37b38fdf3368fd4afceced
+     safetensors sha256
+       19e06bdc873da819920a8d373b879721a5b9759d822f8213220bb09abbdab58b
+     fp32, opset 18, fixed 1x3x640x640, and a PyTorch-versus-ONNX check
+   in validation-report.json.
 
-2. huggingface.co/ustc-community/dfine-nano-coco declares, verbatim:
+2. huggingface.co/ustc-community/dfine-nano-coco — the weights that conversion
+   is of — declares, verbatim:
      license: apache-2.0
      datasets:
        - coco
 
-3. github.com/Peterande/D-FINE carries the Apache-2.0 text reproduced below.
-   Its README adds one carve-out, verbatim:
+3. github.com/Peterande/D-FINE, the training code, carries the Apache-2.0 text
+   reproduced below. Its README adds one carve-out, verbatim:
      "License note: Checkpoints trained or pretrained on Objects365 (*_obj365,
      *_obj2coco) may be subject to the Objects365 dataset terms and should not
      be assumed to be commercially cleared under the D-FINE license."
-   This checkpoint is `dfine_n_coco` — COCO only, no Objects365 lineage — so
-   the carve-out does not reach it. Staying on that checkpoint is a standing
-   constraint, not an accident.
+   This checkpoint is COCO only, with no Objects365 lineage, so the carve-out
+   does not reach it. Objects365 states it is "available for the academic
+   purpose only". Staying off those checkpoints is a standing rule, not a
+   preference.
+
+The claim here is deliberately narrow. It is not "the code is Apache-2.0, so the
+weights are" — weights do not inherit a code licence, and OSI's Open Source AI
+Definition treats parameters as separately licensable for exactly that reason.
+It is that **the publisher of the weights declared them Apache-2.0**, and a
+format conversion is a derivative work section 4 permits distributing, provided
+this file travels with it. That is what this file is for, and it is why it is
+copied into the container image beside the weights rather than kept in docs.
+
+Why not onnx-community/dfine_n_coco-ONNX, which the research first measured:
+
+- It declares no licence — no card metadata, no tag, no LICENSE file — so it
+  states no terms and cannot discharge section 4 on anyone's behalf. Hugging
+  Face documents no default for an untagged repository, and its own terms grant
+  a platform licence rather than a redistribution one.
+- Its export is dated 2025-04-30 and the base checkpoint was corrected on
+  2025-08-20 in a commit titled "Fix weights", so it converts superseded
+  weights. Measured on 32 on-track photographs, that costs 8 of 29 usable
+  kart-and-driver boxes and roughly half the confidence.
 
 What is not resolved, and is accepted rather than hidden:
 
-- The ONNX repository is community-editable and still declares nothing. The
-  provenance above is the redirect plus the byte count, not a statement on the
-  artefact. Re-verify both if the file is ever replaced.
+- COCO's own terms license the annotations CC BY 4.0 and carry no
+  non-commercial clause, but state that the Consortium does not own the images
+  and that their use "must abide by the Flickr Terms of Use". Three of COCO's
+  eight per-image Flickr licences are non-commercial. Whether that flows
+  through to a trained model is unresolved and industry-wide; it is identical
+  for every COCO-pretrained detector and so cannot distinguish between them.
+  Written down here so it is a known risk rather than a discovered one.
 - The Apache-2.0 file upstream has an unfilled copyright line —
   "Copyright [yyyy] [name of copyright owner]" — so it names no holder.
-- COCO's own terms (cocodataset.org, "Terms of Use") license the annotations
-  CC BY 4.0 but state that the Consortium does not own the images, that their
-  use "must abide by the Flickr Terms of Use", and that users "accept full
-  responsibility for the use of the dataset". No party in this chain states
-  that trained weights are unencumbered by that. This is common to essentially
-  every COCO-trained detector and is not specific to this file; it is written
-  down here so that it is a known risk rather than a discovered one.
 
-This is a weaker record than YuNet's and a stronger one than EdgeFace's: unlike
-EdgeFace (LICENCE-edgeface.txt) no source in the chain restricts commercial use.
+Unlike EdgeFace (LICENCE-edgeface.txt) nothing in this chain restricts
+commercial use. This is a duty to discharge, not a risk to record, which is why
+it needs no ADR.
 
 ----------------------------------------------------------------------------
 

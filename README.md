@@ -135,8 +135,8 @@ finds the kart and its driver and frames on the two together, which is what a
 karting photograph is of — a frame on the driver's head loses the livery it was
 taken for. `resolvedBy` says `kart`, and `pinTo: "kart"` steps over the faces for
 a subject whose face is behind a visor. Measured on 32 on-track photographs, the
-face detector puts a box on the leading driver's head in 9 of them; the kart
-producer and saliency together leave none of them unframed.
+face detector puts a box on the leading driver's head in 9 of them and the kart
+producer frames 31.
 
 A `subjectArea` says which rectangle of the result the Subject has to fill, as
 fractions from the top-left. Without one the solver uses its golden-ratio grid.

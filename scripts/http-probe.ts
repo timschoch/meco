@@ -548,13 +548,37 @@ const kartPrints = JSON.parse(await readFile(kartFixtures("face-prints.json"), "
  */
 const unembeddable = new Map<string, Map<number, string>>();
 
-/** One kart photograph, canned into the stand-in with its real Face Prints. */
+/**
+ * The recorded object detections for the same photographs — `objects.json`.
+ *
+ * Not `expected.json` beside it, which is the Not-a-Face ground truth and is
+ * about faces. These are what the kart producer is framed from.
+ */
+const kartObjects = JSON.parse(await readFile(kartFixtures("objects.json"), "utf8")) as {
+  images: { file: string; width: number; height: number; objects: ObjectDetection["objects"] }[];
+};
+
+/**
+ * One kart photograph, canned into the stand-in with everything recorded about
+ * it: the faces, their Face Prints, the ones `/embed` refuses, and the objects.
+ *
+ * All of it here rather than one piece per section, and that is not tidiness:
+ * the stand-in answers whatever it has been told at the moment it is asked, meco
+ * caches the whole answer under the photograph's hash, and `meco:producers` then
+ * says there is nothing left to look for. A photograph cropped by an earlier
+ * section before its objects were registered would be cached with none, and
+ * every later claim about it would quietly be a claim about an empty list.
+ */
 async function kartPhoto(name: string): Promise<{ url: string; hash: string }> {
   const bytes = await readFile(kartFixtures(name));
   const hash = sha(bytes);
   const detection = kartRecorded.images[name];
   if (!detection) throw new Error(`${name} is not in fixtures/karts/detected.json`);
   canned.set(hash, detection);
+
+  const seen = kartObjects.images.find((i) => i.file === name);
+  if (!seen) throw new Error(`${name} is not in fixtures/karts/objects.json`);
+  cannedObjects.set(hash, { width: seen.width, height: seen.height, objects: seen.objects });
 
   const prints: number[][] = [];
   for (const p of kartPrints.prints.filter((p) => p.file === name)) prints[p.index] = p.print;
@@ -3106,28 +3130,8 @@ console.log("\nkarts");
  * sharp, well-lit drivers, visors down, and **zero** faces.
  */
 {
-  const karts = JSON.parse(
-    await readFile(fileURLToPath(new URL("../fixtures/karts/objects.json", import.meta.url)), "utf8"),
-  ) as {
-    images: { file: string; width: number; height: number; objects: ObjectDetection["objects"] }[];
-  };
-
-  const kartPhoto = async (name: string) => {
-    const bytes = await readFile(
-      fileURLToPath(new URL(`../fixtures/karts/${name}`, import.meta.url)),
-    );
-    const hash = sha(bytes);
-    const recorded = karts.images.find((i) => i.file === name)!;
-    cannedObjects.set(hash, {
-      width: recorded.width,
-      height: recorded.height,
-      objects: recorded.objects,
-    });
-    return { url: `data:image/jpeg;base64,${bytes.toString("base64")}`, hash };
-  };
-
-  // The headline case. YuNet finds nothing here, so the stand-in answers no
-  // faces for it — which is the truth, not a convenience.
+  // The headline case. YuNet finds nothing here, so the recorded detection is
+  // an empty list — which is the truth, not a convenience.
   const DARK_VISOR = await kartPhoto("on-track-dark-visor.jpg");
   const REAR_HELMET = await kartPhoto("on-track-rear-helmet.jpg");
 
@@ -3222,7 +3226,10 @@ console.log("\nkarts");
   const objects = regions.filter((r) => r["meco:producer"] === "dfine-n-coco");
   check(
     "find subjects lists the objects as regions of their own",
-    seen.status === 200 && objects.length === 2 && objects.every((r) => r["meco:label"] === "person"),
+    seen.status === 200 &&
+      objects.length === 5 &&
+      objects.filter((r) => r["meco:label"] === "person").length === 3 &&
+      objects.filter((r) => r["meco:label"] === "motorbike").length === 2,
     objects.map((r) => `${r.RegionId} ${String(r["meco:label"])}`).join(", ") || "none",
   );
   check(
@@ -3231,7 +3238,7 @@ console.log("\nkarts");
     // The recorded detection has a `boat` in it at a higher score than either
     // driver — COCO resolving two karts side by side to the nearest thing it
     // knows. Filing it would put a region on the Annotation that nothing reads.
-    `${String(karts.images.find((i) => i.file === "on-track-dark-visor.jpg")!.objects.length)} detected, ${String(objects.length)} filed`,
+    `${String(kartObjects.images.find((i) => i.file === "on-track-dark-visor.jpg")!.objects.length)} detected, ${String(objects.length)} filed`,
   );
 
   const before = objectCalls.length;
@@ -3251,6 +3258,12 @@ console.log("\nkarts");
    * is the whole claim.
    */
   const NO_KART_YET = await kartPhoto("on-track-visor-open.jpg");
+  // Every kart photograph has been cropped by an earlier section, so each one
+  // already has a complete Annotation and would never reach the service again.
+  // Dropping this one is what puts the request back on the path being tested;
+  // the alternative — a seventh photograph nobody else uses — would test the
+  // degradation of a picture with no kart in it.
+  await storage.delete(`annotations/${NO_KART_YET.hash}.json`);
   objectsDown = true;
   const halfDown = await post("/v1/crop", {
     source: NO_KART_YET.url,

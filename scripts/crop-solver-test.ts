@@ -557,6 +557,25 @@ check(
   "IoU 0.156, overlap of the smaller box 0.600",
 );
 
+/**
+ * A second `motorbike` box on the same kart joins it rather than competing.
+ *
+ * Suppression runs per class at an IoU of 0.6, and a kart earns two boxes at
+ * different extents often enough that it is the normal case rather than an odd
+ * one — measured, `paddock-mixed.jpg` and `on-track-dark-visor.jpg` both do it.
+ * These two share 0.72 of the smaller box and 0.60 of their union, so the IoU
+ * that suppression uses left them both alive on purpose.
+ */
+{
+  const wheel = seen("motorbike", 0.32, { x: 0.06, y: 0.36, width: 0.5, height: 0.44 });
+  const box = kartSubjectBox([KART, wheel, DRIVER]);
+  check(
+    "a second box on the same kart widens it rather than losing to it",
+    box !== null && Math.abs(box.x - 0.06) < 1e-9 && Math.abs(box.width - 0.64) < 1e-9,
+    box ? `x=${box.x.toFixed(3)} w=${box.width.toFixed(3)}` : "no box",
+  );
+}
+
 const withCrowd = kartSubjectBox([KART, DRIVER, SPECTATOR]);
 check(
   "a spectator behind the track does not join the kart",
@@ -576,12 +595,44 @@ check(
   withCrowd ? `x=${withCrowd.x.toFixed(3)} (the spectator is at 0.850)` : "no box",
 );
 
+/**
+ * With no kart, the *largest* person seeds it — not the strongest.
+ *
+ * The spectator outscores the driver 0.55 to 0.39 and is a third of their size,
+ * which is the shape of the failure Q11 recorded and Q12 fixed: a detector is
+ * confident about a small, clean, unoccluded subject standing still, and a
+ * photograph is of the big thing in it. On the committed fixtures this is what
+ * puts `podium-trophy.jpg` on the driver rather than on the press photographer
+ * beside them, who scores 0.945 against the driver's 0.939.
+ */
 const noKart = kartSubjectBox([DRIVER, SPECTATOR]);
 check(
-  "with no kart the strongest person seeds it instead",
-  noKart !== null && Math.abs(noKart.x - 0.85) < 1e-9 && Math.abs(noKart.width - 0.08) < 1e-9,
-  noKart ? `x=${noKart.x.toFixed(3)} w=${noKart.width.toFixed(3)}` : "no box",
+  "with no kart the largest person seeds it, not the strongest",
+  noKart !== null && Math.abs(noKart.x - 0.35) < 1e-9 && Math.abs(noKart.width - 0.2) < 1e-9,
+  noKart
+    ? `x=${noKart.x.toFixed(3)} w=${noKart.width.toFixed(3)} (the spectator scores 0.55 at 0.850)`
+    : "no box",
 );
+
+/**
+ * The same rule on the vehicle, which is the half Q12 actually measured.
+ *
+ * A distant kart, sharp against empty tarmac and scoring higher than the
+ * foreground one it is a quarter the size of. Q12 changed the pick on 5 of 32
+ * photographs this way, fixed the two failures Q11 had named, and regressed
+ * none.
+ */
+{
+  const distant = seen("motorbike", 0.88, { x: 0.02, y: 0.08, width: 0.14, height: 0.11 });
+  const box = kartSubjectBox([distant, KART, DRIVER]);
+  check(
+    "and the largest kart wins the seed over a sharper distant one",
+    box !== null && Math.abs(box.x - 0.1) < 1e-9 && Math.abs(box.width - 0.6) < 1e-9,
+    box
+      ? `x=${box.x.toFixed(3)} w=${box.width.toFixed(3)} (the distant kart scores 0.88 at 0.020)`
+      : "no box",
+  );
+}
 
 check(
   "a photograph with nothing usable in it yields no box at all",

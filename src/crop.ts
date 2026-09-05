@@ -393,25 +393,38 @@ function union(boxes: readonly FaceBox[]): FaceBox {
  * The rule, measured on 32 on-track photographs in
  * `docs/research/kart-and-driver-subjects.md` Q11:
  *
- * 1. **Seed on the highest-scoring `motorbike`.** COCO has no kart class, so a
- *    detector trained on it resolves a kart to the nearest thing in its
- *    vocabulary — an open-wheeled seated vehicle with a rider — and that
- *    approximation finds the kart on 21 of 32. The boxes are tight on the kart,
- *    not on the grandstand.
- * 2. **Union it with every `person` overlapping it.** That is "the kart and
- *    whoever is on it", and it is also what makes the crowd problem disappear
- *    without a rule about crowds: a spectator does not overlap the kart.
- * 3. **With no `motorbike`, seed on the highest-scoring `person` instead** and
- *    union it with whoever overlaps *them*. This is not a footnote — it is the
- *    only thing that answers `on-track-dark-visor.jpg`, the photograph YuNet
- *    returns zero faces on, where the detector finds two drivers and no kart
- *    under either of them.
+ * 1. **Seed on the largest `motorbike`.** COCO has no kart class, so a detector
+ *    trained on it resolves a kart to the nearest thing in its vocabulary — an
+ *    open-wheeled seated vehicle with a rider — and that approximation finds the
+ *    kart on 29 of 32. The boxes are tight on the kart, not on the grandstand.
+ * 2. **Union it with everything overlapping it.** That is "the kart and whoever
+ *    is on it", and it is also what makes the crowd problem disappear without a
+ *    rule about crowds: a spectator does not overlap the kart.
  *
- * Seeded on the score and not on the size, which is a choice with a known cost:
- * the research found two photographs where the highest-scoring kart is a distant
- * one and the frame walks away from the foreground subject. A largest-box rule
- * would probably fix both and was not tested, so it is not adopted here on a
- * guess.
+ *    Everything, not only the `person` boxes, because suppression runs per class
+ *    at an IoU of 0.6 and a kart routinely earns two `motorbike` boxes at
+ *    different extents — one on the bodywork and one taking in a wheel. Both are
+ *    the same kart, and unioning them is what puts the whole of it in the frame
+ *    rather than whichever fragment happened to be larger.
+ * 3. **With no `motorbike`, seed on the largest `person` instead** and union it
+ *    with whoever overlaps *them*. A photograph can hold a driver and no kart
+ *    the detector will name, and a Crop still has to come out.
+ *
+ * **The largest and not the highest-scoring**, which is the one place this rule
+ * has changed its mind. Q11 seeded on the score and recorded two photographs
+ * where the strongest kart is a distant one and the frame walks away from the
+ * foreground subject; it flagged the largest-box rule as one line and untested.
+ * Q12 tested it: it changes the pick on 5 of 32, fixes both of those, is neutral
+ * or better on the other 3, regresses nothing, and takes the set from 29 usable
+ * to 31. On the committed fixtures it is what puts `podium-trophy.jpg` on the
+ * driver rather than on the press photographer standing beside them, who
+ * outscores the driver 0.945 to 0.939 and is the smaller of the two.
+ *
+ * What is still open, and is not being decided on six photographs: seeding on
+ * the largest box of *either* class rather than preferring the vehicle. It would
+ * put `on-track-dark-visor.jpg` on the nearer of its two karts instead of the
+ * further one — both are a kart with a driver on it, so this is a better pick
+ * and not a broken one. Measure it against the 32 before taking it.
  *
  * Exported because it is the whole of the kart producer and it is arithmetic:
  * `scripts/crop-solver-test.ts` drives it with boxes it wrote down, which is how
@@ -422,12 +435,13 @@ export function kartSubjectBox(objects: readonly DetectedObject[]): SubjectBox |
   const usable = objects.filter((o) => (KART_CLASSES as readonly string[]).includes(o.label));
   if (usable.length === 0) return null;
 
-  const strongest = (label: string) =>
+  const area = (o: DetectedObject) => o.box.width * o.box.height;
+  const largest = (label: string) =>
     usable
       .filter((o) => o.label === label)
-      .reduce<DetectedObject | null>((best, o) => (best && best.score >= o.score ? best : o), null);
+      .reduce<DetectedObject | null>((best, o) => (best && area(best) >= area(o) ? best : o), null);
 
-  const seed = strongest("motorbike") ?? strongest("person");
+  const seed = largest("motorbike") ?? largest("person");
   if (!seed) return null;
 
   const joined = usable.filter(
