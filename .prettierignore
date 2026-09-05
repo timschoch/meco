@@ -4,3 +4,7 @@ skills-lock.json
 .claude/rules/**
 .claude/skills/**
 .agents/**
+
+# generated or byte-exact — reformatting them is a defect
+pnpm-lock.yaml
+fixtures/**
