@@ -8,7 +8,7 @@
 
 ## TL;DR
 
-1. **meco already reads a saliency point and throws it away.** `sharp` surfaces `info.attentionX` / `info.attentionY` on `toBuffer({resolveWithObject:true})` when `position: sharp.strategy.attention` is used, and they are in **original Source Image coordinates**. Available since sharp 0.32.0; meco is on `^0.35.3`. That is a one-line change to `src/crop.ts` and the cheapest possible v1 Subject.
+1. **meco already reads a saliency point and throws it away.** `sharp` surfaces `info.attentionX` / `info.attentionY` on `toBuffer({resolveWithObject:true})` when `position: sharp.strategy.attention` is used, available since sharp 0.32.0; meco is on `^0.35.3`. Those two fields are **not** in Source Image coordinates — see Q2 — the Source Image point comes from `cropOffsetLeft`/`cropOffsetTop` in the same response instead. That is a one-line change to `src/crop.ts` and the cheapest possible v1 Subject.
 2. **A Subject is a rectangle, not a strategy.** Restructure `cropImage` around a resolved **Subject box list** and solve the crop window analytically. Every existing input becomes a producer of that list: Crop Anchor, saliency point, detected face, recognised person, detected object. The Template's Subject Area becomes the *target* the solver aims at. This is the single highest-leverage design decision in the whole thing, and it is the one meco's own comment in `src/crop.ts` already anticipates.
 3. **One runtime: `onnxruntime-node`.** EdgeFace forces ONNX Runtime into the image, so every other component is now measured against "does it justify a second runtime". None do. YuNet runs as a raw ONNX graph, so `@techstark/opencv-js` is dropped (−14.7 MB). RTMPose replaces MoveNet, so the whole TensorFlow.js tree is dropped (−83.4 MB, and it was the least maintained thing in the plan). `sharp.affine()` does the ArcFace alignment warp, so no OpenCV is needed anywhere. The cost is roughly 210 lines of decode written once, against three fewer runtimes.
 4. **Face recognition of your own people is legally the expensive part, not technically.** A facial template is *sensitive personal data* under Swiss revFADP Art. 5 lit. c and a *special category* under GDPR Art. 9(1). Explicit consent per enrolled person, embeddings not photos, gallery stays on your own container. **InsightFace weights are non-commercial-research-only** — read the exact quote below before anyone imports `buffalo_l`. EdgeFace is the chosen model, but **its weights are not BSD-3 and this is unresolved** — see the blocking-risk box in Q4. Do not fall back to ONNX Model Zoo ArcFace: it is a 2018 opset-8 export, unmaintained, trained on withdrawn MS-Celeb-1M.
@@ -20,7 +20,7 @@
 
 | | Scope | What ships | Added weight |
 |---|---|---|---|
-| **v1** | Saliency Subject + the solver | Refactor `cropImage` to a Subject-box solver with phi-grid placement; read `attentionX/Y` from sharp as the fallback Subject | **0**, no new dependency |
+| **v1** | Saliency Subject + the solver | Refactor `cropImage` to a Subject-box solver with phi-grid placement; read sharp's saliency point (Q2) as the fallback Subject | **0**, no new dependency |
 | **v2** | Faces | YuNet ONNX via `onnxruntime-node`; faces become high-priority Subject boxes with a headroom rule | +45 MB runtime (pruned) + 230 KB model |
 | **v3** | Known people | EdgeFace embeddings (`edgeface_xs_gamma_06`, exported to ONNX once offline) + a local gallery; `sharp.affine()` does the alignment warp; recognised face wins the anchor | ~7 MB model, runtime already present |
 | **v3′** | Kart + driver's head | Fine-tuned D-FINE-N (Apache-2.0) finds the kart; RTMPose-t finds the head inside it | +15 MB detector, +13 MB pose |
@@ -55,7 +55,7 @@ Nothing here knows what a face is. These methods answer "where is the visual ene
 
 | Method | Gives coordinates? | Boost a known region? | Cold start | Licence | Cost |
 |---|---|---|---|---|---|
-| **sharp `strategy.attention`** | ✅ `attentionX/Y` in source coords | ❌ | none | Apache-2.0 / LGPL-2.1+ | free |
+| **sharp `strategy.attention`** | ✅ point, via `cropOffsetLeft/Top` (`attentionX/Y` is *not* in source coords — see below) | ❌ | none | Apache-2.0 / LGPL-2.1+ | free |
 | **sharp `strategy.entropy`** | rect only, no point | ❌ | none | same | free |
 | **smartcrop.js + smartcrop-sharp** | ✅ `topCrop` rect, never crops | ✅ **`boost`, weight 100** | none | MIT | free |
 | OpenCV Spectral Residual (ported) | ✅ dense map | ✅ you write the scorer | none | Apache-2.0 algorithm | free |
@@ -80,18 +80,10 @@ sharp does not implement it. `src/pipeline.cc` calls libvips `vips_smartcrop()` 
 **Three gotchas that will bite:**
 
 - **`cropOffsetLeft` / `cropOffsetTop` are negated.** libvips `extract.c` sets `out->Xoffset = -extract->left`. sharp's own test asserts `-107`. Use `-info.cropOffsetLeft`.
-- **The two fields are in different coordinate spaces.** `cropOffsetLeft/Top` are post-resize; `attentionX/Y` are rescaled back to the **original Source Image** (`baton->attentionX = attention_x * jpegShrinkOnLoad / scale`). Use `attentionX/Y`.
-- **The crop block is skipped entirely when no crop is needed.** An exactly-aspect-matching request returns no `attentionX/Y`. Guard for `undefined`.
+- **`attentionX`/`attentionY` are not in Source Image coordinates — the field name implies more than sharp promises.** Measured against sharp 0.35: the value is the resized-probe coordinate multiplied by whatever shrink-on-load the JPEG decoder chose (`baton->attentionX = attention_x * jpegShrinkOnLoad / scale`), and that factor is never exposed, so it varies with the source's file format alone. On a 1600×1000 photo with its Subject at 0.68 of the width, a 32 px probe reports `attentionX` **33 as a PNG** and **264 as the same picture re-encoded as JPEG** — an 8× gap from nothing but the container. `cropOffsetLeft`/`cropOffsetTop` do not have this problem: they are post-resize offsets in the probe's own already-known scale, so undoing only that resize (never a hidden decoder factor) lands back on the same Source Image fraction regardless of format. **Use `cropOffsetLeft`/`cropOffsetTop`, not `attentionX`/`attentionY`.**
+- **The crop block is skipped entirely when no crop is needed.** An exactly-aspect-matching request returns neither pair of fields. Guard for `undefined`.
 
-Reading the point without paying for a full-size crop: request a tiny aspect-matched resize with `.raw()`. The attention point comes back in source coordinates and the buffer is ~3 KB.
-
-```ts
-const { info } = await sharp(source)
-  .resize(Math.round(32 * aspect), 32, { fit: "cover", position: sharp.strategy.attention })
-  .raw()
-  .toBuffer({ resolveWithObject: true });
-// info.attentionX / info.attentionY — Source Image pixels, or undefined
-```
+Reading the point without paying for a full-size crop: request a tiny aspect-matched resize with `.raw()`, for a buffer of about 3 KB. `saliencyPoint` in `src/crop.ts` is the worked implementation — it reads `cropOffsetLeft`/`cropOffsetTop` off exactly this call, for the reason above, and undoes only the resize scale to recover a Source Image fraction.
 
 **Accuracy caveats, all from source:** the argmax runs on a 32×32 grid, so positional precision is ~3% of image width. The skin detector is one fixed XYZ vector with a hard dark cutoff — a known bias against dark skin tones and a failure mode in low-key images. No face detection. **No way to bias a known region.**
 
@@ -111,7 +103,7 @@ if (options.ruleOfThirds) s += max(0, s + d + 0.5) * 1.2 * (thirds(px) + thirds(
 
 `smartcrop.crop(image, options)` returns `{ topCrop: {x, y, width, height} }` in original pixels and **never crops** — exactly the read-a-rectangle-without-cropping property meco wants. `prescale` downsamples to 256 px before analysis, so cost is roughly input-size-independent after decode. README benchmark: *"< 20 ms to find a square crop of a 640x427px picture on an i7."*
 
-**What to do instead.** v1 ships with `sharp`'s `attentionX/Y` alone — a point, not a rectangle, which the solver in Q6 handles natively because it only ever needs an anchor plus an optional extent. From v2 on, a detected face is a far better Subject than any saliency heuristic, so the boost mechanism has nothing left to do: boosting exists to force a known region to win a *search*, and the solver does not search. If a dense saliency rectangle is ever genuinely wanted, vendor the ~300-line scoring loop rather than take a four-year-old dependency — it is MIT, self-contained, and has no transitive deps.
+**What to do instead.** v1 ships with `sharp`'s saliency point alone (Q2) — a point, not a rectangle, which the solver in Q6 handles natively because it only ever needs an anchor plus an optional extent. From v2 on, a detected face is a far better Subject than any saliency heuristic, so the boost mechanism has nothing left to do: boosting exists to force a known region to win a *search*, and the solver does not search. If a dense saliency rectangle is ever genuinely wanted, vendor the ~300-line scoring loop rather than take a four-year-old dependency — it is MIT, self-contained, and has no transitive deps.
 
 ### Everything else in this family
 
@@ -499,7 +491,7 @@ Producers, in resolution order — the first that yields a box wins the anchor, 
 2. Recognised person
 3. Detected face (largest, or all)
 4. Detected object (the branded kart) with a pose-derived head inside it
-5. Saliency: sharp's `attentionX/Y` as a zero-extent box
+5. Saliency: sharp's attention-strategy point (Q2) as a zero-extent box
 6. Crop Anchor (today's behaviour), mapped to a point
 7. Centre
 
@@ -722,7 +714,7 @@ Everything above `exiftool-vendored` is the request path. **Total added to the c
 | `@techstark/opencv-js` | YuNet as a raw ONNX graph | Second runtime for one model ORT already runs. Costs ~150 lines of decode. |
 | `@tensorflow/tfjs-*` + `@tensorflow-models/pose-detection` | RTMPose-t ONNX | Third runtime, 83.4 MB, **and the least maintained thing in the plan**. RTMPose-t is also faster and more confident on helmets. |
 | OpenCV for face alignment | `sharp.affine()` + 20 lines of closed-form similarity | Verified to 0.17 px. No dependency at all. |
-| `smartcrop` + `smartcrop-sharp` | `sharp` `attentionX/Y`, then real face boxes from v2 | Fails the maintenance check. The boost mechanism has no job once the solver is analytic. |
+| `smartcrop` + `smartcrop-sharp` | `sharp`'s saliency point (Q2), then real face boxes from v2 | Fails the maintenance check. The boost mechanism has no job once the solver is analytic. |
 | RF-DETR-Nano | D-FINE-N | 8× the parameters, ONNX size unpublished, raw outputs with two silent-failure modes. Kept as the accuracy fallback. |
 | MoveNet + tfjs | RTMPose-t | See above. MoveNet ONNX remains available as a de-risking step. |
 

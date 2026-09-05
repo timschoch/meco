@@ -10,6 +10,10 @@
  * The Blob half needs `BLOB_READ_WRITE_TOKEN` and really writes to the store.
  * It confines itself to a run-scoped `contract-test/` prefix and deletes what
  * it wrote, which is the same `delete` the contract is testing.
+ *
+ * Needs `.env.local` in the repo root (a fresh worktree does not have one —
+ * `vercel env pull .env.local`) and takes roughly ten minutes against the live
+ * store. Not part of the gate; run it on its own with `pnpm test:storage`.
  */
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -57,6 +61,32 @@ const RECORD = Buffer.from(JSON.stringify({ name: "Ada", photos: [] }));
 const REWRITTEN = Buffer.from(JSON.stringify({ name: "Ada", photos: ["a"] }));
 /** Not a real image; the contract is about bytes, not about pixels. */
 const PHOTO = Buffer.from("a face photo stands in for itself here");
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Wait for a delete to become visible to a read.
+ *
+ * Vercel Blob is CDN-backed: `delete()` resolving does not mean every read
+ * stops seeing the object, only that it eventually will. Polling for a few
+ * seconds asserts the promise the backend actually makes — "a deleted object
+ * stops being served" — instead of "within one round trip", which is what a
+ * single immediate read asserts and Blob never promised. Local disk has no
+ * such window (a delete is a synchronous unlink), so it keeps the strict,
+ * single-read check; weakening that one too would hide a real regression on
+ * the backend that actually is immediately consistent.
+ */
+async function getAfterDelete(backend: string, storage: Storage, key: string): Promise<Buffer | null> {
+  if (backend !== "vercel-blob") return storage.get(key);
+  const deadline = Date.now() + 5000;
+  for (let delayMs = 200; ; delayMs = Math.min(delayMs * 2, 1000)) {
+    const read = await storage.get(key);
+    if (read === null || Date.now() >= deadline) return read;
+    await sleep(delayMs);
+  }
+}
 
 /**
  * Which store a key goes to is decided by this one function, so it is worth
@@ -132,7 +162,7 @@ async function runContract(
 
     await storage.delete(recordKey);
     written.splice(written.indexOf(recordKey), 1);
-    check(backend, "get after delete is null", (await storage.get(recordKey)) === null);
+    check(backend, "get after delete is null", (await getAfterDelete(backend, storage, recordKey)) === null);
 
     let deleteThrew = false;
     try {
@@ -193,7 +223,7 @@ async function runContract(
       skip(
         backend,
         "a private URL is not publicly readable",
-        "no private store yet — see DEPLOY.md, one-time setup",
+        "BLOB_PEOPLE_READ_WRITE_TOKEN is not set — no private store to test against, see DEPLOY.md",
       );
     }
   } finally {
