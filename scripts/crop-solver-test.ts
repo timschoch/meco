@@ -686,22 +686,33 @@ for (const image of karts.images) {
  *
  * Filtering the recorded detections is exactly what a higher floor would do, so
  * this needs no service and no model to say it.
+ *
+ * The claim is about the **mechanism**, not about how far the frame happens to
+ * slide. An earlier version asserted that the box moved by more than 0.01, and
+ * issue #42 broke it without breaking anything real: at the production bound the
+ * surviving person box sits almost where the kart did, so the frame barely moves
+ * while the kart is lost all the same. What is asserted now is that no kart
+ * survives the higher floor, which is the sentence above.
  */
 {
   const dark = karts.images.find((i) => i.file === "on-track-dark-visor.jpg");
-  const at = (floor: number) =>
-    kartSubjectBox((dark?.objects ?? []).filter((o) => o.score >= floor));
-  const held = at(0.28);
-  const raised = at(0.3);
+  const survivors = (floor: number) => (dark?.objects ?? []).filter((o) => o.score >= floor);
+  // "motorbike" and not `isKartClass`, because a kart is what has to survive:
+  // `kartSubjectBox` seeds on the largest motorbike and only falls back to a
+  // person when there is none. A person box surviving the higher floor is the
+  // failure this check is about, not a pass.
+  const karting = (floor: number) => survivors(floor).filter((o) => o.label === "motorbike");
+  const held = kartSubjectBox(survivors(0.28));
+  const raised = kartSubjectBox(survivors(0.3));
   check(
     "raising the score floor to 0.30 loses the hardest photograph's kart",
     held !== null &&
-      raised !== null &&
       Math.abs(held.x - (dark?.subject.x ?? -1)) < 1e-3 &&
-      Math.abs(raised.x - held.x) > 0.01,
-    held && raised
-      ? `0.28 frames x=${held.x.toFixed(3)}, 0.30 frames x=${raised.x.toFixed(3)} — its karts score 0.284 and 0.280`
-      : "no box",
+      karting(0.28).length > 0 &&
+      karting(0.3).length === 0,
+    `${String(karting(0.28).length)} kart boxes at 0.28 and ${String(karting(0.3).length)} at 0.30 — ` +
+      `they score ${karting(0.28).map((o) => o.score.toFixed(4)).join(", ")}` +
+      (held && raised ? `; the frame barely moves, x=${held.x.toFixed(3)} to ${raised.x.toFixed(3)}` : ""),
   );
 }
 

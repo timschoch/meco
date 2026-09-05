@@ -460,9 +460,12 @@ function union(boxes: readonly FaceBox[]): FaceBox {
  *
  * What is still open, and is not being decided on six photographs: seeding on
  * the largest box of *either* class rather than preferring the vehicle. It would
- * put `on-track-dark-visor.jpg` on the nearer of its two karts instead of the
- * further one — both are a kart with a driver on it, so this is a better pick
- * and not a broken one. Measure it against the 32 before taking it.
+ * change which of `on-track-dark-visor.jpg`'s two karts is framed — both are a
+ * kart with a driver on it, so either pick is a good one. Which kart the current
+ * rule returns is not even stable across resolutions: at the 1400 px this
+ * fixture used to be committed at it was the further kart, and at the 1600 px
+ * production bound it is the nearer one (issue #42). Measure the alternative
+ * against the 32 before taking it.
  *
  * Exported because it is the whole of the kart producer and it is arithmetic:
  * `scripts/crop-solver-test.ts` drives it with boxes it wrote down, which is how

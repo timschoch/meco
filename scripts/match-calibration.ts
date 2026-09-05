@@ -42,7 +42,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import type { DetectedFace, Detection } from "../src/faces.js";
+import { LONG_EDGE, boundedSource, type DetectedFace, type Detection } from "../src/faces.js";
 import { NOT_A_FACE_PRINTS } from "../src/not-a-face-prints.js";
 import {
   MATCH_MARGIN,
@@ -78,7 +78,68 @@ function check(ok: boolean, name: string, detail = ""): void {
   if (!ok) problems.push(name);
 }
 
+// ------------------------------------------- the size these numbers are for
+
+/**
+ * Every kart fixture is the bytes production would send, at the size it sends.
+ *
+ * `src/faces.ts` bounds a Source Image to `LONG_EDGE` before the models ever see
+ * it, and `withoutEnlargement` means that bound only ever shrinks. So a fixture
+ * committed *below* the bound is not a smaller copy of the production input — it
+ * is a different input, one no caller can produce, and every number this script
+ * derives from it describes a regime that does not exist.
+ *
+ * Issue #42 is what that costs. At 1400 px four of `paddock-mixed`'s faces fall
+ * under `MIN_FACE_PX` and never reach the print comparison at all; at the 1600 px
+ * bound all eight clear it and two cross-person pairs land over
+ * `MATCH_THRESHOLD`. The suite passed either way, and at the smaller size it
+ * credited `MIN_FACE_PX` for a separation the Not-a-Face rule was actually
+ * making. A green suite that names the wrong load-bearing guard is how somebody
+ * loosens the wrong constant.
+ *
+ * Two things are asserted, and both are needed:
+ *
+ * - **`boundedSource` returns the fixture unchanged.** Production sends these
+ *   exact bytes. This is the invariant that keeps tracking `src/faces.ts` if the
+ *   bound or the encoding ever changes, rather than restating today's value.
+ * - **The fixture is as large as that photograph ever gets.** Pass-through alone
+ *   is satisfied by *any* small image, so on its own it would have called the
+ *   1400 px fixtures correct. `sources` in `expected.json` records the size of
+ *   the Commons original, and `min(LONG_EDGE, natural)` is the only size a
+ *   caller sending that photograph can produce.
+ */
+{
+  const KARTS = fileURLToPath(new URL("../fixtures/karts/", import.meta.url));
+  const { sources } = JSON.parse(await readFile(`${KARTS}expected.json`, "utf8")) as {
+    sources: Record<string, { width: number; height: number }>;
+  };
+
+  for (const [file, natural] of Object.entries(sources)) {
+    const bytes = await readFile(`${KARTS}${file}`);
+    // `boundedSource` reports the size *after* EXIF orientation, which is the
+    // frame every fraction downstream is in. Reading `sharp` metadata here
+    // instead would compare a rotated fixture against the wrong edge.
+    const bounded = await boundedSource(bytes);
+    const longEdge = Math.max(bounded.sourceWidth, bounded.sourceHeight);
+    const wanted = Math.min(LONG_EDGE, Math.max(natural.width, natural.height));
+
+    check(
+      bounded.bytes.equals(bytes),
+      `${file} is what production sends, byte for byte`,
+      `${String(bytes.length)} B in, ${String(bounded.bytes.length)} B out`,
+    );
+    check(
+      longEdge === wanted,
+      `${file} is committed at the production bound`,
+      `${String(longEdge)} px, and the bound on a ${String(natural.width)}x${String(natural.height)} original is ${String(wanted)} px`,
+    );
+  }
+}
+
 /** One face enrolled for one Person, in the shape the store hands matching. */
+/** A fixture's `file#index`, without the human's label after the dash. */
+const shortName = (e: { name: string }): string => e.name.split(" — ")[0]!;
+
 function enrol(face: FixturePrint): EnrolledPrint {
   return {
     personId: `person-${face.person}`,
@@ -668,11 +729,12 @@ check(
   const worstFace = Math.max(...realFaces.map((e) => e.cosine));
   const bestNotAFace = Math.min(...notFaces.map((e) => e.cosine));
 
+  const band = bestNotAFace - worstFace;
   console.log(
     `real face, nearest a Not-a-Face Print gets   ${worstFace.toFixed(4)}` +
       `\nnot a face, furthest one gets                ${bestNotAFace.toFixed(4)}` +
-      `\nband                                        ${worstFace.toFixed(4)} to ` +
-      `${bestNotAFace.toFixed(4)}, shipping ${NOT_A_FACE_THRESHOLD.toFixed(2)}\n`,
+      `\nband                                        ${band >= 0 ? `${worstFace.toFixed(4)} to ${bestNotAFace.toFixed(4)}, ${band.toFixed(4)} wide` : `${band.toFixed(4)} — INVERTED, the two populations overlap`}` +
+      `, shipping ${NOT_A_FACE_THRESHOLD.toFixed(2)}\n`,
   );
 
   // The claim that decides the ticket. Counted through the shipped function, not
@@ -695,11 +757,30 @@ check(
     const d = e.detection;
     return whyNotIdentifiable(d.face, e.print, d.width, d.height) !== null;
   });
+  /**
+   * The real faces this rule refuses, named — because at the size production
+   * uses there is no threshold that refuses none of them.
+   *
+   * Issue #42. When the fixtures were committed at 1400 px this list was empty
+   * and the check asserted so. That was a property of the fixtures, not of the
+   * rule: `paddock-mixed#8` was 36 px there and `MIN_FACE_PX` refused it before
+   * the print was ever consulted. At the 1600 px bound the same detection is
+   * 40 px, clears the floor, and lands at 0.6542 — above the furthest non-face.
+   * No value of `NOT_A_FACE_THRESHOLD` accepts it and still refuses
+   * `paddock-mixed#7` at 0.6365.
+   *
+   * So the loss is real, it is recorded here by name, and it is the cheap
+   * mistake of the two: a refused face is blurred and unnamed. Adding to this
+   * list is a deliberate act with an ADR-0003 entry behind it, never a way to
+   * make a red run green.
+   */
+  const REFUSED_ON_RECORD = ["paddock-mixed#8"];
+  const refusedNames = refusedFaces.map(shortName).sort();
   check(
-    refusedFaces.length === 0,
-    "and no real face big enough to recognise is refused",
+    refusedNames.join(",") === [...REFUSED_ON_RECORD].sort().join(","),
+    "and the real faces it refuses are the ones on record",
     refusedFaces.length === 0
-      ? `${String(realFaces.length)} accepted, closest ${worstFace.toFixed(4)}`
+      ? `none, and ${String(REFUSED_ON_RECORD.length)} expected`
       : refusedFaces.map((e) => `${e.name} ${e.cosine.toFixed(4)}`).join(", "),
   );
 
@@ -720,11 +801,21 @@ check(
       `${(bestNotAFace - worstBigFace).toFixed(4)} clear of the furthest non-face`,
   );
 
+  /**
+   * What 0.60 is, now that there is no band to sit in the middle of.
+   *
+   * The amendment to ADR-0003 described a threshold with room on both sides.
+   * At the production bound that is no longer true and the honest claim is
+   * narrower: 0.60 is **safe**, not centred. It refuses every non-face with
+   * room to spare, and the price is the one face named above. Asserting the old
+   * sentence here would be the same mistake #42 is about — a green check
+   * standing for a property the numbers stopped having.
+   */
   check(
-    NOT_A_FACE_THRESHOLD > worstFace && NOT_A_FACE_THRESHOLD < bestNotAFace,
-    "the threshold sits inside the band both kinds of mistake leave open",
-    `${(NOT_A_FACE_THRESHOLD - worstFace).toFixed(4)} above the closest real face, ` +
-      `${(bestNotAFace - NOT_A_FACE_THRESHOLD).toFixed(4)} below the furthest non-face`,
+    NOT_A_FACE_THRESHOLD < bestNotAFace,
+    "the threshold refuses every non-face, with room to spare",
+    `${(bestNotAFace - NOT_A_FACE_THRESHOLD).toFixed(4)} below the furthest non-face` +
+      (band < 0 ? `, and ${Math.abs(band).toFixed(4)} of overlap with the closest real face` : ""),
   );
 
   /**
@@ -744,26 +835,75 @@ check(
   const tooSmall = measured.filter(
     (e) => !e.reference && e.detection !== null && e.pixels < MIN_FACE_PX,
   );
-  const bandWithoutTheSizeRule =
-    bestNotAFace - Math.max(...[...realFaces, ...tooSmall.filter((e) => e.is === "face")].map((e) => e.cosine));
-  check(
-    bandWithoutTheSizeRule < 0.01 && worstFace < bestNotAFace,
-    "the size rule is what leaves the print threshold a band to sit in",
-    `${(bestNotAFace - worstFace).toFixed(4)} wide with it, ` +
-      `${bandWithoutTheSizeRule.toFixed(4)} without`,
-  );
-
-  const notRefusedBySize = tooSmall.filter((e) => {
-    const d = e.detection!;
+  /**
+   * Which of the two rules is actually load-bearing — the whole of issue #42.
+   *
+   * At 1400 px four `paddock-mixed` faces sat under `MIN_FACE_PX`, and the size
+   * rule looked like what kept the print threshold a band to sit in. At the
+   * bound production applies, **`MIN_FACE_PX` excludes nothing here at all**:
+   * every detection clears 40 px, and every non-face that gets refused is
+   * refused by its print. That is worth an assertion rather than a comment,
+   * because the tempting conclusion from the old numbers — "the size rule
+   * catches those anyway, so the print threshold has slack" — is false, and
+   * acting on it would loosen the only rule doing the work.
+   */
+  const refusedForSize = notFaces.filter((e) => {
+    const d = e.detection;
+    if (!d) return false;
     const why = whyNotIdentifiable(d.face, e.print, d.width, d.height);
-    return why === null || !why.includes("px");
+    return why !== null && why.includes("px");
   });
   check(
-    tooSmall.length > 0 && notRefusedBySize.length === 0,
-    "and no face below it is asked to carry a name, when matching as well as enrolling",
-    notRefusedBySize.length === 0
-      ? `${String(tooSmall.length)} detections under ${String(MIN_FACE_PX)} px, all refused for their size`
-      : notRefusedBySize.map((e) => e.name).join(", "),
+    refusedForSize.length === 0 && notFaces.every((e) => notAFace(e.print) !== null),
+    "the print rule is what refuses the non-faces, not the size rule",
+    `${String(notFaces.length)} non-faces, ${String(refusedForSize.length)} of them refused on size, ` +
+      `${String(tooSmall.length)} detections in the whole set under ${String(MIN_FACE_PX)} px`,
+  );
+
+  /**
+   * The collision issue #42 was filed about — and what re-deriving the fixture
+   * did to the ticket's own numbers.
+   *
+   * The ticket asked for two `paddock-mixed` cross-person pairs at **0.6489 and
+   * 0.5126** to be asserted at production resolution. **Neither reproduces**,
+   * and that is recorded here rather than quietly worked around. Those figures
+   * were measured on a re-encode made while investigating, not on the file now
+   * committed; against these bytes the only pair over `MATCH_THRESHOLD` is
+   * `#6`/`#7` at 0.5628. ADR-0003 puts JPEG drift at about 0.019 and this is
+   * 0.086, so the encode explains part of it and the rest is that the pair set
+   * at the margin is not stable. A number measured on bytes nobody committed is
+   * not a number this suite can hold.
+   *
+   * What survives is the structural claim, which is the one that matters: at the
+   * size production sends, two detections that are **not the same human** agree
+   * well enough to clear `MATCH_THRESHOLD`, and the Not-a-Face rule is what
+   * stops that becoming a name. Note what the pair is: `#7` is classified
+   * not-a-face, so this is a face agreeing with a non-face rather than two
+   * faces. There is **no face-to-face pair over the threshold** in this set —
+   * asserting one would be asserting something the committed data does not
+   * contain.
+   *
+   * `MIN_FACE_PX` cannot be the thing separating them: every detection here
+   * clears it, which the check above asserts.
+   */
+  const paddock = bigEnough.filter((e) => e.name.startsWith("paddock-mixed#"));
+  const collisions = paddock.flatMap((a, i) =>
+    paddock.slice(i + 1).flatMap((b) => {
+      const together = cosineSimilarity(a.print, b.print);
+      return together >= MATCH_THRESHOLD ? [{ a, b, together }] : [];
+    }),
+  );
+  const unguarded = collisions.filter(
+    ({ a, b }) => notAFace(a.print) === null && notAFace(b.print) === null,
+  );
+  check(
+    collisions.length > 0 && unguarded.length === 0,
+    "detections that agree at this size are separated by the Not-a-Face rule",
+    collisions.length === 0
+      ? `no pair over ${String(MATCH_THRESHOLD)} — this fixture has stopped exercising the case #42 was filed about`
+      : collisions
+          .map(({ a, b, together }) => `${shortName(a)}/${shortName(b)} ${together.toFixed(4)}`)
+          .join(", "),
   );
 
   /**

@@ -12,6 +12,21 @@ side and re-encoded as JPEG at quality 88**, so that a repository about image
 rendering does not carry 60 MB of fixtures. Nothing was cropped, rotated or
 retouched. Go to the source page below for the untouched original.
 
+> **1400 px is below the bound production applies, and that is a known gap.**
+> `src/faces.ts` bounds a Source Image to a `LONG_EDGE` of 1600 px, so these
+> files are smaller than any caller sending the same photographs would produce.
+> `fixtures/karts/LICENCE.md` states the rule and `scripts/match-calibration.ts`
+> enforces it — **for the kart fixtures only**. Issue #42 re-derived those and
+> deliberately left these alone: `fixtures/faces/face-prints.json` is what
+> `MATCH_THRESHOLD` and `MATCH_MARGIN` are calibrated on, and moving every number
+> in that calibration is its own change with its own review, not a rider on a
+> fixture-size ticket.
+>
+> The detection half is already covered: `detect-test.ts` runs
+> `artemis-2-crew-full.jpg` at 2048, 1600, 1280 and 640 px and asserts the same
+> faces are found, so the bound itself is exercised. What is not exercised is the
+> Face Prints, which come from the 1400 px copies.
+
 `artemis-2-crew-full.jpg` is the one exception: 5878x7348 and 5 424 279 bytes,
 byte for byte as Commons serves it. It is here because a photograph that size is
 the thing under test — a Vercel Function refuses a request body over 4.5 MB, so

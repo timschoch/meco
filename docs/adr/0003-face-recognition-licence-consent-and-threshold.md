@@ -84,7 +84,7 @@ Two conditions, both in `src/people.ts`, asked at enrolment and again at match t
 1. **`MIN_FACE_PX`, now applied when matching and not only when enrolling.** Its reasoning always covered both — below 40 px EdgeFace is handed an upsampled blur and returns a print of the interpolation.
 2. **`NOT_A_FACE_THRESHOLD = 0.60` against the committed Not-a-Face Prints** in `src/not-a-face-prints.ts`. A Face Print at or above 0.60 to one of them carries no identity.
 
-`matchFaces` applies the same two conditions to the **enrolled prints** as well as to the detection, and both halves are needed. A helmet detection against a real Person is already safe — the research measured helmet against face at 0.433 at worst over 108 pairs. The dangerous direction is the other one: `paddock-mixed`'s driver is a real face and scores **0.5601** against the committed helmet print, over the 0.50 threshold. No check on the detection can catch that, because the detection *is* a face. Only dropping the Reference Photo can, which is also what protects every Brand that enrolled before this rule existed.
+`matchFaces` applies the same two conditions to the **enrolled prints** as well as to the detection, and both halves are needed. A helmet detection against a real Person is already safe — the research measured helmet against face at 0.433 at worst over 108 pairs. The dangerous direction is the other one: `paddock-mixed`'s driver is a real face and scores **0.5091** against the committed helmet print, over the 0.50 threshold. No check on the detection can catch that, because the detection *is* a face. Only dropping the Reference Photo can, which is also what protects every Brand that enrolled before this rule existed.
 
 ### Where 0.60 comes from
 
@@ -95,15 +95,62 @@ A **Not-a-Face Print** is a committed Face Print of something that is not an ide
 | | |
 |---|---|
 | 11 real faces of 57 px or more, closest any gets | 0.0971 |
-| 2 real faces of 40–57 px | 0.2329 at 43 px, **0.5601** at 49 px |
-| real face, closest any gets | **0.5601** — `paddock-mixed`, a driver with the visor up, 49 px |
-| **nearest non-face, and the lower edge of the band** | **0.6935** — `on-track-visor-open`, held out of the reference set |
-| `paddock-mixed`'s man seen from behind, also held out | 0.7457 |
+| **real face, closest any gets** | **0.6542** — `paddock-mixed#8`, a small child looking down, 40 px |
+| **nearest non-face** | **0.6365** — `paddock-mixed#7`, a man seen from behind, 52 px |
+| `on-track-visor-open`, held out of the reference set | 0.6935 |
 | shipped threshold | **0.60** |
-| clearance above the closest real face | **0.0399** |
-| clearance below the nearest non-face | **0.0935** |
+| clearance below the nearest non-face | **0.0365** |
+| overlap with the closest real face | **0.0177** — the threshold refuses it |
+| **band** | **−0.0177. There is none.** |
 
 Both rejections are out of sample. The reference is never compared with itself.
+
+**Corrected 5 Sep 2026, second time — the band closes at the size production uses.**
+The numbers above replace a set measured on fixtures committed at a 1400 px long
+side, while `src/faces.ts` bounds a Source Image to 1600 px. Issue #42 re-derived
+the fixtures at that bound, and the separation this ADR reported turns out to
+have been a property of the fixtures rather than of the rule.
+
+What changes: `paddock-mixed#8` is 36 px at 1400 px and `MIN_FACE_PX` refuses it
+before its print is ever consulted. At 1600 px the same detection is 40 px, clears
+the floor, and scores **0.6542** — above the furthest non-face at 0.6365. **No
+value of `NOT_A_FACE_THRESHOLD` accepts it and still refuses that non-face.** The
+old table's "clearance above the closest real face, 0.0399" was measuring a face
+that production-sized input does not put in that position.
+
+**0.60 still ships, and the reason is narrower than before.** It is *safe*, not
+*centred*: it refuses every non-face with 0.0365 to spare, which is the mistake
+this ADR says must never happen. The price is that it also refuses one real face.
+That is the cautious mistake, it is named in the recall ledger below, and
+`scripts/match-calibration.ts` now asserts the exact set rather than asserting
+there is none — so refusing a *different* face fails the run.
+
+**What this does not mean.** Nothing about production behaviour changed here.
+`src/not-a-face-prints.ts` is byte-identical: the reference photograph is
+`on-track-rear-helmet.jpg`, which is 600 × 400 and was already what production
+sends. Callers have always sent 1600 px. The suite was measuring a smaller world
+than the one meco runs in; now it is not.
+
+**Two things issue #42 did not settle, recorded so they are not mistaken for settled.**
+`fixtures/faces/` is still committed at 1400 px, and it is the set
+`MATCH_THRESHOLD` and `MATCH_MARGIN` are calibrated on. The size rule and its
+enforcement cover `fixtures/karts/` only; moving every number in Decision 3's
+calibration is its own change. And the two cosines issue #42 asked to have
+asserted — 0.6489 and 0.5126 — **do not reproduce against the committed bytes**.
+They were measured on a re-encode made while investigating; against the fixture
+now on disk the only pair over `MATCH_THRESHOLD` is 0.5628, and it is a face
+agreeing with a non-face rather than two faces. `scripts/match-calibration.ts`
+asserts the structure that survives and says so in as many words.
+
+**The open question this leaves.** A threshold with no band is a threshold that
+cannot absorb a new fixture. If the reference set grows — and
+["What this does not fix"](#what-this-does-not-fix) says it should — the next
+non-face may land below 0.6542 and there will be no cut at all. Two levers exist
+and neither is free: raise `MIN_FACE_PX` above 40, which refuses more small real
+faces; or commit more Not-a-Face Prints so each candidate is judged against its
+own kind, which needs CC0 or public-domain photographs (see the licence
+constraint above). Deciding between them is not this ADR's to make today, but it
+should be made before the set grows, not after.
 
 **Corrected 5 Sep 2026.** This table previously closed the band from below with
 *0.639*, the worst helmet-to-helmet pair over the 36 in the research, and gave a
@@ -127,16 +174,18 @@ already committed here**; the other seven are CC BY-SA and are barred by
 
 ### What this ADR is choosing, and admitting
 
-**0.0399 on one side and 0.0935 on the other, against 0.2145 and 0.2304 for `MATCH_THRESHOLD`.** The band is tighter than Decision 3's on both sides, and it is **not symmetric**. Stated as movement, which is the only way it is not read backwards:
+**0.0365 of room in one direction and none in the other, against 0.2145 and 0.2304 for `MATCH_THRESHOLD`.** Stated as movement, which is the only way it is not read backwards:
 
-- **0.60 can rise by 0.0935** before it stops refusing the nearest non-face.
-- **0.60 can fall by only 0.0399** before it starts refusing the closest real face.
+- **0.60 can rise by 0.0365** before it stops refusing the nearest non-face.
+- **0.60 cannot fall at all** without refusing more real faces, and it is already refusing one at 0.6542.
 
-So the binding constraint is *real faces*, not helmets — the opposite of what the old *0.639* row implied — and the tight side is the side where the mistake is a face going unnamed rather than a stranger being named. That is the cheaper mistake to be close to.
+So there is no interval to sit in the middle of, and the binding constraint is *real faces* — the opposite of what the old *0.639* row implied. The tight side is the side where the mistake is a face going unnamed rather than a stranger being named. That is the cheaper mistake to be close to, which is the only reason this operating point is defensible at all.
 
 That asymmetry is accepted because the two mistakes are not the same size: a face wrongly refused is blurred and unnamed, which is cautious; a non-face wrongly accepted is a stranger's name on a published photograph with their face left sharp, which is the bug reported. `src/crop.ts` already states the principle — *"who may be shown is not [a composition choice]"*.
 
-The tightness is real and it is a property of small faces. Above 57 px the two populations are 0.60 apart, as clean as Decision 3's. Below that a small face and a helmet genuinely converge, which is the same fact `MIN_FACE_PX` was written for — and it is why `MIN_FACE_PX` now runs when matching. Without it the band a threshold has to fit inside is 0.6920 to 0.6935, **0.0015 wide**, and nothing can be calibrated in it.
+The tightness is real and it is a property of small faces. Above 57 px the two populations are **0.5394** apart, as clean as Decision 3's — 11 faces, the closest at 0.0971. Everything difficult about this threshold lives at 40–57 px, where a small face and a helmet genuinely converge. That is the fact `MIN_FACE_PX` was written for, and it is why the floor now runs when matching as well as when enrolling.
+
+**What the floor no longer does is separate this fixture set.** At the production bound every detection in it clears 40 px, so `MIN_FACE_PX` excludes nothing and the print rule is doing all of the work. `scripts/match-calibration.ts` asserts exactly that, because the tempting reading of the old numbers — "the size rule catches those anyway, so the print threshold has slack" — is false, and acting on it would loosen the only rule holding the set apart.
 
 ### How much precision these numbers actually carry
 
@@ -172,16 +221,18 @@ The first of these is what issue #34 asked for. It does not work, and the measur
 
 ### The recall this costs, stated plainly
 
-The issue asked that the rule "accept all 6 real faces and the 9 paddock faces". It accepts the 6, and it does **not** accept all 9. Of the nine detections in `paddock-mixed.jpg`, three can still carry a name:
+The issue asked that the rule "accept all 6 real faces and the 9 paddock faces". It accepts the 6. Of the nine detections in `paddock-mixed.jpg`, at the size production sends, **six can still carry a name**:
 
 | | |
 |---|---|
-| `#0` 57 px, `#2` 43 px, `#4` 49 px | matchable, unchanged |
-| `#3` `#5` `#6` `#8` — all real faces, all 36 px | refused by `MIN_FACE_PX`, which is new at match time |
-| `#7` — a man seen from behind | reclassified as not a face in `fixtures/karts/expected.json`, and refused by the print |
+| `#0` 66 px, `#2` 49 px, `#3` 42 px, `#4` 55 px, `#5` 42 px, `#6` 43 px | matchable |
+| `#8` 40 px — a real face, a small child looking down | **refused by the print at 0.6542.** The one recall loss, and `scripts/match-calibration.ts` asserts it by name |
+| `#7` — a man seen from behind | classified not a face in `fixtures/karts/expected.json`, and refused by the print |
 | `#1` — a real face | has no Face Print at all: the ArcFace warp cannot cut a 112 px square from its landmarks, so `/embed` refuses it. Unchanged by this ADR, and pre-existing |
 
-So five of nine hand-classified paddock faces became unmatchable, four of them purely on size. That is a real recall regression against `main` and it is the price of the band above. Every one of them is still detected, still a Subject Box and still blurred, so the loss is of naming and not of protection — but it is a loss, and a reader should not have to derive it from a table.
+**These numbers are better than the ones this section carried until issue #42, and for an uncomfortable reason.** The old ledger recorded four real faces refused on size at 36 px and only three matchable. Those 36 px measurements came from fixtures committed below the production bound; at 1600 px the same four faces are 42–49 px, clear `MIN_FACE_PX`, and are matched. The recall regression this section was written to own was half an artefact of the fixture size, and the half that is real is now one face rather than four.
+
+Every refused detection is still detected, still a Subject Box and still blurred, so the loss is of naming and not of protection — but it is a loss, and a reader should not have to derive it from a table.
 
 ### The boundary this draws through helmeted drivers, and why it looks inconsistent
 
@@ -189,10 +240,10 @@ Two subjects in the fixtures are the same kind of thing — **a driver in a helm
 
 | | Against the reference | Size | Outcome |
 |---|---|---|---|
-| `paddock-mixed.jpg#4`, driver, visor up, facing the camera | **0.5601** | 49 px | **accepted** — may be enrolled and named |
+| `paddock-mixed.jpg#4`, driver, visor up, facing the camera | **0.5091** | 55 px | **accepted** — may be enrolled and named |
 | `on-track-visor-open.jpg#0`, driver, visor up | **0.6935** | 100 px | **refused** — may never be a Person |
 
-0.13 of cosine apart, opposite answers, and the larger, sharper face is the one refused. A reader who meets these two without warning will read it as a bug. It is not, and the ADR should say so here rather than leave it to be discovered.
+0.18 of cosine apart, opposite answers, and the larger, sharper face is the one refused. A reader who meets these two without warning will read it as a bug. It is not, and the ADR should say so here rather than leave it to be discovered.
 
 **Both outcomes are intended, and the difference is how much helmet is in the frame.** `paddock-mixed`'s driver is photographed from the front at conversational distance: the open visor fills most of the box and the shell is mostly outside it. `on-track-visor-open`'s driver is photographed on track: the box is dominated by shell, chin bar and visor surround, with the face a small part of it. The reference print is *the back of a helmet* — shell and nothing else — so the second box is genuinely closer to it. The rule is measuring what it claims to measure.
 
@@ -202,7 +253,7 @@ Two subjects in the fixtures are the same kind of thing — **a driver in a helm
 
 1. **Enrol from a helmet-off photograph.** The paddock and podium case works today and is what enrolment should use. This is a documentation and UI matter, not a threshold one.
 2. **More reference prints.** One reference of a bare shell makes shell-dominated boxes the nearest thing to a non-face. Several references spanning shell, visor-up and rear-of-head would let each be judged against its own kind. `fixtures/karts/expected.json` is where a new one is classified — and note the constraint from the correction above: **CC BY-SA photographs cannot be committed**, so new references have to be CC0 or public domain.
-3. **Not by moving 0.60 far up.** 0.5601 and 0.6935 leave a 0.1334 gap and it looks tuneable. It is only that wide *because `MIN_FACE_PX` runs first*: `paddock-mixed#8` is a real face at **0.6920**, inside the gap, and it is out of scope only because it is 36 px. The two rules are coupled, and the gap is a property of both. Relax the size floor and the band collapses to 0.0015, which is the measurement in the section above.
+3. **Not by moving 0.60 up.** The gap between these two looks tuneable and is not: `paddock-mixed#8` is a real face at **0.6542**, between them, and at the production bound it is 40 px and squarely in scope. Raising the threshold to accept `on-track-visor-open`'s driver would accept the man seen from behind at 0.6365 first. There is no cut that improves this boundary — only more reference prints, or a different size floor.
 
 ### What this does not fix
 

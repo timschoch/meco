@@ -21,18 +21,38 @@ only the unencumbered ones are committed here.
 | `paddock-mixed.jpg` | <https://commons.wikimedia.org/wiki/File:2.DM_Lauf_MSC_Berlin.22.4.07_(3).jpg> | Ottospe | Public domain |
 | `street-karting-crowd.jpg` | <https://commons.wikimedia.org/wiki/File:Challenge_kart.JPG> | Leffe60 | Public domain (PD-self) |
 
-Each file was fetched through the Commons thumbnailer at a 1600 px long side,
-then downscaled to a **1400 px long side and re-encoded as JPEG at quality 88**,
-the same treatment `fixtures/faces/` gets and for the same reason. Nothing was
-cropped, rotated or retouched. `on-track-rear-helmet.jpg` is 600 × 400 because
-the Commons original is: it was not enlarged.
+## The size rule, and why it is a rule
 
-`street-karting-crowd.jpg` is the **one deliberate exception** and is kept at its
-native 1600 × 1200. `src/faces.ts` bounds every Source Image to a 1600 px long
-edge before detection, so this file is already exactly what production sees, and
-downscaling it to 1400 would make every face in it smaller than any real caller
-would ever send. Face size is the variable this fixture exists to exercise —
-shrinking it would quietly remove the thing being tested. See below.
+**A fixture must not be smaller than the bound production applies, or it tests a
+regime that does not exist.**
+
+`src/faces.ts` bounds every Source Image to a `LONG_EDGE` of 1600 px before
+either model sees it, and `withoutEnlargement` means that bound only ever
+shrinks. So a fixture committed *below* it is not a smaller copy of the
+production input — it is a different input, one no caller can produce, and every
+number derived from it describes faces production never sees.
+
+That is not a hypothetical. These files were committed at 1400 px until issue
+#42. At that size four of `paddock-mixed.jpg`'s faces fell under `MIN_FACE_PX`
+and never reached the print comparison at all; at 1600 px every one of them
+clears it. The suite passed either way, and at the smaller size it credited the
+size floor for a separation the Not-a-Face rule was making.
+
+So each file here is now **exactly the bytes `boundedSource` in `src/faces.ts`
+returns for the Commons original** — a resize to the 1600 px bound and JPEG at
+quality 90 where the original is larger, and the original bytes untouched where
+it is not. Nothing was cropped, rotated or retouched. Three files are smaller
+than 1600 px because the photograph is: `on-track-rear-helmet.jpg` is 600 × 400,
+`on-track-visor-open.jpg` is 1015 × 1015, and `podium-trophy-2.jpg` is
+1272 × 1577. They were not enlarged, because production would not enlarge them
+either.
+
+`scripts/match-calibration.ts` enforces both halves on every run: that
+`boundedSource` returns each file unchanged, and that each file's long edge is
+`min(LONG_EDGE, natural)` — the second checked against the `sources` block in
+`expected.json`, which records how big each Commons original is. Pass-through
+alone is not enough; a 1400 px file passes it too. If `LONG_EDGE` ever changes,
+those checks fail and name the files to re-derive.
 
 ## What each one is for
 
@@ -49,13 +69,13 @@ is the interesting one — the driver is facing away and the box lands on the
 `podium-trophy.jpg` and `podium-trophy-2.jpg` are the same driver, helmet off,
 photographed at two different events. They are what makes a same-person cosine
 measurable in the karting domain, exactly as the astronaut portraits do in
-`fixtures/faces/`. Measured Face Print similarity between them: **0.783**.
+`fixtures/faces/`. Measured Face Print similarity between them: **0.7838**.
 
-`paddock-mixed.jpg` is the paddock case: nine faces detected, scores 0.66 to
+`paddock-mixed.jpg` is the paddock case: nine faces detected, scores 0.62 to
 0.92, helmets off, ordinary group photography. It is the fixture that shows the
 merged pipeline already works when the visor is not in the way. It also holds a
-kart with a driver in it — `motorbike` fires at 0.50 — which makes it the only
-photograph here where a face, a stranger and a kart are all in one frame.
+kart with a driver in it, which makes it the only photograph here where a face,
+a stranger and a kart are all in one frame.
 
 `street-karting-crowd.jpg` is the closest thing to an end-to-end demonstration
 image: a street event with **two karts in the foreground, each with a driver**,
