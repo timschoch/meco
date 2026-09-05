@@ -48,11 +48,11 @@ describe("nothing composed, no anchor named", () => {
     expect(framing.droppedRegionIds).toEqual([]);
   });
 
-  // Nothing was composed, so everything the window holds is the Subject. The
-  // spec's words are "a zero-extent Subject placed at its own point", which no
-  // contracts `Box` can be: `width` and `height` are `> 0`. Ledgered on #101.
-  it("reports the window itself as the Subject", () => {
-    expect(framing.subject).toEqual(framing.windowFraction);
+  // Nothing was composed, so there is no Subject to report. The window would
+  // stand in for one and be held by every rung of the ladder without meaning
+  // it. Decided on #82, ledgered on #101.
+  it("names no Subject, because none was composed", () => {
+    expect(framing.subject).toBeUndefined();
   });
 
   it("claims nothing about a Subject Area or an Occlusion Zone nobody named", () => {

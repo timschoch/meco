@@ -34,33 +34,38 @@ export function frameCrop(input: FrameInput): Framing;
 export function projectIntoFrame(framing: Framing, box: Box): Box;
 
 export interface FrameInput {
-  annotation: Annotation;      // source size and Regions, from contracts
-  matches?: Match[];           // this Brand's Matches for those Regions
-  request: FramingRequest;     // what this one output needs
+  annotation: Annotation; // source size and Regions, from contracts
+  matches?: Match[]; // this Brand's Matches for those Regions
+  request: FramingRequest; // what this one output needs
 }
 
 /** The rectangle to cut, in whole Source Image pixels. Not a `Box`. */
-export interface CropWindow { x: number; y: number; width: number; height: number }
+export interface CropWindow {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export type ResolvedBy = "match" | "face" | "kart" | "anchor" | "center";
 export type FallbackRung = "zoom-out" | "relax" | "drop" | "clip";
 
 export interface Framing {
-  window: CropWindow;              // whole Source Image pixels
-  windowFraction: Box;             // the same window in source fractions
+  window: CropWindow; // whole Source Image pixels
+  windowFraction: Box; // the same window in source fractions
   resolvedBy: ResolvedBy;
-  leadRegionId?: string;           // absent when resolved by anchor or center
-  subject: Box;                    // the composed Subject, source fractions
+  leadRegionId?: string; // absent when resolved by anchor or center
+  subject?: Box; // the composed Subject, source fractions; absent when nothing was composed
   keptRegionIds: string[];
   droppedRegionIds: string[];
   satisfied: boolean;
   fallback?: FallbackRung;
-  subjectAreaSatisfied?: boolean;  // only when the request named one
-  subjectAreaShortfall?: number;   // 1 when satisfied, the factor short otherwise
-  occlusionClear?: boolean;        // only when `occlusion` was non-empty
+  subjectAreaSatisfied?: boolean; // only when the request named one
+  subjectAreaShortfall?: number; // 1 when satisfied, the factor short otherwise
+  occlusionClear?: boolean; // only when `occlusion` was non-empty
 }
 
-export const PHI_LINES: readonly [number, number];   // 1 - 1/φ, 1/φ
+export const PHI_LINES: readonly [number, number]; // 1 - 1/φ, 1/φ
 export const MAX_OCCLUSION_ZONES: 16;
 ```
 
@@ -83,13 +88,13 @@ export const MAX_OCCLUSION_ZONES: 16;
 
 `pinTo` is walked in order. The first entry that composes a Subject wins and decides `resolvedBy`.
 
-| `pinTo` entry | Composes | Leading Subject |
-|---|---|---|
-| `match` | the face Regions, when at least one has a Match | the Match with the highest `similarity` |
-| `face` | the face Regions, when there are any | the largest face box |
-| `kart` | largest `vehicle` Region ∪ every Region overlapping it > 0.25 of the smaller box; largest `person` Region when there is no vehicle | the composed union, which is one Subject |
+| `pinTo` entry | Composes                                                                                                                           | Leading Subject                          |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `match`       | the face Regions, when at least one has a Match                                                                                    | the Match with the highest `similarity`  |
+| `face`        | the face Regions, when there are any                                                                                               | the largest face box                     |
+| `kart`        | largest `vehicle` Region ∪ every Region overlapping it > 0.25 of the smaller box; largest `person` Region when there is no vehicle | the composed union, which is one Subject |
 
-Nothing composed → the Crop Anchor named in the request, as a zero-extent Subject placed at its own point → the centre. `resolvedBy` is `anchor` or `center` and `leadRegionId` is absent.
+Nothing composed → the Crop Anchor named in the request → the centre. `resolvedBy` is `anchor` or `center`, and `leadRegionId` and `subject` are both absent: no Region led and no Subject was composed. A window standing in for the Subject it does not have would be held by every rung of the fallback ladder without meaning it, and the point the anchor stands at is not a `Box`, whose sides are above zero. Decided on [#82](https://github.com/timschoch/meco/issues/82), shipped in [#101](https://github.com/timschoch/meco/issues/101).
 
 **`persons` narrows who may lead and nothing else.** With `persons` given, only Matches whose `personId` is on the list are candidates to lead. A photograph that matched somebody, but nobody on the list, **falls through to the next `pinTo` entry** rather than leading on the unlisted Match: a caller who named `persons` asked for those people, and choosing the window around a different named person would leak who else is in the picture. Every Match is still a kept Subject at its tier whichever rung answers.
 
@@ -112,13 +117,13 @@ Containment allows **0.5 px** of slack, because the window is rounded before it 
 
 Tried in order, first that holds every kept Subject wins, and the rung is always named:
 
-| Rung | Does |
-|---|---|
-| — | the composition first asked for; `satisfied: true` |
-| `zoom-out` | drop back to the cover window |
-| `relax` | slide the target halfway to the middle of the frame, then all the way |
-| `drop` | sacrifice the cheapest Subject, then the next, by tier |
-| `clip` | centre on the Subject at the cover window and accept the clipping |
+| Rung       | Does                                                                  |
+| ---------- | --------------------------------------------------------------------- |
+| —          | the composition first asked for; `satisfied: true`                    |
+| `zoom-out` | drop back to the cover window                                         |
+| `relax`    | slide the target halfway to the middle of the frame, then all the way |
+| `drop`     | sacrifice the cheapest Subject, then the next, by tier                |
+| `clip`     | centre on the Subject at the cover window and accept the clipping     |
 
 ### Tie-breaking, all of it
 

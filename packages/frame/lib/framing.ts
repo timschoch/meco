@@ -43,8 +43,12 @@ export interface Framing {
   resolvedBy: ResolvedBy;
   /** Absent when the anchor or the centre answered: neither is a Region. */
   leadRegionId?: string;
-  /** The composed Subject, in source fractions. */
-  subject: Box;
+  /**
+   * The composed Subject, in source fractions. Absent when the anchor or the
+   * centre answered: nothing was composed, and a window standing in for a
+   * Subject would be held by every rung of the ladder without meaning it.
+   */
+  subject?: Box;
   keptRegionIds: string[];
   droppedRegionIds: string[];
   satisfied: boolean;
@@ -70,5 +74,9 @@ export const PHI_LINES: readonly [number, number] = [1 - 1 / PHI, 1 / PHI];
  * schema's, enforced by the gateway at the edge; this is the defensive
  * invariant underneath it. The Free Area sweep is polynomial in the zone
  * count, and an unbounded list has no best-effort answer to give.
+ *
+ * Declared twice on purpose, for now: `@meco/contracts` keeps the same bound
+ * private. It becomes the single source once #95 exports it, and the next
+ * frame ticket to touch this file re-exports it instead. Ledgered on #101.
  */
 export const MAX_OCCLUSION_ZONES = 16;

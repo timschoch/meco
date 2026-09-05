@@ -34,10 +34,9 @@ export function frameCrop(input: FrameInput): Framing {
     window: cropWindow,
     windowFraction,
     resolvedBy: request.anchor === undefined ? "center" : "anchor",
-    // Nothing was composed, so everything the window holds is the Subject. A
-    // point would say it better and cannot be said: a contracts `Box` has
-    // `width` and `height` above zero.
-    subject: windowFraction,
+    // No `subject`: nothing was composed. The window itself would be held by
+    // every rung of the ladder without meaning it, and the point the anchor
+    // stands at is not a contracts `Box`, whose sides are above zero.
     keptRegionIds: [],
     droppedRegionIds: [],
     satisfied: true,
