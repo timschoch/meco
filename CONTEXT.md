@@ -60,7 +60,7 @@ _Avoid_: resize, thumbnail, transform, variant
 
 **Face Blur**:
 An option on a Crop: every face showing in the finished frame that meco cannot name is hidden behind an elliptical mask. A face the crop window left out is not in the picture and so is neither hidden nor counted. Never a property of a Source Image — the Source Image is untouched, and only the Crop carries the blur.
-_Avoid_: anonymise, redact, pixelate, censor
+_Avoid_: anonymise, pixelate, censor
 
 **Crop Anchor**:
 Which of the nine regions of a Source Image a Crop keeps when the required shape is narrower or shorter than the original. Defaults to the centre.
@@ -167,6 +167,14 @@ _Avoid_: plugin, driver, wrapper, backend
 **Conformance Check**:
 One named test contracts ships and a module runs in its own suite to prove it speaks the shared language. Each check names the mutation that must make it fail.
 _Avoid_: contract test, integration test, validation, lint
+
+**Target**:
+The output's size in pixels, `width` and `height`, with an optional format and quality. On the FramingRequest, so two outputs from the same bytes can differ.
+_Avoid_: size, dimensions, output
+
+**Redaction**:
+The per-output redaction policy on the FramingRequest, today only `blurUnknownFaces`. Never a Brand default: it is true of this output and of nothing else.
+_Avoid_: privacy, blur settings
 
 ## frame
 
@@ -306,3 +314,19 @@ _Avoid_: secure bucket, vault, protected store
 **Signed URL**:
 A URL that hands over one Private Store object to whoever holds it, until it expires minutes later. Minted only by the gateway, only for a caller it has already authorised, and short-lived because the reason it was minted does not outlive the request.
 _Avoid_: presigned URL, temporary link, token URL, share link
+
+## redact
+
+Hiding what a Brand may not show. It happens on the Source Image, before anything is cut out of it, so the module is never told where the output will be framed and cannot be wrong about it. The policy is one boolean on the FramingRequest ([#67](https://github.com/timschoch/meco/issues/67)).
+
+**Unknown Face**:
+A face Region with no Match in this call. The thing redact hides. Never a property of the face alone — the same face is known to the Brand that enrolled the Person and unknown to every other. An Uncompared Face and a face that is not an Identifiable Face are both Unknown Faces, because neither produced a Match, and a similarity under identify's threshold arrives here as no Match at all.
+_Avoid_: stranger, unmatched face, anonymous face, non-person
+
+**Redaction Mask**:
+The feathered elliptical coverage map redact paints one Unknown Face through, inscribed in that Region's box in Source Image pixels. Its blur strength scales with the face's width, so a face 600 pixels wide and one 60 pixels wide are hidden equally. The feather is load-bearing rather than decorative: it is what stops the mask announcing itself once compose resamples the frame.
+_Avoid_: overlay, stencil, alpha, blur box, censor
+
+**Redaction Record**:
+What redact reports for one face it hid: the Region id and why. Kept in the call record so the webui can say which face, not how many. Never says whether that face survived the crop — redact does not know the window, and frame answers that question.
+_Avoid_: blur log, count, blurred, audit entry
