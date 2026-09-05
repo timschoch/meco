@@ -23,6 +23,12 @@ import {
   isEmbedLoaded,
   type FaceToEmbed,
 } from "./embed.js";
+import {
+  OBJECT_MODEL,
+  ObjectModelLoadError,
+  detectObjects,
+  isObjectModelLoaded,
+} from "./objects.js";
 import type { Landmarks } from "./yunet.js";
 
 /**
@@ -104,6 +110,7 @@ export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
 
   routes.use("/detect", requireToken);
   routes.use("/embed", requireToken);
+  routes.use("/objects", requireToken);
 
   /**
    * Which models are loaded and what is running them.
@@ -119,6 +126,7 @@ export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
       models: [
         { ...MODEL, warm: isLoaded() },
         { ...EMBED_MODEL, warm: isEmbedLoaded() },
+        { ...OBJECT_MODEL, warm: isObjectModelLoaded() },
       ],
       onnxruntime: runtimeVersion(),
     }),
@@ -204,6 +212,55 @@ export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
       return c.json({ prints, skipped });
     } catch (err) {
       if (err instanceof EmbedModelLoadError) {
+        console.error(err.message);
+        return c.json({ error: err.message }, 503);
+      }
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  /**
+   * Detect objects in one image, in the vocabulary COCO was labelled in.
+   *
+   * A second route rather than more fields on `/detect`, because the two models
+   * answer different questions and a caller wants one or the other: a Crop of a
+   * portrait has no use for a `motorbike` box, and a Crop of a kart on track has
+   * no faces to find. Splitting them also means the object path never loads
+   * EdgeFace and the face path never loads D-FINE — roughly 15 MB and a session
+   * create each, on a container that scales to zero and pays its cold start on a
+   * real request.
+   *
+   * Answers `motorbike` for a kart and does so on purpose. COCO has no kart
+   * class, so the model resolves one to the nearest thing in its vocabulary, and
+   * that approximation is what finds it. The word is wrong and the box is right;
+   * meco is where the two become a Subject.
+   */
+  routes.post("/objects", async (c) => {
+    const body = await c.req.arrayBuffer();
+    if (body.byteLength === 0) {
+      return c.json({ error: "Request body is empty — POST the image bytes." }, 400);
+    }
+
+    try {
+      const started = performance.now();
+      const result = await detectObjects(Buffer.from(body));
+      const ms = performance.now() - started;
+      console.log(
+        `objects ${String(result.width)}x${String(result.height)} ` +
+          `${String(result.objects.length)} objects ${ms.toFixed(0)}ms`,
+      );
+      // The class index stays inside this service. Suppression groups by it, but
+      // it is D-FINE's own numbering, and a caller that matched on it would be
+      // pinned to this model's label ordering rather than to its vocabulary.
+      return c.json({
+        width: result.width,
+        height: result.height,
+        objects: result.objects.map(({ label, score, box }) => ({ label, score, box })),
+      });
+    } catch (err) {
+      // A model that will not load is this service's fault, not the caller's,
+      // and answering 400 would send them off looking at their own image.
+      if (err instanceof ObjectModelLoadError) {
         console.error(err.message);
         return c.json({ error: err.message }, 503);
       }

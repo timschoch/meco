@@ -575,6 +575,8 @@ Fine-tuning still buys three specific things, and they are now improvements rath
 
 ### The fixtures reproduce it
 
+> **Measured on the superseded weights.** [Q12](#q12--what-licence-is-the-model-in-production-under-and-where-is-that-written-down) found that the export this section used is dated four months before its base checkpoint was fixed. Every score below rises on the fixed weights, and one row changes outright: `on-track-visor-open.jpg` gains a `person` at 0.847 where this table says there is none. What meco ships, and what the fixtures assert, is in `fixtures/karts/objects.json`.
+
 Run against the six committed photographs in `fixtures/karts/`, D-FINE-N fp32 at threshold 0.28:
 
 | Fixture | What it finds | Against YuNet |

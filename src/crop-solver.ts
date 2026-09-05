@@ -30,7 +30,14 @@ export const PHI_LINES = [1 - PHI_INV, PHI_INV] as const;
 const SLACK_PX = 0.5;
 
 /** Who decided the framing. Ordered as the producers are consulted. */
-export const CROP_PRODUCERS = ["person", "face", "saliency", "anchor", "centre"] as const;
+export const CROP_PRODUCERS = [
+  "person",
+  "face",
+  "kart",
+  "saliency",
+  "anchor",
+  "centre",
+] as const;
 
 export type CropProducer = (typeof CROP_PRODUCERS)[number];
 

@@ -458,6 +458,7 @@ function cropForm() {
           ]
         : []),
       el("option", { value: "faces", textContent: "the largest face, whoever it is" }),
+      el("option", { value: "kart", textContent: "the kart and its driver" }),
       el("option", { value: "attention", textContent: "the most salient area" }),
     );
     // Keeping the choice across a Brand change is worth a line, but only when it

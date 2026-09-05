@@ -8,8 +8,8 @@
  * pass the command after `--` and the stopwatch begins with it.
  *
  * Warm is the median of the requests after that: one photo on a container that
- * is already up, timed twice — once for `/detect` and once for `/embed` on the
- * faces that detect just found.
+ * is already up, timed three times — once for `/detect`, once for `/embed` on
+ * the faces that detect just found, and once for `/objects`.
  *
  * ```
  * tsx scripts/latency.ts http://localhost:8788 10 -- \
@@ -93,6 +93,20 @@ async function embed(faces: unknown[]): Promise<{ ms: number; prints: number }> 
   return { ms, prints: (body as { prints: unknown[] }).prints.length };
 }
 
+/**
+ * The object detector, on the same photograph as everything else.
+ *
+ * Its cost does not depend on what is in the picture — D-FINE stretches whatever
+ * it is handed into one 640x640 square and always emits 300 queries — so the
+ * fixture being a group of faces rather than a kart changes the decode and
+ * nothing else. What is worth reading beside `/detect` is how much of the number
+ * is the model at all: on a 12 MP photograph most of it is the JPEG.
+ */
+async function objects(): Promise<{ ms: number; found: number }> {
+  const { ms, body } = await post("/objects");
+  return { ms, found: (body as { objects: unknown[] }).objects.length };
+}
+
 const t0 = performance.now();
 const child =
   command.length > 0
@@ -121,6 +135,7 @@ console.log(`cold  ${cold.toFixed(0).padStart(6)} ms   (${String(attempts)} atte
 const warmDetect: number[] = [];
 const warmOne: number[] = [];
 const warmAll: number[] = [];
+const warmObjects: number[] = [];
 let count = 0;
 for (let i = 0; i < runs; i++) {
   const { ms, faces } = await detect();
@@ -131,13 +146,16 @@ for (let i = 0; i < runs; i++) {
   // decode, so the gap between them is what a face costs.
   const one = await embed(faces.slice(0, 1));
   const all = await embed(faces);
+  const seen = await objects();
   warmOne.push(one.ms);
   warmAll.push(all.ms);
+  warmObjects.push(seen.ms);
 
   console.log(
     `warm  detect ${ms.toFixed(0).padStart(5)} ms   ` +
       `embed 1 ${one.ms.toFixed(0).padStart(5)} ms   ` +
-      `embed ${String(all.prints)} ${all.ms.toFixed(0).padStart(5)} ms`,
+      `embed ${String(all.prints)} ${all.ms.toFixed(0).padStart(5)} ms   ` +
+      `objects ${seen.ms.toFixed(0).padStart(5)} ms`,
   );
 }
 
@@ -159,6 +177,7 @@ console.log();
 report("detect", warmDetect);
 report("embed 1 face", warmOne);
 report(`embed ${String(count)} faces`, warmAll);
+report("objects", warmObjects);
 if (count > 1) {
   const perFace = (median(warmAll) - median(warmOne)) / (count - 1);
   console.log(
