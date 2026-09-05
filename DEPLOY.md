@@ -37,26 +37,24 @@ Out-of-band deploys from the working tree: `vercel deploy` (preview),
    `resourceConfig.functionDefaultTimeout`, Vercel default is 300 s). It is the
    backstop for any request that fails to end on its own; 60 s is well above any
    real render. Takes effect on the next deployment.
-
-## One-time setup (still to do)
-
-A second Blob store, private, for People. Only the account owner can create it.
-
-```
-vercel blob create-store meco-people --access private --yes
-vercel env add BLOB_PEOPLE_READ_WRITE_TOKEN production   # and preview, development
-```
-
-The second command takes the new store's read/write token on stdin, under the
-name meco reads. `create-store` writes its own token into the project env under
-whatever name it picks, and the first store already holds `BLOB_READ_WRITE_TOKEN`.
+7. A second Blob store, private, for People:
+   ```
+   vercel blob create-store meco-people --access private --yes
+   vercel env add BLOB_PEOPLE_READ_WRITE_TOKEN production   # and preview
+   ```
+   The second command takes the new store's read/write token on stdin, under
+   the name meco reads. `create-store` writes its own token into the project
+   env under whatever name it picks, and the first store already holds
+   `BLOB_READ_WRITE_TOKEN`. Set on `production` and `preview`; add it to
+   `development` too if a local `vercel dev` needs to write a Reference Photo.
 
 Vercel Blob sets public or private **per store, not per object**: a private
 write to the public store is refused by the API. Everything under the `people/`
 prefix — Person records, Reference Photos, Face Prints — is personal data and
-belongs in the private store. Until the store exists, meco refuses any write to
-that prefix rather than putting a face photo of a named person on an open URL.
-Nothing else changes: `renders/`, `carousels/` and `crops/` stay public.
+belongs in the private store. Without `BLOB_PEOPLE_READ_WRITE_TOKEN` meco
+refuses any write to that prefix rather than putting a face photo of a named
+person on an open URL. Nothing else changes: `renders/`, `carousels/` and
+`crops/` stay public.
 
 ## Env vars
 
@@ -105,18 +103,24 @@ container until the platform kills it, so this is the guard on that.
 pnpm test:storage
 ```
 
-Runs one contract — write at a key, read the same bytes back, overwrite,
-delete, ask for what is not there — against local disk and against Vercel Blob,
-and checks that the Gallery never lists the People prefix. The Blob half needs
+Needs `.env.local` in the repo root and takes roughly ten minutes; not part of
+the gate (`scripts/storage-contract.ts` carries the same note). Runs one
+contract — write at a key, read the same bytes back, overwrite, delete, ask for
+what is not there — against local disk and against Vercel Blob, and checks that
+the Gallery never lists the People prefix. The Blob half needs
 `BLOB_READ_WRITE_TOKEN` (it reads `.env.local` when there is one) and really
 writes to the store, under a run-scoped `contract-test/` prefix it deletes
 again. A missing token is a failure, not a skip: only one backend runs in
-production, so an untested one is where a difference hides.
+production, so an untested one is where a difference hides. The Blob delete
+check polls for a few seconds rather than reading once — the CDN does not
+promise a delete is visible on the very next read, only that it eventually is.
 
-One check is skipped on each backend: that an unauthenticated GET of a
-Reference Photo's URL does not return the bytes. On Blob it needs the private
-store to exist; locally there is no public URL to ask, because the dev server
-mounts the three public kinds by name and the People prefix has no route.
+One check is skipped locally: that an unauthenticated GET of a Reference
+Photo's URL does not return the bytes. There is no public URL to ask, because
+the dev server mounts the three public kinds by name and the People prefix has
+no route. On Blob the equivalent check runs and passes once
+`BLOB_PEOPLE_READ_WRITE_TOKEN` is set — without it, both People checks skip and
+name the missing variable.
 
 ## meco-faces
 

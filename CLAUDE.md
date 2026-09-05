@@ -29,8 +29,8 @@ pnpm typecheck && pnpm typecheck:faces && pnpm build && pnpm build:faces \
   && pnpm test:detect && pnpm test:embed && pnpm test:match
 ```
 
-`pnpm test:storage` runs against the live Blob store: it needs `.env.local`,
-takes ~10 minutes, and has a known flake (#22). It is not part of the gate.
+`pnpm test:storage` runs against the live Blob store: it needs `.env.local`
+and takes ~10 minutes. It is not part of the gate.
 
 **Prove a test can fail.** Mutate the code it covers and confirm the suite
 catches it. Three tickets in the Subject-aware Crop feature did this; two found
