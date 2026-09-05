@@ -1,19 +1,31 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
-    "meco": {
+    "gateway": {
+      "root": ".",
+      "runtime": "container",
+      "entrypoint": "Containerfile",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "models",
+          "format": "url",
+          "env": "MODELS_URL"
+        }
+      ]
+    },
+    "models": {
       "root": ".",
       "runtime": "container",
       "entrypoint": "Dockerfile.vercel"
-    },
-    "meco-faces": {
-      "root": ".",
-      "runtime": "container",
-      "entrypoint": "Containerfile"
     }
   },
   "rewrites": [
-    { "source": "/faces/(.*)", "destination": { "service": "meco-faces" } },
-    { "source": "/(.*)", "destination": { "service": "meco" } }
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "gateway"
+      }
+    }
   ]
 }

@@ -1,10 +1,6 @@
-.env
-.env.local
+.env*
 .temp/*
 .vercel
 node_modules/
-out/
-*.tsbuildinfo
-.env*
-.vercel
 dist/
+*.tsbuildinfo

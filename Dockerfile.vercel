@@ -1,32 +1,24 @@
-# syntax=docker/dockerfile:1
-# Deploys the Hono server as a Vercel Functions container image.
-# https://vercel.com/docs/functions/container-images
-
-FROM node:24-slim AS deps
+# models — the private service, reached only over the binding.
+#
+# The name of this file carries no meaning and cannot be made to. Vercel
+# validates the `entrypoint` basename against a fixed list before it builds
+# anything, and buildah then takes the build context from this file's own
+# directory. So: a root-level file, named from that list, and `vercel.json`
+# says which service it is. See DEPLOY.md.
+FROM node:22-alpine AS build
 WORKDIR /app
-RUN npm install -g pnpm@11
-# Fresh install so native deps (sharp, @takumi-rs/core) resolve to their
-# linux builds even though this image is built from a macOS arm64 host.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# husky's install step needs a .git directory that is not in the build context.
+ENV HUSKY=0
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages packages
 RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @meco/models build
 
-# Compile ahead of time. Running tsx in production would transpile the whole of
-# src/ on every container boot, and a scale-to-zero container boots often.
-FROM deps AS build
+FROM node:22-alpine AS runtime
 WORKDIR /app
-COPY tsconfig.json tsconfig.build.json ./
-COPY src ./src
-RUN pnpm build
-
-FROM node:24-slim AS runtime
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY package.json ./
-# dist/ mirrors src/ one level deep, so `../assets` still points here.
-COPY assets ./assets
-
-# Vercel sets $PORT; default 80 per the container-images contract.
+COPY --from=build --chown=node:node /app/packages/models/dist/bundle ./
+USER node
+ENV PORT=80
 EXPOSE 80
-CMD ["node", "dist/server.js"]
+CMD ["node", "server.js"]

@@ -1,0 +1,21 @@
+{
+  "name": "@meco/gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./app.ts",
+    "./server": "./server.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.7",
+    "@meco/contracts": "workspace:*",
+    "hono": "^4.10.7"
+  },
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}
