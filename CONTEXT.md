@@ -51,7 +51,7 @@ The part of a Source Image that must survive a Crop — a face, a person, a prod
 _Avoid_: foreground, region of interest, focal subject
 
 **Subject Box**:
-One rectangle in a Source Image, in fractions 0..1, with a priority and a `keep` flag. Every producer of framing — the Crop Anchor, saliency, a face, a Person, a kart — yields Subject Boxes, and the solver consumes them. A producer that knows a point rather than a region yields a box of zero extent.
+One rectangle in a Source Image, in fractions 0..1, that frame composes from Regions and then solves over. Internal to frame: a Subject Box never crosses a seam, and what crosses is the Region it was composed from. A composer that knows a point rather than a region — a Crop Anchor — yields a box of zero extent.
 _Avoid_: region, bbox, focal point
 
 **Crop**:
@@ -78,7 +78,7 @@ _Avoid_: metadata, tags, detection result, analysis
 The prototype's word for a non-face Region. Superseded by Region with a Label; do not use.
 
 **Kart Producer**:
-The producer that frames a Crop on a kart and its driver together. It takes the largest `motorbike` Detected Object, unions it with everything overlapping it, and yields one Subject Box — falling back to the largest `person` when no kart was found. That fallback is what lets a driver be framed without their kart, and it is also the producer's known limit: on a photograph that is not of a kart at all it frames the largest person and still calls itself `kart`. It sits between the face and saliency in the ladder: a photograph with a visible face is a photograph of that person, and a photograph with neither is still framed by saliency.
+How frame composes one Subject from a kart and its driver together. It takes the largest `vehicle` Region, unions it with every Region overlapping it, and yields one Subject Box — falling back to the largest `person` Region when no vehicle was found. That fallback is what lets a driver be framed without their kart, and it is also its known limit: on a photograph that is not of a kart at all it frames the largest person and still calls itself `kart`. It selects on Region Kind and never on a Label, so replacing the Model that draws the boxes moves nothing here.
 
 Named for what it frames, not for what detects it. The Subject of a karting photograph is neither the kart nor the driver but both — a frame on the driver's head loses the livery the photograph was taken for, and a frame on the kart cuts the helmet off. A helmet is also not a face, which is the reason this producer exists at all: measured on 32 on-track photographs, the face detector puts a box on the leading driver's head in 9 of them.
 _Avoid_: vehicle producer, motorbike producer, kart detector
@@ -166,3 +166,62 @@ _Avoid_: plugin, driver, wrapper, backend
 **Conformance Check**:
 One named test contracts ships and a module runs in its own suite to prove it speaks the shared language. Each check names the mutation that must make it fail.
 _Avoid_: contract test, integration test, validation, lint
+
+## frame
+
+Where the Crop Window comes from. frame is given an Annotation, the Matches for
+this Brand and a FramingRequest, and answers with one rectangle and the reasons
+it is that one. It never touches a pixel: no pixel crosses its seam, which is
+why the whole module is arithmetic.
+
+**Crop Window**:
+The rectangle of a Source Image a Crop is cut from, in whole pixels. frame's
+answer; the only thing downstream of it that has to be exact, because rounding
+it twice would cut a different picture.
+_Avoid_: viewport, rect, crop box, region, frame
+
+**Framing**:
+Everything frame answers with: the Crop Window, which Subject it was composed
+on, which Subjects survived, and every claim it can and cannot make about the
+result. A Framing is a decision with its reasons attached, never a bare
+rectangle.
+_Avoid_: result, solution, answer, crop (a Crop is the stored image)
+
+**Pin To**:
+The caller's ordered list of what to compose the Subject from — `match`, `face`,
+`kart` — walked in order until one of them yields. The caller's ladder, not
+frame's: frame's own last resorts are the Crop Anchor and the centre, and they
+are not in the caller's vocabulary.
+_Avoid_: gravity, strategy, priority, focus, target
+
+**Leading Subject**:
+The one Subject a Framing is composed on. Every other Subject is kept in frame
+when the geometry allows and is what the Drop Rung sacrifices first, cheapest
+first. A photograph has exactly one however many faces are in it.
+_Avoid_: primary, main subject, hero, focal subject
+
+**Free Area**:
+The largest rectangle of the Image Slot that no Occlusion Zone touches. Where
+the Subject is aimed when a Template will cover part of the frame. Derived, never
+declared: a Template declares Occlusion Zones and frame works out what is left.
+_Avoid_: safe area, clear zone, free space, negative space
+
+**Golden Line**:
+One of the two lines at `1/φ` and `1 − 1/φ` across a frame. Where frame puts the
+Subject when nobody named a Subject Area, choosing the line nearest to where the
+photographer already had it so the composition moves as little as possible.
+_Avoid_: rule of thirds, grid line, guide, third
+
+**Eye Line**:
+The midpoint between the Leading Subject's two eyes, as a fraction of the Source
+Image height. Aimed at the upper Golden Line, which is the one place a portrait
+must not be framed on its centre. Read off a face Region's landmarks, so only a
+face has one.
+_Avoid_: eye level, horizon, gaze, sight line
+
+**Fallback Rung**:
+One step of the ladder that rescues a Crop Window which cannot hold every
+Subject: zoom out, relax the target towards the middle, drop the cheapest
+Subject, or accept the clipping. Always named in the Framing — a Crop that
+silently gave up on a Subject is worse than one that says it did.
+_Avoid_: retry, degradation, strategy, recovery, fallback on its own
