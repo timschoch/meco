@@ -39,3 +39,27 @@ The floor is now the **leading** Subject Box alone — the one the eyes were rea
 - **Why it had to change here.** Person matching exists so that a Crop can be framed on one named individual in a crowd, and the eye line is what "framed on" means. The rule could not do its job in the only situation the feature is for.
 - **It changes group Crops that match nobody, too.** Any photograph with several faces now tightens where it previously did not. That is the same rule applied consistently rather than a second rule for Persons: the leading face was always what the eye line was read off, and the old floor was about a different Subject from the one being placed. `pnpm test:crop` covers both, and the existing group assertions still hold.
 - **A tighter window can still lose a face**, and says so. Nothing about the ladder or its reporting changed.
+
+## Amendment, 5 Sep 2026 — the fallback ladder, written down once
+
+Issue #23 asked whether a bare Crop — no face, no `anchor`, no `strategy` — should frame itself on the busiest region or stay on `centre`. **The decision is `centre`: saliency stays behind an explicit request.** It is recorded here rather than only on the issue because the ladder itself had never been written down in one place, and a reader was left to infer it from the producer list.
+
+`subjectBoxes` in `src/crop.ts` is the ladder. It returns at the first rung that has an answer:
+
+| Rung | Answers when | Skipped when |
+|---|---|---|
+| **face** — Matches lead if `pinTo` is `person` | any face was detected | `pinTo` is `attention` or `kart` |
+| **kart** — `kartSubjectBox` over the detected objects | any `motorbike` or `person` object was detected | `pinTo` is `attention` |
+| **saliency** — sharp's attention point | `strategy` was given, **or** `pinTo` is `attention` or `kart` | otherwise — including every bare request |
+| **anchor** — one of the nine Crop Anchors | `anchor` was given | otherwise |
+| **centre** | always | never |
+
+**So a bare request resolves by `centre`**, which is what #23 decided and what `pnpm test:http` pins. `pinTo` defaults to `person`, no `strategy` is set, and a photograph with no faces and no objects falls past face, kart and saliency to the bottom.
+
+**Why not ungate saliency.** Every Crop that passes neither an anchor nor a strategy would change picture, and stored Crops are content-addressed, so their keys and URLs would move too — callers who asked for nothing would get something different. Against that the upside is small, and the Consequences above already say why: sharp's attention point is a 32×32 argmax with a skin heuristic biased against dark skin. The case where it would have helped most, a photograph of people, is now answered better by the face producer. What is left is landscapes and objects, where `centre` is defensible and a caller who knows better can say `strategy: "attention"`. Reversing this is one line in `subjectBoxes` plus the probe check; the thing to watch is Crops of photographs with no people landing on empty background.
+
+**Two things the table is easy to misread.**
+
+`pinTo: "kart"` **selects saliency by itself** when no kart is found. Saliency is opt-in for a bare request, not opt-in everywhere: the research measured it framing the on-track photographs the detector misses, so falling past it to a Crop Anchor would throw away the rung that covers exactly that case.
+
+**Rung order is not priority order.** `PRIORITY` in `src/crop.ts` ranks Subject Boxes *inside* the solver — `person` 50, `kart` 45, `face` 40, `saliency` 30, `anchor` 20, `centre` 10 — and `kart` outranks `face` there. The ladder is the separate question of which producer gets to answer at all, and faces are asked first. A photograph with both a face and a kart is framed on the face; the priority number only matters when one producer yields several boxes at once.
