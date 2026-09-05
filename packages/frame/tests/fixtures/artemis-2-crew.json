@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "hash": "da1c7f2ff0ab3041f250fd378e31a74531b43e8a07d5199315e5ca7306f8fc1b",
+  "mime": "image/jpeg",
+  "width": 1280,
+  "height": 1600,
+  "producedBy": [
+    {
+      "name": "yunet",
+      "version": "prototype"
+    }
+  ],
+  "regions": [
+    {
+      "id": "face-1",
+      "kind": "face",
+      "label": "face",
+      "box": {
+        "x": 0.479333,
+        "y": 0.173683,
+        "width": 0.078706,
+        "height": 0.085647
+      },
+      "score": 0.933915,
+      "model": {
+        "name": "yunet",
+        "version": "prototype"
+      },
+      "landmarks": {
+        "rEye": {
+          "x": 0.502115,
+          "y": 0.207525
+        },
+        "lEye": {
+          "x": 0.537123,
+          "y": 0.207979
+        },
+        "nose": {
+          "x": 0.520111,
+          "y": 0.224209
+        },
+        "rMouth": {
+          "x": 0.505492,
+          "y": 0.237609
+        },
+        "lMouth": {
+          "x": 0.535924,
+          "y": 0.238201
+        }
+      }
+    },
+    {
+      "id": "face-2",
+      "kind": "face",
+      "label": "face",
+      "box": {
+        "x": 0.231525,
+        "y": 0.257133,
+        "width": 0.086556,
+        "height": 0.083397
+      },
+      "score": 0.932219,
+      "model": {
+        "name": "yunet",
+        "version": "prototype"
+      },
+      "landmarks": {
+        "rEye": {
+          "x": 0.256921,
+          "y": 0.282882
+        },
+        "lEye": {
+          "x": 0.296949,
+          "y": 0.282255
+        },
+        "nose": {
+          "x": 0.278305,
+          "y": 0.299944
+        },
+        "rMouth": {
+          "x": 0.259989,
+          "y": 0.318727
+        },
+        "lMouth": {
+          "x": 0.294896,
+          "y": 0.315462
+        }
+      }
+    },
+    {
+      "id": "face-3",
+      "kind": "face",
+      "label": "face",
+      "box": {
+        "x": 0.717217,
+        "y": 0.269444,
+        "width": 0.085846,
+        "height": 0.088024
+      },
+      "score": 0.933528,
+      "model": {
+        "name": "yunet",
+        "version": "prototype"
+      },
+      "landmarks": {
+        "rEye": {
+          "x": 0.728094,
+          "y": 0.302385
+        },
+        "lEye": {
+          "x": 0.771578,
+          "y": 0.302829
+        },
+        "nose": {
+          "x": 0.742702,
+          "y": 0.318597
+        },
+        "rMouth": {
+          "x": 0.732097,
+          "y": 0.333216
+        },
+        "lMouth": {
+          "x": 0.767502,
+          "y": 0.332962
+        }
+      }
+    },
+    {
+      "id": "face-4",
+      "kind": "face",
+      "label": "face",
+      "box": {
+        "x": 0.446134,
+        "y": 0.363878,
+        "width": 0.089228,
+        "height": 0.090485
+      },
+      "score": 0.927076,
+      "model": {
+        "name": "yunet",
+        "version": "prototype"
+      },
+      "landmarks": {
+        "rEye": {
+          "x": 0.462543,
+          "y": 0.39642
+        },
+        "lEye": {
+          "x": 0.502893,
+          "y": 0.396542
+        },
+        "nose": {
+          "x": 0.478053,
+          "y": 0.413781
+        },
+        "rMouth": {
+          "x": 0.467065,
+          "y": 0.430678
+        },
+        "lMouth": {
+          "x": 0.500673,
+          "y": 0.428422
+        }
+      }
+    }
+  ]
+}

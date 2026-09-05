@@ -71,12 +71,12 @@ export const PHI_LINES: readonly [number, number] = [1 - 1 / PHI, 1 / PHI];
 
 /**
  * The most Occlusion Zones frame will answer for. The wall is the contracts
- * schema's, enforced by the gateway at the edge; this is the defensive
- * invariant underneath it. The Free Area sweep is polynomial in the zone
- * count, and an unbounded list has no best-effort answer to give.
+ * schema's, enforced by the gateway at the edge; frame's `RangeError` above the
+ * bound is the defensive invariant underneath it, because the Free Area sweep
+ * is polynomial in the zone count and an unbounded list has no best-effort
+ * answer to give.
  *
- * Declared twice on purpose, for now: `@meco/contracts` keeps the same bound
- * private. It becomes the single source once #95 exports it, and the next
- * frame ticket to touch this file re-exports it instead. Ledgered on #101.
+ * Re-exported and no longer declared here: contracts owns the number (#137), so
+ * the wall and the invariant cannot drift apart. Ledgered on #101.
  */
-export const MAX_OCCLUSION_ZONES = 16;
+export { MAX_OCCLUSION_ZONES } from "@meco/contracts";
