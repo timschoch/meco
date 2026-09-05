@@ -1,4 +1,6 @@
 import type { DecodedImage, Match, Redaction, Region } from "@meco/contracts";
+import { paintMask } from "./mask";
+import { pixelRectangle } from "./pixel-rectangle";
 import { unknownFaces } from "./unknown-faces";
 
 /**
@@ -37,18 +39,29 @@ export interface RedactResult {
 /**
  * Hides every Unknown Face in the Source Image and says which ones it hid.
  *
- * Asynchronous from the start because the mask is drawn with sharp, which
- * lands in #131. Until then the returned `image` is the request's own buffer.
+ * The masks are painted into a copy, so the image the caller handed in is
+ * still the image it handed in. Turning the policy off, or having nothing to
+ * hide, costs not even that copy: the request's own buffer comes straight back
+ * out, which is what `blurUnknownFaces: false` returning the input byte for
+ * byte means.
  */
 export const redact = async (request: RedactRequest): Promise<RedactResult> => {
-  if (!request.redaction.blurUnknownFaces) {
+  const hidden = request.redaction.blurUnknownFaces
+    ? unknownFaces(request.regions, request.matches)
+    : [];
+
+  if (hidden.length === 0) {
     return { image: request.image, redactions: [] };
   }
 
-  const hidden = unknownFaces(request.regions, request.matches);
+  const data = Uint8Array.from(request.image.data);
+  for (const region of hidden) {
+    const rect = pixelRectangle(region.box, request.image);
+    if (rect) await paintMask(request.image, data, rect);
+  }
 
   return {
-    image: request.image,
+    image: { ...request.image, data },
     redactions: hidden.map((region) => ({
       regionId: region.id,
       reason: "unknown-face",
