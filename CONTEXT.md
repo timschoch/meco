@@ -7,8 +7,8 @@ meco turns code-authored templates and JSON data into social media images and PD
 ### Templates and rendering
 
 **Brand**:
-The look a Template renders in — colours, fonts and wordmark, owned by one consumer of meco. A Template belongs to exactly one Brand.
-_Avoid_: theme, skin, style, client
+One consumer of meco as the owner of its data: its People, Reference Photos, Templates and Look. The unit of ownership and the privacy wall; a caller may hold several, and a Template belongs to exactly one. How a Brand's output looks is its Look, defined under compose.
+_Avoid_: theme, skin, style, client, tenant, account
 
 **Template**:
 A design authored as code, with no pixel size of its own. It declares the Fields it needs and the Placements it supports, and lays itself out for whichever of those it is rendered for; any other Placement is refused.
