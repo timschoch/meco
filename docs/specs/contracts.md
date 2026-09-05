@@ -1,6 +1,6 @@
 # Spec: the contracts module
 
-Parent: [Module: contracts (#80)](https://github.com/timschoch/meco/issues/80). Settles [What belongs in an Annotation (#69)](https://github.com/timschoch/meco/issues/69) and [What belongs in a FramingRequest (#70)](https://github.com/timschoch/meco/issues/70). Reasons: [ADR-0004](../adr/0004-contracts-annotation-framingrequest-and-zod.md). Vocabulary: [`CONTEXT.md`, contracts](../../CONTEXT.md#contracts). Package layout: [`packages/README.md`](../../packages/README.md).
+Parent: [Module: contracts (#80)](https://github.com/timschoch/meco/issues/80). Settles [What belongs in an Annotation (#69)](https://github.com/timschoch/meco/issues/69) and [What belongs in a FramingRequest (#70)](https://github.com/timschoch/meco/issues/70). Reasons: [ADR-0005](../adr/0005-contracts-annotation-framingrequest-and-zod.md). Vocabulary: [`CONTEXT.md`, contracts](../../CONTEXT.md#contracts). Package layout: [`packages/README.md`](../../packages/README.md).
 
 ## Problem statement
 
@@ -84,7 +84,7 @@ Boundary rule: if two outputs cut from the same bytes could disagree about it, i
 
 ### Schema library
 
-zod 4, classic API. Types are inferred from the schemas and never written twice. Measurements and the reason in ADR-0004.
+zod 4, classic API. Types are inferred from the schemas and never written twice. Measurements and the reason in ADR-0005.
 
 ### The adapter edge
 

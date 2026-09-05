@@ -1,4 +1,4 @@
-# ADR-0004 — The contracts package: three shared types, zod 4, and a conformance suite that imports no test runner
+# ADR-0005 — The contracts package: three shared types, zod 4, and a conformance suite that imports no test runner
 
 Status: **accepted, 6 Sep 2026**. Parent: [Module: contracts (#80)](https://github.com/timschoch/meco/issues/80). Settles [What belongs in an Annotation (#69)](https://github.com/timschoch/meco/issues/69) and [What belongs in a FramingRequest (#70)](https://github.com/timschoch/meco/issues/70). Spec: [`../specs/contracts.md`](../specs/contracts.md). Builds on [ADR-0001](0001-analytic-solver-over-search-based-crop.md) (fractions, `width`/`height`), [ADR-0002](0002-meco-faces-as-a-separate-service.md) (framing policy lives outside the detector) and [ADR-0003](0003-face-recognition-licence-consent-and-threshold.md) (a Face Print carries no model tag, which this ADR closes).
 
