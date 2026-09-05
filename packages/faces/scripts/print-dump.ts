@@ -40,10 +40,18 @@ const fixtures = await readFixtureFaces();
 const prints: FixturePrint[] = [];
 
 for (const image of fixtures) {
-  const embedded = await embedFaces(
+  const { prints: embedded, skipped } = await embedFaces(
     await readFile(`${FIXTURES}${image.file}`),
     image.faces.map(({ face }) => face),
   );
+  // Every hand-marked fixture face is meant to have a Face Print. A hole here is
+  // not a fact to record, it is a fixture that stopped working — and writing the
+  // file without it would quietly shrink the set the threshold is calibrated on.
+  if (skipped.length > 0) {
+    throw new Error(
+      `${image.file}: ${skipped.map((s) => `face ${String(s.index)} — ${s.reason}`).join("; ")}`,
+    );
+  }
   for (const [i, { name, person, marked }] of image.faces.entries()) {
     prints.push({ name, file: image.file, label: marked.label, person, print: embedded[i]! });
   }

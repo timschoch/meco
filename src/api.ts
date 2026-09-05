@@ -246,7 +246,7 @@ async function matchIfBrand(
   faces: readonly DetectedFace[],
   storage: Storage,
 ) {
-  if (!input.brand) return { matches: [], warnings: [] };
+  if (!input.brand) return { matches: [], warnings: [], facesNotCompared: 0 };
   return matchFaces(
     {
       brand: input.brand,
@@ -311,6 +311,23 @@ export async function crop(input: CropInput, storage: Storage) {
       : { subjectAreaSatisfied: result.subjectAreaSatisfied }),
     ...(result.anchor ? { anchor: result.anchor } : {}),
     ...(result.blurred === undefined ? {} : { blurred: result.blurred }),
+    /**
+     * How many Uncompared Faces there are — faces meco never compared against
+     * this Brand's People, because the face service would not answer or its warp
+     * could not read them.
+     *
+     * **Present whenever a Brand was named, zero and all**, for the same reason
+     * `matches` is: a field that comes and goes cannot distinguish "nothing went
+     * wrong" from "this deployment does not report it", and distinguishing those
+     * is the entire point of issue #39. Omitting it when zero would have
+     * reproduced the silence one layer up from the one being fixed.
+     *
+     * Of the whole photograph and not of the finished frame, deliberately.
+     * `blurred` counts what is in the picture because that is what a blur is
+     * about; this is about a comparison that happens before any pixel is cut,
+     * and scoping it to the window would hide the very case a caller needs.
+     */
+    ...(input.brand ? { facesNotCompared: named.facesNotCompared } : {}),
     // Always present once a Brand was named, empty list and all: "meco knows
     // these People and recognised none of them here" is an answer, and a caller
     // cannot tell it from "matching never ran" if the field comes and goes.
@@ -380,6 +397,10 @@ export async function findSubjects(input: SubjectsInput, storage: Storage) {
           ),
         }
       : {}),
+    // The same count a Crop reports, present on the same terms, and the route
+    // where "of the whole photograph" is the only thing it could mean — there is
+    // no crop window here at all.
+    ...(input.brand ? { facesNotCompared: named.facesNotCompared } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
   };
 }

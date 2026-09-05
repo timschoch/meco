@@ -21,6 +21,7 @@ import sharp from "sharp";
 import {
   ALIGNED_SIZE,
   ARCFACE_DST,
+  UnalignableFace,
   alignFace,
   applyMatrix,
   asPoints,
@@ -29,7 +30,7 @@ import {
 } from "../src/align.js";
 import { createFacesApp } from "../src/app.js";
 import { detectFaces } from "../src/detect.js";
-import { PRINT_LENGTH, embedFaces } from "../src/embed.js";
+import { PRINT_LENGTH, decodeUpright, embedFaces } from "../src/embed.js";
 import { LANDMARK_NAMES, type Landmarks, type Point } from "../src/yunet.js";
 import { NOT_A_FACE_PRINTS } from "../../../src/not-a-face-prints.js";
 import { FIXTURES, atLongEdge, cosineSimilarity, readFixtureFaces } from "./fixture-faces.js";
@@ -267,9 +268,14 @@ const prints = new Map<string, number[]>();
 for (const image of fixtures) {
   // Every face of one image in a single call, in the order this test holds
   // them — which also exercises the promise the route makes about that order.
-  const embedded = await embedFaces(
+  const { prints: embedded, skipped } = await embedFaces(
     await readFile(`${FIXTURES}${image.file}`),
     image.faces.map(({ face }) => face),
+  );
+  check(
+    skipped.length === 0,
+    `${image.file} embeds every face it was given`,
+    skipped.map((s) => `face ${String(s.index)} — ${s.reason}`).join("; ") || "none skipped",
   );
 
   for (const [i, { name }] of image.faces.entries()) {
@@ -430,18 +436,18 @@ check(
 
 if (atFullSize.faces.length === 4) {
   const landmarks = atFullSize.faces.map((face) => ({ landmarks: face.landmarks }));
-  const full = await embedFaces(fullSize, landmarks);
+  const full = (await embedFaces(fullSize, landmarks)).prints;
 
   for (const longEdge of [2048, 1600, 1280]) {
     const smaller = await atLongEdge(fullSize, longEdge);
     // The same landmarks, not re-detected ones: the question is what the resize
     // does to the *pixels* the warp reads. Detection is measured in the detect
     // test, and mixing the two would blur which of them had moved.
-    const bounded = await embedFaces(smaller, landmarks);
+    const bounded = (await embedFaces(smaller, landmarks)).prints;
 
-    const mine = bounded.map((print, i) => cosineSimilarity(print, full[i]!));
+    const mine = bounded.map((print, i) => cosineSimilarity(print!, full[i]!));
     const others = bounded.flatMap((print, i) =>
-      full.filter((_, j) => j !== i).map((other) => cosineSimilarity(print, other)),
+      full.filter((_, j) => j !== i).map((other) => cosineSimilarity(print!, other!)),
     );
     const worstMine = Math.min(...mine);
     const bestOther = Math.max(...others);
@@ -494,7 +500,7 @@ if (atFullSize.faces.length === 4) {
       stale = `${entry.file}#${String(entry.index)} is no longer detected`;
       break;
     }
-    const [fresh] = await embedFaces(bytes, [{ landmarks: face.landmarks }]);
+    const [fresh] = (await embedFaces(bytes, [{ landmarks: face.landmarks }])).prints;
     const drift = Math.max(...entry.print.map((v, i) => Math.abs(v - fresh![i]!)));
     worstDrift = Math.max(worstDrift, drift);
     if (drift > 1e-6) {
@@ -535,6 +541,148 @@ if (atFullSize.faces.length === 4) {
     shipped === ""
       ? NOT_A_FACE_PRINTS.map((r) => `${r.name} — ${r.what}`).join(", ")
       : shipped,
+  );
+}
+
+// ------------------------------------------- a face the warp cannot cut a square from
+
+/**
+ * One unalignable face is a hole, and the holes do not shift the others.
+ *
+ * `paddock-mixed.jpg` has nine detections and the warp refuses exactly one of
+ * them — `#1`, whose landmarks warp to 117x89, under the 112 px template. Before
+ * issue #39 that refusal rejected the whole request, so meco named nobody in a
+ * nine-face photograph.
+ *
+ * The scatter back to the caller's positions is the part worth testing hardest.
+ * The network only ever sees the faces that aligned, so the batch is shorter
+ * than the request, and an off-by-one there would not throw — it would return
+ * eight perfectly valid Face Prints attached to the wrong eight faces, and meco
+ * would confidently name the wrong people. So each surviving print is checked
+ * against the same face embedded on its own, which is the one comparison that
+ * catches a shift.
+ */
+{
+  const KARTS = fileURLToPath(new URL("../../../fixtures/karts/", import.meta.url));
+  const bytes = await readFile(`${KARTS}paddock-mixed.jpg`);
+  const detected = await detectFaces(bytes);
+  const landmarks = detected.faces.map((face) => ({ landmarks: face.landmarks }));
+
+  const batch = await embedFaces(bytes, landmarks);
+
+  check(
+    batch.prints.length === detected.faces.length,
+    "a batch with an unalignable face still answers once per face",
+    `${String(batch.prints.length)} entries for ${String(detected.faces.length)} faces`,
+  );
+  check(
+    batch.skipped.length === 1 && batch.prints[batch.skipped[0]!.index] === null,
+    "the face the warp refuses comes back as a hole, at its own position",
+    batch.skipped.map((s) => `#${String(s.index)} ${s.reason}`).join("; ") || "nothing skipped",
+  );
+  check(
+    batch.skipped[0]?.reason.includes("112px template") === true,
+    "and the reason says what the warp actually objected to",
+    batch.skipped[0]?.reason ?? "",
+  );
+  check(
+    batch.prints.filter((p) => p !== null).length === detected.faces.length - 1,
+    "every other face in the photograph is embedded",
+    `${String(batch.prints.filter((p) => p !== null).length)} prints`,
+  );
+  check(
+    batch.prints.every((p) => p === null || p.length === PRINT_LENGTH),
+    "and every print that is there is a whole print",
+    `${String(PRINT_LENGTH)} floats`,
+  );
+
+  // The scatter, face by face. A shift would leave every one of these comparing
+  // one real face's print against another's, which is ~0 rather than 1.
+  let worst = 1;
+  let moved = "";
+  for (const [i, print] of batch.prints.entries()) {
+    if (print === null) continue;
+    const [alone] = (await embedFaces(bytes, [landmarks[i]!])).prints;
+    if (!alone) {
+      moved = `face ${String(i)} embeds alone but not in the batch`;
+      break;
+    }
+    const same = cosineSimilarity(print, alone);
+    worst = Math.min(worst, same);
+  }
+  check(
+    moved === "" && worst > 0.9999,
+    "each print belongs to the face at its own index, not to the one beside it",
+    moved || `worst face-against-itself cosine ${worst.toFixed(6)}`,
+  );
+
+  // A whole photograph of faces the warp refuses is not an error either: it is a
+  // photograph meco can name nobody in, which is a different sentence from "the
+  // service is broken" and has to arrive as a different answer.
+  const allRefused = await embedFaces(bytes, [landmarks[1]!, landmarks[1]!]);
+  check(
+    allRefused.prints.length === 2 &&
+      allRefused.prints.every((p) => p === null) &&
+      allRefused.skipped.length === 2,
+    "a request where no face can be aligned answers with holes, not a failure",
+    `${String(allRefused.skipped.length)} skipped of 2`,
+  );
+
+  /**
+   * Which failures are about one face, and which are about the service.
+   *
+   * `embedFaces` decides that by type — `instanceof UnalignableFace` becomes a
+   * hole, everything else still takes the request down. This is the taxonomy
+   * that decision rests on, and it is worth pinning because the two answers are
+   * opposite: a hole tells a caller to retake a photograph, and a thrown request
+   * tells them the service is broken.
+   *
+   * The honest limit, written down rather than implied: no committed fixture can
+   * make `alignFace` throw a *non*-`UnalignableFace` from inside that loop, so
+   * what is proven here is the classification, not the propagation. The
+   * propagation fails safe either way — an unclassified throw escapes and the
+   * request fails, which is the direction to be wrong in.
+   */
+  check(
+    (() => {
+      try {
+        similarityTransform([], []);
+        return false;
+      } catch (err) {
+        return err instanceof Error && !(err instanceof UnalignableFace);
+      }
+    })(),
+    "a fit with no point pairs is a bad argument, not an unreadable face",
+    "so it is never turned into a hole",
+  );
+  check(
+    await (async () => {
+      const upright = await decodeUpright(bytes);
+      // Every landmark on one point: nothing to fit a transform to, which is a
+      // fact about this face and must be classified as one.
+      const collapsed = { x: 10, y: 10 };
+      try {
+        await alignFace(upright, {
+          rEye: collapsed,
+          lEye: collapsed,
+          nose: collapsed,
+          rMouth: collapsed,
+          lMouth: collapsed,
+        });
+        return false;
+      } catch (err) {
+        return err instanceof UnalignableFace;
+      }
+    })(),
+    "a face whose landmarks collapse to one point is an unreadable face",
+    "so it becomes a hole rather than a failed request",
+  );
+
+  const none = await embedFaces(bytes, []);
+  check(
+    none.prints.length === 0 && none.skipped.length === 0,
+    "and no faces at all is still no faces at all",
+    "",
   );
 }
 
@@ -601,6 +749,49 @@ for (const [label, search] of [
 ] as const) {
   const bad = await post(authorised, "/embed", search);
   check(bad.status === 400, `POST /embed with ${label}`, `status ${String(bad.status)}`);
+}
+
+/**
+ * The route answers 200 with a hole, not 400.
+ *
+ * The library is checked above; this is the boundary meco actually talks to, and
+ * the status code is the whole difference. A 400 here is what meco used to see,
+ * and it turned one unreadable face into "the request was wrong" — which meco
+ * could only report as naming nobody in the photograph.
+ */
+{
+  const paddock = await readFile(
+    fileURLToPath(new URL("../../../fixtures/karts/paddock-mixed.jpg", import.meta.url)),
+  );
+  const found = await detectFaces(paddock);
+  const search = `?faces=${encodeURIComponent(
+    JSON.stringify(found.faces.map((f) => ({ landmarks: f.landmarks }))),
+  )}`;
+  const answered = await app.fetch(
+    new Request(`http://local/embed${search}`, {
+      method: "POST",
+      headers: { "content-type": "image/jpeg", ...authorised },
+      body: new Uint8Array(paddock),
+    }),
+  );
+  const payload = (await answered.json()) as {
+    prints: (number[] | null)[];
+    skipped: { index: number; reason: string }[];
+  };
+  check(
+    answered.status === 200 &&
+      payload.prints.length === found.faces.length &&
+      payload.skipped.length === 1 &&
+      payload.prints[payload.skipped[0]!.index] === null,
+    "POST /embed with one unalignable face is a 200 with a hole in it",
+    `status ${String(answered.status)}, ${String(payload.skipped.length)} skipped of ` +
+      `${String(payload.prints.length)}`,
+  );
+  check(
+    payload.skipped[0]?.reason.includes("112px template") === true,
+    "and the wire carries the reason, so meco can repeat it to a caller",
+    payload.skipped[0]?.reason ?? "",
+  );
 }
 
 const none = await post(authorised, "/embed", `?faces=${encodeURIComponent("[]")}`);

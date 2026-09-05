@@ -118,7 +118,9 @@ export function similarityTransform(src: Point[], dst: Point[]): Matrix {
     num2 += x * v - y * u;
   }
   if (den === 0) {
-    throw new Error("Every source landmark is in the same place — no transform can be fitted.");
+    throw new UnalignableFace(
+      "Every source landmark is in the same place — no transform can be fitted.",
+    );
   }
 
   const a = num1 / den;
@@ -129,10 +131,24 @@ export function similarityTransform(src: Point[], dst: Point[]): Matrix {
   ];
 }
 
+/**
+ * A face this warp cannot produce a square for.
+ *
+ * Its own class because the caller has to tell it from everything else that can
+ * go wrong in here. `embedFaces` turns one of these into a hole in its answer
+ * and carries on with the other faces; a plain `Error` — a bad argument, a
+ * libvips failure, memory — is not a fact about one face and must still take the
+ * request down. Reporting those as "this face could not be read" would tell a
+ * caller to fix their photograph while the service was broken.
+ */
+export class UnalignableFace extends Error {}
+
 /** The map back from the aligned square to the source image. */
 export function invertMatrix(m: Matrix): Matrix {
   const det = m[0][0] * m[1][1] - m[0][1] * m[1][0];
-  if (det === 0) throw new Error("The transform collapses the image and cannot be inverted.");
+  if (det === 0) {
+    throw new UnalignableFace("The transform collapses the image and cannot be inverted.");
+  }
   const a = m[1][1] / det;
   const b = -m[0][1] / det;
   const c = -m[1][0] / det;
@@ -224,7 +240,9 @@ function preimage(m: Matrix, image: RawImage): Region {
   const bottom = Math.min(image.height, Math.ceil(Math.max(...square.map((p) => p.y))) + 1);
 
   if (right <= left || bottom <= top) {
-    throw new Error("The face's landmarks fall outside the image, so there is nothing to align.");
+    throw new UnalignableFace(
+      "The face's landmarks fall outside the image, so there is nothing to align.",
+    );
   }
   return { left, top, width: right - left, height: bottom - top };
 }
@@ -268,7 +286,7 @@ export async function alignFace(image: RawImage, landmarks: Landmarks): Promise<
     .toBuffer({ resolveWithObject: true });
 
   if (info.width < ALIGNED_SIZE || info.height < ALIGNED_SIZE) {
-    throw new Error(
+    throw new UnalignableFace(
       `The warped face came back ${String(info.width)}x${String(info.height)}, ` +
         `smaller than the ${String(ALIGNED_SIZE)}px template.`,
     );

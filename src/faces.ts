@@ -295,9 +295,49 @@ export interface FaceToEmbed {
   landmarks: FaceLandmarks;
 }
 
+/**
+ * The answer, parsed rather than trusted — and loosened in exactly one way.
+ *
+ * A `null` entry is legal since issue #39: it says "this face was not compared",
+ * which is information. The `length(PRINT_LENGTH)` check stays on every entry
+ * that is not null, and the count check below stays too. Relaxing either would
+ * let a malformed Face Print through to be compared against the whole gallery,
+ * which is the same class of defect as issue #34 — an identity read out of
+ * something that does not hold one. The only thing that becomes legal here is an
+ * explicit hole.
+ */
 const prints = z.object({
-  prints: z.array(z.array(z.number()).length(PRINT_LENGTH)),
+  prints: z.array(z.array(z.number()).length(PRINT_LENGTH).nullable()),
+  // Absent from an older deployment of meco-faces, which is a service that
+  // simply never skips: the default is the same thing it would have said.
+  skipped: z
+    .array(z.object({ index: z.number().int().min(0), reason: z.string() }))
+    .default([]),
 });
+
+/**
+ * One face meco-faces could not turn into a Face Print, and why.
+ *
+ * An **Uncompared Face** in `CONTEXT.md`'s terms. meco-faces calls its own half
+ * of this "skipped" on the wire, and rightly: it knows nothing about Persons or
+ * comparison, only that it skipped embedding a face. The name changes at this
+ * boundary because the consequence is meco's, not the service's.
+ */
+export interface UncomparedFace {
+  /** Its position in the list that was sent, so a caller can say which face. */
+  index: number;
+  reason: string;
+}
+
+export interface EmbeddedFaces {
+  /**
+   * One entry per face named, in the order they were named. `null` where
+   * meco-faces could not embed that face — a hole, never a shortened list.
+   */
+  prints: (number[] | null)[];
+  /** One entry per `null` above. Empty in the ordinary case. */
+  uncompared: UncomparedFace[];
+}
 
 /**
  * The Face Print of every face named, in the order they were named.
@@ -308,11 +348,20 @@ const prints = z.object({
  * Reference Photo enrols one face, so the ceiling is nowhere near; it is
  * recorded because a future caller with a crowd will meet it.
  *
- * Throws on anything that went wrong. Enrolling a Person is not a Crop: there is
- * no other producer to fall back to, so a failure here is a failure of the
- * request and is reported as one.
+ * That budget is also why one face that cannot be embedded comes back as a hole
+ * rather than as one request per face: 25 faces still fit in a single call, and
+ * a round trip each would be paid to solve something the response shape solves
+ * for nothing. Issue #39.
+ *
+ * Throws on anything that went wrong *with the request*. A single face that
+ * could not be embedded is not that: it is an answer, and the caller decides
+ * what it means. Enrolling a Person treats it as a refusal, because there is
+ * nothing else to fall back to; a Crop treats it as one face it cannot name.
  */
-export async function embedFaces(image: Buffer, faces: FaceToEmbed[]): Promise<number[][]> {
+export async function embedFaces(
+  image: Buffer,
+  faces: FaceToEmbed[],
+): Promise<EmbeddedFaces> {
   const base = facesBaseUrl();
   if (!base) {
     throw new Error(`${FACES_URL} is not set — meco cannot reach meco-faces.`);
@@ -365,5 +414,5 @@ export async function embedFaces(image: Buffer, faces: FaceToEmbed[]): Promise<n
         `${String(faces.length)} faces.`,
     );
   }
-  return parsed.data.prints;
+  return { prints: parsed.data.prints, uncompared: parsed.data.skipped };
 }

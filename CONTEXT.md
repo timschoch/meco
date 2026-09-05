@@ -103,3 +103,7 @@ _Avoid_: negative sample, decoy, blocklist, impostor
 **Identifiable Face**:
 A detected face meco is willing to compare against a Person at all: large enough to print, and with a Face Print unlike every Not-a-Face Print. A face that is not one is still detected, still a Subject Box and still hidden by Face Blur — it simply can never be a Match. The property is of the face and the model, not of any Brand.
 _Avoid_: valid face, real face, good face, quality
+
+**Uncompared Face**:
+A detected face meco never asked about, because no Face Print could be made of it — the alignment refused it, or the face service did not answer. Not the same as an unknown face, which *was* compared and matched nobody: one is a gap in the question, the other an answer to it. Counted in a Crop's answer so the two can be told apart, and hidden by Face Blur exactly like any other face meco cannot name.
+_Avoid_: failed face, error, skipped, dropped
