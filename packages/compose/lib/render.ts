@@ -1,10 +1,9 @@
 import sharp from "sharp";
 import { fromJsx } from "@takumi-rs/helpers/jsx";
 import type { RgbaImage } from "@takumi-rs/helpers";
-import type { Box } from "@meco/contracts";
+import type { Box, DecodedImage } from "@meco/contracts";
 import type { Look, Template } from "../template";
 import { placement as placementById, type Placement } from "../placements";
-import type { DecodedImage } from "./decoded-image";
 import { ComposeError } from "./errors";
 import { LOOKS } from "./looks/registry";
 import {
