@@ -63,6 +63,38 @@ Target architecture. One module, one job, done well. Deep modules: a lot of
 behaviour behind a small interface at a clean seam. Every module is also an
 agent-callable tool — usable in the flow or alone.
 
+## The greenfield rule — read before every decision
+
+**Everything shipped so far is a learning prototype.** It proved the domain. It
+does not get a vote on the rebuild.
+
+For every piece of existing code, config, convention or dependency, ask one
+question:
+
+> On a greenfield build, knowing what we know now, would this be the **first**
+> choice?
+
+**Yes** → carry it in. **Anything else** → it is out. Rewrite it.
+
+These are **not** valid arguments to keep something:
+
+- it already works
+- rewriting costs time
+- we learned a lot building it
+- the tests would have to be rewritten
+- it was hard to get right
+
+Sunk cost is not evidence. A thing that is merely *good enough* is out; only
+*first choice* is in.
+
+Already out by this rule: hand-rolled `tsx` test scripts (Vitest is the first
+choice), the flat `src/*.ts` layout (packages with enforced entry points are),
+and `/detect` + `/objects` + `/embed` as separate routes (a model catalogue is).
+
+What survives, survives on merit and must be able to say why — a measurement, a
+standard, or a property nothing else gives. Record that reason where the
+decision lives, not in a chat.
+
 ## Modules
 
 | Module | Its one job |
