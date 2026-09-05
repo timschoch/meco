@@ -25,12 +25,6 @@
       "skillPath": "pstack/skills/blast-radius/SKILL.md",
       "computedHash": "29c76d37a04163f5005cec955e4cdd0311783322d0c6bf478577955b6fefea40"
     },
-    "check-upstream": {
-      "source": "timschoch/mattpocock-skills",
-      "sourceType": "github",
-      "skillPath": ".claude/skills/check-upstream/SKILL.md",
-      "computedHash": "da9cffcabab8564dfaf6ebf7485453b78da93059e996160add5b5796363ba5cc"
-    },
     "claude-handoff": {
       "source": "timschoch/mattpocock-skills",
       "sourceType": "github",
