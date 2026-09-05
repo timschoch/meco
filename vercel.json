@@ -4,7 +4,7 @@
     "gateway": {
       "root": ".",
       "runtime": "container",
-      "entrypoint": "packages/gateway/Containerfile",
+      "entrypoint": "Containerfile.gateway",
       "bindings": [
         {
           "type": "service",
@@ -17,8 +17,15 @@
     "models": {
       "root": ".",
       "runtime": "container",
-      "entrypoint": "packages/models/Containerfile"
+      "entrypoint": "Containerfile.models"
     }
   },
-  "rewrites": [{ "source": "/(.*)", "destination": { "service": "gateway" } }]
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "gateway"
+      }
+    }
+  ]
 }

@@ -1,6 +1,7 @@
-# Build context is the repository root: a pnpm workspace cannot install from a
-# single package directory. `vercel.json` sets `root: "."` and points
-# `entrypoint` at this file.
+# This file sits at the repository root because buildah takes the build context
+# from the Containerfile's own directory, NOT from the service's `root`. A pnpm
+# workspace cannot install from a single package directory, so the context has
+# to be the top. See DEPLOY.md.
 FROM node:22-alpine AS build
 WORKDIR /app
 # husky's install step needs a .git directory that is not in the build context.

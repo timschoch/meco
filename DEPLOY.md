@@ -21,11 +21,27 @@ preview's `models`, never production.
 A binding grants access; it does not authenticate. Application-level
 authorisation between the two services is the services' own job.
 
-Both `root`s are the repository root, because a pnpm workspace cannot install
-from a single package directory: the lockfile and `pnpm-workspace.yaml` live at
-the top. `entrypoint` is a path relative to that root — see
-`docs/research/vercel-two-services.md` for the primary sources, and for the two
-build traps the prototype paid for under the older container mechanism.
+**Both Containerfiles sit at the repository root, and that is not cosmetic.**
+buildah takes the build context from the Containerfile's own directory, not from
+the service's `root`. Verified on deployment `dpl_7q2U1yZ228j4crCeoB6UyvdUcSjL`,
+5 Sep 2026, with `root: "."` and `entrypoint: "packages/gateway/Containerfile"`:
+
+```
+Error: building at STEP "COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./":
+checking on sources under "/vercel/path0/packages/gateway":
+copier: stat: "/pnpm-lock.yaml": no such file or directory
+buildah build ... -f /vercel/path0/packages/gateway/Containerfile /vercel/path0/packages/gateway
+```
+
+A pnpm workspace cannot install from one package directory — the lockfile and
+`pnpm-workspace.yaml` are at the top — so the context has to be the repository
+root, so the Containerfile has to live there. `root: "."` still matters: it is
+what makes `entrypoint` resolve from the repository root.
+
+`docs/research/vercel-two-services.md` read the current docs as saying the
+context is the service's `root`, and flagged this exact combination as
+unverified. It is now verified, and the docs do not describe what the builder
+does. Do not move these files back under `packages/`.
 
 ## Release
 

@@ -3,3 +3,9 @@
 .git
 .temp
 .vercel
+fixtures
+assets
+docs
+.github
+.agents
+.claude
