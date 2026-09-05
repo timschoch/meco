@@ -73,6 +73,13 @@ Issue #53 asked the question #42 forced: these numbers were calibrated on fixtur
 | gap | 0.4450 | **0.4284** | −0.0166 |
 | clean threshold band | 0.30 – 0.80 | **0.30 – 0.80** | unchanged |
 | margin sweep | flat, 0 to 0.4 | flat, 0 to 0.4 | unchanged |
+| Not-a-Face band | −0.0177 | **−0.0177** | unchanged |
+
+The last row is in the table because #53 asked for it, and it needs a caveat to
+be read correctly: that band is set by the **kart** fixtures, which #42 had
+already moved to the bound. Re-deriving the face fixtures could not move it and
+did not. It is repeated here so the two calibrations can be read together —
+the identity one confirmed, the non-face one still inverted.
 
 **Every movement is smaller than the 0.019 a JPEG re-encode alone moves a Face Print** (see the precision section in the amendment below). The clean band is identical to the hundredth, 0.50 is still its midpoint, and the margin table is still flat. **No constant changes, and this is a result rather than the absence of one**: the identity threshold is now confirmed at the resolution it is applied at, instead of merely never having been re-checked there.
 

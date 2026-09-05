@@ -1307,14 +1307,21 @@ check(
 // Both numbers are derived from the recorded photograph, not transcribed. The
 // fixture's size moved once already in #53, and a hand-copied dimension is
 // exactly the kind of expectation that goes stale without anyone noticing.
+//
+// The window needed is the face's longer side divided by the Subject Area's
+// 0.05, because filling 5 % of the output with the face means a window twenty
+// times its size; the largest that fits a Source Image is its shorter side.
 const portrait = recorded.images["astronaut-portrait.jpg"]!;
+const portraitFace = portrait.faces[0]!.box;
 const largestSquare = Math.min(portrait.width, portrait.height);
-const neededSquare = Math.round(largestSquare / Math.sqrt(0.05 * 0.05));
+const neededSquare = Math.round(
+  Math.max(portraitFace.width * portrait.width, portraitFace.height * portrait.height) / 0.05,
+);
 check(
   "the refusal names the window it needed and the one that fits",
-  tooSmallMessage.includes(`${String(largestSquare)}x${String(largestSquare)}`) &&
-    /needs a \d+x\d+ window/.test(tooSmallMessage),
-  `${tooSmallMessage} (largest square ${String(largestSquare)}, about ${String(neededSquare)} needed)`,
+  tooSmallMessage.includes(`${String(neededSquare)}x${String(neededSquare)}`) &&
+    tooSmallMessage.includes(`${String(largestSquare)}x${String(largestSquare)}`),
+  `${tooSmallMessage} (derived: needs ${String(neededSquare)}, largest ${String(largestSquare)})`,
 );
 
 /**
@@ -2072,14 +2079,17 @@ check(
  * route. A `warnings` entry is what a refused body looks like from out here —
  * "No faces were named" — and its absence is the claim.
  *
- * Whether anyone is *recognised* is not the claim, and since #53 it is no longer
- * predictable from here. `artemis-2-crew.jpg` is now the bytes `boundedSource`
- * makes of `artemis-2-crew-full.jpg`, byte for byte — both are the same
- * photograph put through the same bound — so the copy meco sends hashes to the
- * fixture the stand-in has real Face Prints for, and Ada, enrolled from face 2
- * of that very photograph, is correctly a Match. Before the fixtures moved to
- * the bound, the bounded copy matched no recording and the answer was `face`.
- * Both are right; the route being reached is what is asserted.
+ * Since #53 the Match is predictable and so it is pinned rather than allowed for.
+ * `artemis-2-crew.jpg` is now the bytes `boundedSource` makes of
+ * `artemis-2-crew-full.jpg`, byte for byte — both are the same photograph put
+ * through the same bound — so the copy meco sends hashes to the fixture the
+ * stand-in has real Face Prints for, and Ada, enrolled from face 2 of that very
+ * photograph, is correctly named. Before the fixtures moved to the bound the
+ * bounded copy matched no recording and the answer was `face`.
+ *
+ * Naming her is the stronger assertion and the one made here: a route that
+ * silently stopped computing Face Prints would still have satisfied "resolved by
+ * a face or a person", and would not survive being asked for the name.
  */
 const fullSizeWithBrand = await post("/v1/crop", {
   source: GROUP_FULL_SIZE.url,
@@ -2088,13 +2098,15 @@ const fullSizeWithBrand = await post("/v1/crop", {
   height: 1080,
 });
 cropKeys.add(String(fullSizeWithBrand.json.key));
+const fullSizeMatches = (fullSizeWithBrand.json.matches ?? []) as { name?: string }[];
 check(
   "a photograph too big for the platform reaches the Face Print route too",
   fullSizeWithBrand.status === 200 &&
-    (fullSizeWithBrand.json.resolvedBy === "face" ||
-      fullSizeWithBrand.json.resolvedBy === "person") &&
+    fullSizeWithBrand.json.resolvedBy === "person" &&
+    fullSizeMatches.some((m) => m.name === "Person D") &&
     fullSizeWithBrand.json.warnings === undefined,
   `${String(fullSizeWithBrand.status)} resolvedBy=${String(fullSizeWithBrand.json.resolvedBy)} ` +
+    `matches=${fullSizeMatches.map((m) => String(m.name)).join(",") || "none"} ` +
     `warnings=${JSON.stringify(fullSizeWithBrand.json.warnings)}`,
 );
 

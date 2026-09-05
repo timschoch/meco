@@ -27,6 +27,12 @@ PyTorch has no wheels for every Python, so pin one it does support::
         torch torchvision timm onnx onnxruntime numpy pillow
     .temp/edgeface-venv/bin/python packages/faces/scripts/export-edgeface.py
 
+Pass ``--keep-onnx`` to re-earn the reference Face Prints against the committed
+export instead of writing a new one. Use it when the *aligned squares* changed
+and the model did not — a fixture re-derivation, for instance — so a shipped
+model is never rewritten as a side effect of a fixture change. It is the only
+flag; anything else is refused rather than ignored.
+
 Nothing in the service needs any of this. It is a one-off.
 """
 
@@ -142,6 +148,12 @@ def load_faces():
 def main() -> None:
     import torch
 
+    # Rejected rather than ignored: a typo like `--keep_onnx` would otherwise
+    # fall through to the export path and rewrite a shipped model, which is the
+    # one outcome this flag exists to prevent.
+    unknown = [a for a in sys.argv[1:] if a != "--keep-onnx"]
+    if unknown:
+        raise SystemExit(f"unknown argument(s): {' '.join(unknown)}. The only flag is --keep-onnx.")
     keep_onnx = "--keep-onnx" in sys.argv[1:]
     checkpoint = fetch_checkpoint()
     sys.path.insert(0, str(CHECKOUT))
@@ -154,7 +166,6 @@ def main() -> None:
     names, batch = load_faces()
     print(f"faces      {len(names)} aligned squares from fixtures/faces/aligned/")
 
-    MODELS.mkdir(parents=True, exist_ok=True)
     # `--keep-onnx` re-earns the reference against the committed export instead
     # of writing a new one. It exists because the two halves of this script have
     # different reasons to run: the export changes when the *model* changes, and
@@ -180,6 +191,8 @@ def main() -> None:
 
 def export_onnx(model) -> None:
     import torch
+
+    MODELS.mkdir(parents=True, exist_ok=True)
 
     # A dynamic batch axis so a group photograph is one inference rather than
     # one per face. Every other dimension is fixed: the network has exactly one

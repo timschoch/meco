@@ -199,8 +199,8 @@ record, not a stored output.
 `POST /faces/detect` takes the image bytes as the body and answers
 
 ```
-{ "width": 1120, "height": 1400,
-  "faces": [ { "box": { "x": 0.4795, "y": 0.1734, "width": 0.0789, "height": 0.0858 },
+{ "width": 1280, "height": 1600,
+  "faces": [ { "box": { "x": 0.4793, "y": 0.1737, "width": 0.0787, "height": 0.0856 },
                "landmarks": { "rEye": {…}, "lEye": {…}, "nose": {…},
                               "rMouth": {…}, "lMouth": {…} },
                "score": 0.934 } ] }
