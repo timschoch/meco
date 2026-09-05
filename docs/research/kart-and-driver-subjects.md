@@ -146,6 +146,52 @@ Choosing between these is a decision for whoever owns ADR-0003. **This document'
 
 ---
 
+### The nine, named — and what the Not-a-Face rule actually measures
+
+*Added 5 Sep 2026 for [#40](https://github.com/timschoch/meco/issues/40). The document defined the nine by description and not by name, which made the shipped Not-a-Face band rest on a deduction. It does not have to: the eight numbers are below, measured.*
+
+The nine helmet detections, with the licence that decides whether each could ever be committed:
+
+| # | Commons file | Licence | Committed as |
+|---|---|---|---|
+| 1 | `Action v max.jpg` | CC BY-SA 3.0 | — |
+| 2 | **`Albert2010.jpg`** | **CC0** | **`on-track-rear-helmet.jpg`** |
+| 3 | **`Danny Buntschu, début en karting (2012).jpg`** | **CC0** | **`on-track-visor-open.jpg`** |
+| 4 | `Elena Lana - Test BMW FB02 in Jarama (1).JPG` | CC BY-SA 3.0 | — |
+| 5 | `Kart2.jpg` | CC BY-SA 2.0 | — |
+| 6 | `Karting (13275452385).jpg` | CC BY-SA 2.0 | — |
+| 7 | `Karting (13275894684).jpg` | CC BY-SA 2.0 | — |
+| 8 | `Sauro Cesetti.jpg` | CC BY-SA 3.0 | — |
+| 9 | `Telaiotony.jpg` | CC BY-SA 3.0 | — |
+
+**`on-track-rear-helmet.jpg` is one of the nine**, so the deduction behind [ADR-0003](../adr/0003-face-recognition-licence-consent-and-threshold.md)'s amendment is sound. **Two of the nine are CC0 and both are already committed**; the other seven are CC BY-SA and cannot join them under `fixtures/karts/LICENCE.md`'s bar. There is nothing new to commit, so the calibration cannot be widened by adding fixtures from this set — the measurement below is what is available instead.
+
+**The shipped reference print against the other eight**, computed directly rather than deduced:
+
+| vs | cosine | |
+|---|---|---|
+| `on-track-visor-open.jpg` | **0.7092** | caught |
+| `Action v max.jpg` | 0.8587 | caught |
+| `Karting (13275452385).jpg` | 0.9021 | caught |
+| `Telaiotony.jpg` | 0.9116 | caught |
+| `Elena Lana …` | 0.9440 | caught |
+| `Sauro Cesetti.jpg` | 0.9502 | caught |
+| `Karting (13275894684).jpg` | 0.9600 | caught |
+| `Kart2.jpg` | 0.9629 | caught |
+
+**Eight of eight caught at `NOT_A_FACE_THRESHOLD = 0.60`, with the worst at 0.7092.** That 0.7092 is the same number issue #34 reported from production, which is what it should be: the reproduction enrolled this reference and matched a different helmeted human against it.
+
+Two corrections to how the band was justified, both in the rule's favour:
+
+1. **The margin is wider than claimed.** The deduction bounded the eight pairs below by the global minimum of the 36, 0.639. That is true but slack: the lowest pair involving the reference is **0.6901**, and against the shipped print the worst is **0.7092**. The real headroom above 0.60 is **0.109**, not 0.039. The 0.639 floor belongs to `on-track-visor-open` against `Karting (13275452385)` — a pair the reference is not part of.
+2. **Coverage over these nine is now measured, not inferred.** Which matters because the two quantities were never the same shape: a helmet-to-helmet minimum says nothing on its own about distance to one particular reference.
+
+**The hard case is `on-track-visor-open.jpg`, and it is worth naming.** It holds the four lowest of the 36 pairs and is the nearest of the eight to the reference at 0.7092. That is not surprising — an open visor with a face behind it genuinely is closer to a face than a bare helmet is — but it has a consequence the ADR should own: at 0.6935 against the reference, **that driver cannot be enrolled as a Person.** `src/people.ts` records that `paddock-mixed`'s visor-up driver at 0.5601 "must go on being recognisable"; the same driver a little closer to the camera, in a helmet, is refused. The rule is doing what it was built to do, and the cost is that a helmeted-but-visible Swiss Hutless driver is unenrollable. That is the right trade and it should be written down as one rather than discovered later.
+
+**One caveat on quoting four decimals.** The shipped reference print and this study's own print of the same photograph agree at **0.9689**, not 1.0 — the fixture was re-encoded at quality 88 and the prints were computed from different encodes of identical pixels. A Face Print is not stable to a JPEG round-trip in the third decimal, so any threshold justified to four decimals is quoting more precision than the input carries.
+
+---
+
 ## Q3 — Two cases, not one
 
 The brief asked whether the on-track and paddock cases need different answers. They do, and the split is clean enough to be a design boundary rather than a caveat.
