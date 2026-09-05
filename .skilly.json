@@ -1,3 +1,9 @@
 {
-  "bundles": []
+  "bundles": [
+    "workflow",
+    "tech-typescript",
+    "tech-vercel",
+    "tech-react",
+    "tech-neon"
+  ]
 }
