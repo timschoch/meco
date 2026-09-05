@@ -71,12 +71,11 @@ A place in a Template where a Source Image appears.
 _Avoid_: image field, photo placeholder, media area
 
 **Annotation**:
-What meco found in one Source Image, stored under the hash of its bytes and shaped as IPTC Image Regions. One machine region per detected face, and one per Detected Object of a class some producer reads. A record, never a stored output, so the Gallery does not list it. The same photograph is analysed once however many Crops are cut from it, and it names which detectors have run so a photograph seen before a detector existed is looked at again rather than trusted.
-_Avoid_: metadata, tags, detection result
+Everything true of one Source Image's bytes: its Content Hash, size and type, the Regions found in it, and the Models that looked. Keyed by the Content Hash alone, shared by every Brand, cached forever. Nothing Brand- or Template-dependent may enter it. A record, never a stored output, so the Gallery does not list it. Defined in the contracts section below.
+_Avoid_: metadata, tags, detection result, analysis
 
 **Detected Object**:
-Something meco-faces saw that is not a face, carrying the word its model was trained with. The vocabulary is COCO's and it is not meco's: COCO has no kart, so a kart comes back as `motorbike` — the nearest thing that vocabulary holds, and measured the class that finds one on 29 of 32 on-track photographs. A Detected Object is never a Subject on its own; the Kart Producer is what turns some of them into one.
-_Avoid_: detection, object box, thing, entity
+The prototype's word for a non-face Region. Superseded by Region with a Label; do not use.
 
 **Kart Producer**:
 The producer that frames a Crop on a kart and its driver together. It takes the largest `motorbike` Detected Object, unions it with everything overlapping it, and yields one Subject Box — falling back to the largest `person` when no kart was found. That fallback is what lets a driver be framed without their kart, and it is also the producer's known limit: on a photograph that is not of a kart at all it frames the largest person and still calls itself `kart`. It sits between the face and saliency in the ladder: a photograph with a visible face is a photograph of that person, and a photograph with neither is still framed by saliency.
@@ -117,3 +116,53 @@ _Avoid_: valid face, real face, good face, quality
 **Uncompared Face**:
 A detected face meco never asked about, because no Face Print could be made of it — the alignment refused it, or the face service did not answer. Not the same as an unknown face, which *was* compared and matched nobody: one is a gap in the question, the other an answer to it. Counted in a Crop's answer so the two can be told apart, and hidden by Face Blur exactly like any other face meco cannot name.
 _Avoid_: failed face, error, skipped, dropped
+
+## contracts
+
+The shared language every module speaks. Three types cross the seams: the Annotation (true of the bytes), the FramingRequest (true of one output) and the Match (true for one Brand, on one call). The boundary rule: if two outputs cut from the same bytes could disagree about it, it belongs to the FramingRequest; otherwise to the Annotation.
+
+**Content Hash**:
+The SHA-256 of a Source Image's bytes, in hex. The only key an Annotation is filed under, so the same photograph re-uploaded is analysed once.
+_Avoid_: id, fingerprint, checksum, digest
+
+**Region**:
+One rectangle in a Source Image that a Model drew, with its Region Kind, its Label, its score and the Model that drew it. A face Region also carries its five landmarks and may carry a Face Print. Numbered within its Annotation by position, so two runs of the same Model give the same ids.
+_Avoid_: detection, bbox, detected object, box (a Box is the rectangle alone), subject box (that is frame's)
+
+**Region Kind**:
+meco's closed word for what a Region is: `face`, `person`, `vehicle`, growing by PR. Never a framing conclusion: a kart is a Subject frame composes from a vehicle and the person on it, not a Region Kind.
+_Avoid_: class, type, category, kart
+
+**Label**:
+The Model's own word for a Region, unaltered: COCO's `motorbike` for a kart. Open vocabulary, never selected on by name outside the module that knows the Model.
+_Avoid_: class name, tag, kind
+
+**Model**:
+A named network in the models catalogue, with a version. The version changes whenever anything that can change its output changes: weights, preprocessing, class list, thresholds, runtime major. An Annotation names every Model that looked, so a photograph seen before a Model existed is a cache miss, not a wrong answer.
+_Avoid_: detector, producer, service, network
+
+**Face Print**:
+Already defined above under Faces. In an Annotation it rides on a face Region together with the Model that made it, because the Model that drew the box is not the one that made the print.
+
+**FramingRequest**:
+Everything true of one output and of nothing else: the Brand, the Source Image's Content Hash, the target size and format, what to pin to, the Occlusion Zones, the Subject Area, and the redaction policy. Never cached, never a key; kept only in the call record so what was asked can be shown.
+_Avoid_: crop request, render options, job, parameters
+
+**Occlusion Zone**:
+A rectangle of the Image Slot, in fractions, that a Template will cover, so the Subject must not land there. A Template with a non-rectangular overlay declares several. The inverse of the Subject Area, which says where the Subject must land.
+_Avoid_: safe area, overlay, mask, exclusion, no-go zone
+
+**Match**:
+Already defined above under Faces. Crossing a seam it is the Region id, the Person id, the Brand and the similarity, per call, beside the Annotation and never inside it.
+
+**Decoded Image**:
+A Source Image as raw pixels, decoded once by the models host and handed to every Model Adapter unchanged. Decoding costs more than inference, so it happens once per photograph, not once per Model.
+_Avoid_: bitmap, buffer, tensor, input image
+
+**Model Adapter**:
+The hand-written code that runs one Model over a Decoded Image and answers in Regions. It declares its Model, the Region Kinds it can emit, and its licence text, so a Model cannot be added without one. Every Model Adapter passes the same Conformance Checks.
+_Avoid_: plugin, driver, wrapper, backend
+
+**Conformance Check**:
+One named test contracts ships and a module runs in its own suite to prove it speaks the shared language. Each check names the mutation that must make it fail.
+_Avoid_: contract test, integration test, validation, lint
