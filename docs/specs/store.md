@@ -1,6 +1,6 @@
 # Spec: the store module
 
-Parent: [Module: store (#81)](https://github.com/timschoch/meco/issues/81). Reasons: [ADR-0007](../adr/0007-store-vercel-blob-in-the-eu-two-stores.md). Vocabulary: [`CONTEXT.md`, store](../../CONTEXT.md#store). Package layout: [`packages/README.md`](../../packages/README.md). Infra: [#98](https://github.com/timschoch/meco/issues/98), [`DEPLOY.md`](../../DEPLOY.md).
+Parent: [Module: store (#81)](https://github.com/timschoch/meco/issues/81). Reasons: [ADR-0010](../adr/0010-store-vercel-blob-in-the-eu-two-stores.md). Vocabulary: [`CONTEXT.md`, store](../../CONTEXT.md#store). Package layout: [`packages/README.md`](../../packages/README.md). Infra: [#98](https://github.com/timschoch/meco/issues/98), [`DEPLOY.md`](../../DEPLOY.md).
 
 ## Problem statement
 
@@ -61,7 +61,10 @@ export interface Store {
   delete(key: string): Promise<void>;
   list(prefix: string): Promise<Listing[]>;
   publicUrl(key: string): string;
-  signedUrl(key: string, seconds?: number): Promise<string>;
+  signedUrl(
+    key: string,
+    options?: { expiresInSeconds?: number }
+  ): Promise<string>;
 }
 
 export function isPrivate(key: string): boolean;
@@ -111,7 +114,16 @@ The prototype had a second, overwriting verb (`putAt`) because it had no databas
 
 `publicUrl(key)` is arithmetic, not a lookup: `https://<store id, lowercased, without the store_ prefix>.public.blob.vercel-storage.com/<key>`. Verified against the live account on 6 Sep 2026 with `vercel blob list`. It throws for a private key, because a private key has no such URL and returning one would be a lie a caller could publish.
 
-`signedUrl(key, seconds)` throws for a public key, defaults to 300 seconds and refuses more. Vercel caps `validUntil` at seven days; meco caps at five minutes, because the only use is showing a Reference Photo to the caller who just asked for it.
+`signedUrl(key, { expiresInSeconds })` throws for a public key, defaults to 300 seconds and refuses more. Vercel caps `validUntil` at seven days; meco caps at five minutes, because the only use is showing one private object to the caller who just asked for it.
+
+The Private Store holds two shapes, and they differ in who may see them:
+
+| shape                                      | shared across Brands | who may be given a Signed URL                                          |
+| ------------------------------------------ | -------------------- | ---------------------------------------------------------------------- |
+| `sources/<sha256>.<ext>`                   | yes                  | a caller whose Brand has a `records` row referencing that Content Hash |
+| `people/<brand>/<personId>/<sha256>.<ext>` | no                   | a caller holding that Brand                                            |
+
+The store cannot tell Brands apart and does not try. It refuses everyone without a Signed URL and mints one for anyone the gateway asks on behalf of. Deciding whether this caller's Brand may see this hash is the gateway's, on a `records` row: a Source Image is shared bytes, so the key alone proves nothing about who uploaded it. Carried to [#86](https://github.com/timschoch/meco/issues/86).
 
 ### Configuration
 

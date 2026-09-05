@@ -1,4 +1,4 @@
-# ADR-0007 — Vercel Blob in the EU, two stores, and the key decides which
+# ADR-0010 — Vercel Blob in the EU, two stores, and the key decides which
 
 Status: **accepted, 6 Sep 2026**. Parent: [Module: store (#81)](https://github.com/timschoch/meco/issues/81), under the modular rebuild map [#60](https://github.com/timschoch/meco/issues/60). Infra move: [#98](https://github.com/timschoch/meco/issues/98). Spec: [`../specs/store.md`](../specs/store.md). Vocabulary: [`CONTEXT.md`, store](../../CONTEXT.md#store).
 
@@ -72,6 +72,8 @@ Whether `VERCEL_OIDC_TOKEN` reaches a **container** runtime, and whether one pro
 **Reads go through a CDN, so a delete is not instant.** Vercel documents up to 60 s before an overwrite or a delete stops being served. This is the root cause of [#22](https://github.com/timschoch/meco/issues/22), where the prototype's contract test asserted a promise Blob never made and failed at random. meco does not overwrite at all. Every Store Key ends in the Content Hash of its own bytes, so a second write of the same bytes is the same write, and different bytes are a different key. That leaves the window applying to deletion alone. The store's conformance check for deletion polls to a named deadline. The in-memory adapter keeps the strict single-read version, because weakening it there would hide a regression in the one adapter that _is_ immediately consistent.
 
 **The store is immutable and `records` is where mutability lives.** One write verb, always content-addressed, means `allowOverwrite` never appears and a partly-written key can never be observed. "Which bytes are current" becomes a row rather than a race. The prototype needed a second, overwriting verb because it had no database; `records` is that database now.
+
+Two verbs were decided first — `putContent` for content-addressed writes and `putAt` for a key the caller owns and overwrites, which is the prototype's shape. Writing the interface down narrowed it to one. No v1 caller for `putAt` could be named: Annotations go to Neon, Templates are TSX in code, Brand configuration is not the store's, and a Reference Photo is content-addressed under a prefix like everything else. An unused write verb on the module that holds every Reference Photo is a way to overwrite one by accident later. The narrowing also fixed a flaw in the two-verb shape: `putContent(namespace, …)` cannot express `people/<brand>/<personId>/<sha256>.<ext>`, so under it `records` would have had to compute the hash itself, which is the one thing the store owning the hash was meant to prevent.
 
 **`store.delete(key)` is unconditional.** Two Brands whose Crops come out byte-identical share one key, so whether a key is still referenced is a `records` question, raised on [#86](https://github.com/timschoch/meco/issues/86). Keeping the store ignorant is what keeps it deep; the cost is that `records` can delete bytes another Brand is using if it does not count first.
 
