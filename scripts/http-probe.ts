@@ -417,6 +417,17 @@ const PAYLOAD_LIMIT = 4.5 * 1024 * 1024;
 let largestBody = 0;
 
 /**
+ * Make the stand-in answer `/embed` with something malformed, on purpose.
+ *
+ * meco parses that answer rather than trusting it — `length(512)` on every Face
+ * Print, and one print per face — and those two assertions are the only thing
+ * between a mangled response and a vector that compares against the whole
+ * gallery. Nothing in the ordinary run exercises them, so they are exercised
+ * here: without this, either could be deleted and every suite would stay green.
+ */
+let mangleEmbed: "short-print" | "wrong-count" | null = null;
+
+/**
  * A Face Print the stand-in can make up, seeded from the face it was given.
  *
  * Not EdgeFace and not pretending to be: what enrolment needs from a print is
@@ -589,7 +600,17 @@ const facesService = createServer((req, res) => {
           return known?.[index] ?? cannedPrint(f.landmarks);
         });
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ prints, skipped }));
+        res.end(
+          JSON.stringify({
+            prints:
+              mangleEmbed === "short-print"
+                ? prints.map((p) => (p === null ? null : p.slice(0, 8)))
+                : mangleEmbed === "wrong-count"
+                  ? prints.slice(1)
+                  : prints,
+            skipped,
+          }),
+        );
         return;
       }
       detectCalls.push(sha(body));
@@ -2734,6 +2755,47 @@ const WIDE = { width: 1920, height: 1080 };
     `facesNotCompared=${String(subjects.json.facesNotCompared)} ` +
       `matches=${String(matchesOf(subjects.json).length)}`,
   );
+
+  /**
+   * A malformed answer is refused, not compared.
+   *
+   * The nullable entry added in #39 is the *only* thing that loosened. A Face
+   * Print of the wrong length still has to be thrown out at the boundary: it
+   * would not fail any comparison, it would simply compare against every stored
+   * print and match whatever it happened to be nearest — an identity read out of
+   * something that holds none, which is #34's defect arriving by another door.
+   *
+   * Both assertions are checked, because both are one line and either could be
+   * deleted without any other test noticing.
+   */
+  for (const [mangle, what] of [
+    ["short-print", "a Face Print of the wrong length"],
+    ["wrong-count", "fewer Face Prints than faces"],
+  ] as const) {
+    mangleEmbed = mangle;
+    const mangled = await post("/v1/crop", {
+      source: PADDOCK.url,
+      brand: "laica",
+      width: 1080,
+      height: 1350,
+      blurUnknownFaces: true,
+    });
+    mangleEmbed = null;
+    cropKeys.add(String(mangled.json.key));
+    const said = ((mangled.json.warnings ?? []) as string[]).join(" ");
+    check(
+      `${what} from the face service is refused rather than compared`,
+      mangled.status === 200 &&
+        matchesOf(mangled.json).length === 0 &&
+        said.includes("No faces were named"),
+      `matches=${JSON.stringify(mangled.json.matches)} ${said.slice(0, 90)}`,
+    );
+    check(
+      `and every face counts as uncompared when that happens`,
+      mangled.json.facesNotCompared === faceCount,
+      `facesNotCompared=${String(mangled.json.facesNotCompared)} of ${String(faceCount)}`,
+    );
+  }
 
   // Enrolling has nothing to fall back on, so there a hole is a refusal — and it
   // has to say why, or the caller cannot fix their photograph.
