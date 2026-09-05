@@ -97,20 +97,67 @@ A **Not-a-Face Print** is a committed Face Print of something that is not an ide
 | 11 real faces of 57 px or more, closest any gets | 0.0971 |
 | 2 real faces of 40–57 px | 0.2329 at 43 px, **0.5601** at 49 px |
 | real face, closest any gets | **0.5601** — `paddock-mixed`, a driver with the visor up, 49 px |
-| `on-track-visor-open`, **held out of the reference set** | **0.6935** |
+| **nearest non-face, and the lower edge of the band** | **0.6935** — `on-track-visor-open`, held out of the reference set |
 | `paddock-mixed`'s man seen from behind, also held out | 0.7457 |
-| worst helmet-to-helmet pair, 36 pairs, from the research | **0.639** |
 | shipped threshold | **0.60** |
-| clearance above the closest real face | 0.0399 |
-| clearance below the worst helmet pair | 0.039 |
+| clearance above the closest real face | **0.0399** |
+| clearance below the nearest non-face | **0.0935** |
 
 Both rejections are out of sample. The reference is never compared with itself.
 
+**Corrected 5 Sep 2026.** This table previously closed the band from below with
+*0.639*, the worst helmet-to-helmet pair over the 36 in the research, and gave a
+clearance of 0.039. That is the wrong quantity. 0.639 is a distance between two
+helmets **neither of which is the reference** — it belongs to `on-track-visor-open`
+against a photograph not committed here — and the rule scores a candidate against
+the reference, not against another candidate. The lower edge is the nearest
+non-face *to the reference*, which this table already held: **0.6935**, for a
+clearance of **0.0935**.
+
+The deduction that motivated the old row can now be dropped, because the thing it
+was standing in for has been measured. `on-track-rear-helmet.jpg` is one of the
+nine helmet detections in the research, so the eight pairs joining it to the other
+eight are directly computable, and
+[the research records them](../research/kart-and-driver-subjects.md#the-nine-named--and-what-the-not-a-face-rule-actually-measures):
+**eight of eight are refused at 0.60**, from 0.7092 up to 0.9629. No known helmet
+sits nearer to the reference than the two already in the table. Note also why the
+reference set cannot simply be widened: **two of those nine are CC0 and both are
+already committed here**; the other seven are CC BY-SA and are barred by
+`fixtures/karts/LICENCE.md`.
+
 ### What this ADR is choosing, and admitting
 
-**0.04 either side, against 0.22 for `MATCH_THRESHOLD`.** That is five times tighter and it is not hidden behind a rounder-sounding number. It is accepted because the two mistakes are not the same size: a face wrongly refused is blurred and unnamed, which is cautious; a non-face wrongly accepted is a stranger's name on a published photograph with their face left sharp, which is the bug reported. `src/crop.ts` already states the principle — *"who may be shown is not [a composition choice]"*.
+**0.0399 on one side and 0.0935 on the other, against 0.2145 and 0.2304 for `MATCH_THRESHOLD`.** The band is tighter than Decision 3's on both sides, and it is **not symmetric**. Stated as movement, which is the only way it is not read backwards:
+
+- **0.60 can rise by 0.0935** before it stops refusing the nearest non-face.
+- **0.60 can fall by only 0.0399** before it starts refusing the closest real face.
+
+So the binding constraint is *real faces*, not helmets — the opposite of what the old *0.639* row implied — and the tight side is the side where the mistake is a face going unnamed rather than a stranger being named. That is the cheaper mistake to be close to.
+
+That asymmetry is accepted because the two mistakes are not the same size: a face wrongly refused is blurred and unnamed, which is cautious; a non-face wrongly accepted is a stranger's name on a published photograph with their face left sharp, which is the bug reported. `src/crop.ts` already states the principle — *"who may be shown is not [a composition choice]"*.
 
 The tightness is real and it is a property of small faces. Above 57 px the two populations are 0.60 apart, as clean as Decision 3's. Below that a small face and a helmet genuinely converge, which is the same fact `MIN_FACE_PX` was written for — and it is why `MIN_FACE_PX` now runs when matching. Without it the band a threshold has to fit inside is 0.6920 to 0.6935, **0.0015 wide**, and nothing can be calibrated in it.
+
+### How much precision these numbers actually carry
+
+Every figure above is quoted to four decimals and **the input does not carry four decimals.** A Face Print is not stable across a JPEG round trip, and the fixtures are re-encodes: `fixtures/karts/LICENCE.md` records that each was downscaled and saved at quality 88.
+
+Measured, on the same photographs at two different encodes:
+
+| | |
+|---|---|
+| `on-track-rear-helmet.jpg` committed, against a print of the Commons original | **0.9689** |
+| `on-track-visor-open.jpg` committed, against a print of the Commons original | 0.9973 |
+| **the reference-to-`visor-open` pair, both committed** | **0.6935** |
+| the same pair, reference committed against the Commons original | 0.7092 |
+| the same pair, both from Commons originals | 0.6901 |
+
+**One pair moves 0.019 on encoding alone** — about half the 0.0399 clearance above the closest real face. So `NOT_A_FACE_THRESHOLD` is a **rounded** constant, not a tuned one, and the fourth decimal of any number here is noise. The committed encode happens to give the most conservative reading of the three, which is the right accident to have, but it is an accident.
+
+Two rules follow, and they are the point of this section:
+
+- **Never re-encode a committed fixture** without re-running `pnpm test:embed`. The numbers in `fixtures/karts/face-prints.json` are properties of those exact bytes.
+- **Do not tune 0.60 against a difference smaller than 0.02.** There is nothing there to tune.
 
 **Four other signals were measured and rejected**, all on the committed fixtures, and they are recorded because each is the obvious next suggestion:
 
@@ -136,10 +183,31 @@ The issue asked that the rule "accept all 6 real faces and the 9 paddock faces".
 
 So five of nine hand-classified paddock faces became unmatchable, four of them purely on size. That is a real recall regression against `main` and it is the price of the band above. Every one of them is still detected, still a Subject Box and still blurred, so the loss is of naming and not of protection — but it is a loss, and a reader should not have to derive it from a table.
 
+### The boundary this draws through helmeted drivers, and why it looks inconsistent
+
+Two subjects in the fixtures are the same kind of thing — **a driver in a helmet with the visor up, face visible** — and the rule treats them oppositely:
+
+| | Against the reference | Size | Outcome |
+|---|---|---|---|
+| `paddock-mixed.jpg#4`, driver, visor up, facing the camera | **0.5601** | 49 px | **accepted** — may be enrolled and named |
+| `on-track-visor-open.jpg#0`, driver, visor up | **0.6935** | 100 px | **refused** — may never be a Person |
+
+0.13 of cosine apart, opposite answers, and the larger, sharper face is the one refused. A reader who meets these two without warning will read it as a bug. It is not, and the ADR should say so here rather than leave it to be discovered.
+
+**Both outcomes are intended, and the difference is how much helmet is in the frame.** `paddock-mixed`'s driver is photographed from the front at conversational distance: the open visor fills most of the box and the shell is mostly outside it. `on-track-visor-open`'s driver is photographed on track: the box is dominated by shell, chin bar and visor surround, with the face a small part of it. The reference print is *the back of a helmet* — shell and nothing else — so the second box is genuinely closer to it. The rule is measuring what it claims to measure.
+
+**The cost is real and belongs in Decision 3's ledger.** A Swiss Hutless driver photographed on track with the visor up **cannot be enrolled as a Person**, and cannot be named in another photograph. Only paddock and podium photographs, where the helmet is off or small in frame, can enrol anybody. That is a narrower promise than "we can recognise your driver", and it is the promise the shipped code makes.
+
+**What would move the boundary**, in order of preference:
+
+1. **Enrol from a helmet-off photograph.** The paddock and podium case works today and is what enrolment should use. This is a documentation and UI matter, not a threshold one.
+2. **More reference prints.** One reference of a bare shell makes shell-dominated boxes the nearest thing to a non-face. Several references spanning shell, visor-up and rear-of-head would let each be judged against its own kind. `fixtures/karts/expected.json` is where a new one is classified — and note the constraint from the correction above: **CC BY-SA photographs cannot be committed**, so new references have to be CC0 or public domain.
+3. **Not by moving 0.60 far up.** 0.5601 and 0.6935 leave a 0.1334 gap and it looks tuneable. It is only that wide *because `MIN_FACE_PX` runs first*: `paddock-mixed#8` is a real face at **0.6920**, inside the gap, and it is out of scope only because it is 36 px. The two rules are coupled, and the gap is a property of both. Relax the size floor and the band collapses to 0.0015, which is the measurement in the section above.
+
 ### What this does not fix
 
 - **A helmet is still detected and still frames a Crop.** `pinTo` and the producer priorities are untouched; the research document's Q4 proposal — a per-Brand `pinTo` default — is separate work.
-- **One reference print is thin coverage.** It catches every helmet the fixtures and the research contain, because 0.639 is the floor over 36 pairs. It is not a general non-face detector, and the set should grow as other non-faces are found. `fixtures/karts/expected.json` is where a new one is classified; `pnpm --filter meco-faces dump:karts` regenerates the artefacts.
+- **One reference print is thin coverage.** It catches every helmet the fixtures and the research contain — measured, eight of eight at 0.7092 and above, not deduced from the 36-pair floor. It is not a general non-face detector: nothing here says what it does with a bare head, a mannequin or a printed face on a banner, and the set should grow as other non-faces are found. `fixtures/karts/expected.json` is where a new one is classified; `pnpm --filter meco-faces dump:karts` regenerates the artefacts.
 - **The prints are model-specific and meco cannot check them.** Swapping the embedder would move every print at once and meco would silently stop refusing helmets. `pnpm test:embed` re-embeds the fixtures and fails if the committed numbers have drifted, which is the only place that check can live (ADR-0002).
 
 ## Consequences
