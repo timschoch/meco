@@ -61,6 +61,26 @@ what makes `entrypoint` resolve from the repository root.
 Together the two traps force the shape: root-level files, named from Vercel's
 list, one per service.
 
+### The third trap: an ESM bundle has no `require`
+
+`format: "esm"` leaves a CommonJS dependency's `require(…)` to a shim esbuild
+generates, and that shim throws. `@meco/store` pulls `@vercel/blob`, which
+reaches `jose` through `@vercel/oidc`, and jose's CommonJS build requires
+`node:buffer` that way. The container started, answered nothing and exited —
+deployment `dpl_3paWgFYje3P2EQxHgrvzDUQQgj3S`, 6 Sep 2026:
+
+```
+Error: Dynamic require of "node:buffer" is not supported
+    at ../../node_modules/.pnpm/jose@5.10.0/.../runtime/base64url.js
+Application exited with code 1.
+```
+
+esbuild's shim defers to a `require` that is already in scope, so a
+`createRequire` banner in the service's `build.mjs` is the whole fix. `gateway`
+has one. **Any service that bundles a CommonJS dependency needs it**, and the
+symptom is a healthy build followed by `FUNCTION_INVOCATION_FAILED` on the
+first request — not a build error.
+
 ## Release
 
 Push to `main`. Vercel builds both images and promotes them to production.
