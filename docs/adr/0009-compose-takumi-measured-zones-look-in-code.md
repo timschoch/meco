@@ -1,6 +1,6 @@
 # ADR-0009 — compose: takumi, zones measured from the layout, the Look in code, and the last pixel stage
 
-Status: **accepted, 6 Sep 2026**. Parent: [Module: compose (#84)](https://github.com/timschoch/meco/issues/84). Builds on [Templates are TSX in code (#65)](https://github.com/timschoch/meco/issues/65), [What belongs in a FramingRequest (#70)](https://github.com/timschoch/meco/issues/70) and [ADR-0005](0005-contracts-annotation-framingrequest-and-zod.md). Spec: [`../specs/compose.md`](../specs/compose.md). Decided by the orchestrator with the compose agent, the owner away; the grilling is ledgered on #84.
+Status: **accepted, 6 Sep 2026**. Parent: [Module: compose (#84)](https://github.com/timschoch/meco/issues/84). Builds on [Templates are TSX in code (#65)](https://github.com/timschoch/meco/issues/65), [What belongs in a FramingRequest (#70)](https://github.com/timschoch/meco/issues/70), [ADR-0005](0005-contracts-annotation-framingrequest-and-zod.md) and frame's [ADR-0006](0006-frame-solves-in-closed-form-over-regions.md). Spec: [`../specs/compose.md`](../specs/compose.md). Decided by the orchestrator with the compose agent, the owner away; the grilling is ledgered on #84.
 
 ## Context
 

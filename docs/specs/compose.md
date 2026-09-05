@@ -77,7 +77,7 @@ A Template must lay out identically whatever the image bytes are; the Plan depen
 3. Hands takumi the tree with the slot's bitmap drawn 1:1 and the Look's fonts and logo registered.
 4. Encodes `png | jpeg | webp`. Default `jpeg` at quality 90 for a Template with an Image Slot; `png` only when asked.
 
-No fetch, no store, no crop decision. `source` is a Decoded Image and `window` a Box in Source Image fractions, both contracts types; the gateway lifts the window out of frame's Framing. compose imports nothing from `@meco/frame`.
+No fetch, no store, no crop decision. `source` is a Decoded Image and `window` a Box in Source Image fractions, both contracts types; the gateway lifts the window (frame's `windowFraction`) out of the Framing. compose imports nothing from `@meco/frame`. Precondition: `source` is at the Annotation's own resolution, the one frame divided by. redact blurs in place and does not resize, so this holds today; a resize step anywhere before compose would scale the window correctly but make the one-pixel tolerance below mean something else.
 
 ### Looks
 
