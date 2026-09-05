@@ -1,5 +1,4 @@
-import type { Match, Redaction, Region } from "@meco/contracts";
-import type { DecodedImage } from "./decoded-image";
+import type { DecodedImage, Match, Redaction, Region } from "@meco/contracts";
 import { unknownFaces } from "./unknown-faces";
 
 /**
