@@ -73,7 +73,7 @@ A Template must lay out identically whatever the image bytes are; the Plan depen
 `render` re-plans (0.6–3.6 ms measured), then:
 
 1. Refuses with `framing_mismatch` when the window's aspect, in source pixels from the Decoded Image's size, differs from the Image Slot's by more than one pixel on either axis.
-2. Cuts `window` from `source` and scales it to the slot with sharp (`extract` + `resize`, lanczos3), yielding raw RGBA at slot size.
+2. Cuts `window` from `source` and scales it to the slot with sharp (`extract` + `resize`, lanczos3), yielding raw RGBA at slot size. Fill, never cover: frame's window already has the slot's shape up to one pixel of rounding, and a `cover` fit would crop it a second time and undo the framing.
 3. Hands takumi the tree with the slot's bitmap drawn 1:1 and the Look's fonts and logo registered.
 4. Encodes `png | jpeg | webp`. Default `jpeg` at quality 90 for a Template with an Image Slot; `png` only when asked.
 
