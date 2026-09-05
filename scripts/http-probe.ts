@@ -2636,12 +2636,19 @@ const WIDE = { width: 1920, height: 1080 };
   const faceCount = detection.faces.length;
 
   /**
-   * A Person enrolled from a *different* photograph of `paddock-mixed#4`.
+   * A Person whose Face Print is `paddock-mixed#4`'s own.
    *
-   * Planted, because at 49 px in a 1400 px frame meco would enrol her from this
-   * very picture and a Person recognised from the photograph she was enrolled
-   * in proves nothing. What matters is that she is found in a photograph that
-   * also contains a face meco cannot read.
+   * Planted rather than enrolled, because at 49 px meco refuses that face as a
+   * Reference Photo — `MIN_FACE_PX` is 40 in the frame the service is given and
+   * this is close to it, but the enrolment path would also have to pick the
+   * right face out of nine.
+   *
+   * Her print being the very print the stand-in serves for `#4` makes the match
+   * a 1.0000 self-comparison, and that is deliberate rather than sloppy: this
+   * test is about whether the eight readable faces are compared **at all** when
+   * a ninth cannot be read, and a self-match answers that with no threshold in
+   * the way. How far a real Face Print can travel and still be recognised is
+   * `pnpm test:match`'s question, on prints of the same person at two events.
    */
   const her = kartPrints.prints.find((p) => p.file === "paddock-mixed.jpg" && p.index === 4)!;
   const person = (await post("/v1/people", { brand: "laica", name: "Paddock Driver" }))
@@ -2706,10 +2713,47 @@ const WIDE = { width: 1920, height: 1080 };
     ),
     JSON.stringify(cropped.json.warnings),
   );
+  /**
+   * The face meco could not read is blurred, pinned rather than assumed.
+   *
+   * `blurred > 0` would pass whether or not `#1` were among them, so the crop is
+   * taken at the photograph's own 3:2 aspect: no face is cut out, every one of
+   * the nine is in the finished frame, and the count has to be all of them but
+   * the one Match. That arithmetic has no room for `#1` to have been left sharp.
+   *
+   * This is #34's guarantee carried forward — a face meco cannot name is still
+   * detected, still framed on, and still hidden — and it is the property most
+   * likely to rot, because nothing else would notice it going.
+   */
+  const whole = await post("/v1/crop", {
+    source: PADDOCK.url,
+    brand: "laica",
+    width: 1200,
+    height: 800,
+    blurUnknownFaces: true,
+  });
+  cropKeys.add(String(whole.json.key));
   check(
-    "the unreadable face is still blurred — it can never be a Match, so it is never shown",
-    typeof cropped.json.blurred === "number" && cropped.json.blurred > 0,
-    `blurred=${String(cropped.json.blurred)}`,
+    "at the photograph's own shape every face is in frame",
+    whole.status === 200 && matchesOf(whole.json).length === 1,
+    `${String(whole.status)} matches=${String(matchesOf(whole.json).length)}`,
+  );
+  check(
+    "and every face but the Match is blurred, the unreadable one included",
+    whole.json.blurred === faceCount - 1,
+    `blurred=${String(whole.json.blurred)}, expected ${String(faceCount - 1)} of ` +
+      `${String(faceCount)} faces`,
+  );
+
+  // Still a Subject Box, which is the other half of #34's guarantee: the face
+  // meco cannot read is not dropped from the Annotation, it simply cannot carry
+  // a name. `find subjects` is where that is observable.
+  const regions = await post("/v1/subjects", { source: PADDOCK.url, brand: "laica" });
+  check(
+    "the unreadable face is still a Subject Box, not dropped from the Annotation",
+    ((regions.json.ImageRegion ?? []) as unknown[]).length === faceCount,
+    `${String(((regions.json.ImageRegion ?? []) as unknown[]).length)} regions for ` +
+      `${String(faceCount)} faces`,
   );
 
   /**
@@ -2737,10 +2781,28 @@ const WIDE = { width: 1920, height: 1080 };
   });
   cropKeys.add(String(noPeople.json.key));
   check(
-    "a Brand with nobody enrolled reports no count, so the two answers differ",
-    matchesOf(noPeople.json).length === 0 && noPeople.json.facesNotCompared === undefined,
+    "a Brand with nobody enrolled reports zero, so the two answers differ",
+    matchesOf(noPeople.json).length === 0 && noPeople.json.facesNotCompared === 0,
     `matches=${JSON.stringify(noPeople.json.matches)} ` +
       `facesNotCompared=${String(noPeople.json.facesNotCompared)}`,
+  );
+  // Zero and all, so a caller can tell it from a deployment that does not report
+  // it. An absent field would have reproduced #39's silence one layer up.
+  check(
+    "the count is present even when nothing went wrong",
+    "facesNotCompared" in noPeople.json,
+    JSON.stringify(Object.keys(noPeople.json).filter((k) => k.startsWith("faces"))),
+  );
+  const brandless = await post("/v1/crop", {
+    source: PADDOCK.url,
+    width: 1080,
+    height: 1350,
+  });
+  cropKeys.add(String(brandless.json.key));
+  check(
+    "and absent when no Brand was named, because then nothing was ever asked",
+    brandless.json.facesNotCompared === undefined && brandless.json.matches === undefined,
+    `facesNotCompared=${String(brandless.json.facesNotCompared)}`,
   );
 
   // `find subjects` carries the same count, and it is the route where "of the

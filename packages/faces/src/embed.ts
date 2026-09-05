@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import * as ort from "onnxruntime-node";
 import sharp from "sharp";
 
-import { ALIGNED_SIZE, alignFace, inPixels, type RawImage } from "./align.js";
+import { ALIGNED_SIZE, UnalignableFace, alignFace, inPixels, type RawImage } from "./align.js";
 import type { Landmarks } from "./yunet.js";
 
 export const EMBED_MODEL = {
@@ -170,27 +170,35 @@ export async function embedFaces(image: Buffer, faces: FaceToEmbed[]): Promise<E
   if (faces.length === 0) return { prints: [], skipped: [] };
 
   const upright = await decodeUpright(image);
-  const aligned = await Promise.all(
-    faces.map(async (face) => {
+  /** One face's aligned square, or the reason there is not one. */
+  type Aligned = { square: Buffer; reason?: undefined } | { square?: undefined; reason: string };
+
+  const aligned: Aligned[] = await Promise.all(
+    faces.map(async (face): Promise<Aligned> => {
       try {
         return {
           square: await alignFace(upright, inPixels(face.landmarks, upright.width, upright.height)),
         };
       } catch (err) {
-        // Only the warp's own refusal. A model that will not load, or a buffer
-        // that is not an image, is not a fact about one face and must still take
-        // the request down — swallowing those would report a photograph full of
-        // holes when the truth is that the service is broken.
-        if (err instanceof EmbedModelLoadError) throw err;
-        return { reason: (err as Error).message };
+        // Only the warp's own refusal, by its own type. Catching everything else
+        // here would report a photograph full of unreadable faces when the truth
+        // was a libvips failure or a bad argument — sending a caller off to
+        // retake a photograph while the service is broken.
+        if (err instanceof UnalignableFace) return { reason: err.message };
+        throw err;
       }
     }),
   );
 
-  const usable = aligned.flatMap((a, index) => (a.square ? [{ index, square: a.square }] : []));
-  const skipped = aligned.flatMap((a, index) =>
-    a.square ? [] : [{ index, reason: a.reason ?? "The face could not be aligned." }],
-  );
+  // Split in one pass: these are the two halves of one partition, and deriving
+  // them separately is how they come to disagree about which face is which.
+  const usable: { index: number; square: Buffer }[] = [];
+  const skipped: SkippedFace[] = [];
+  aligned.forEach((a, index) => {
+    if (a.square === undefined) skipped.push({ index, reason: a.reason });
+    else usable.push({ index, square: a.square });
+  });
+
   const prints: (number[] | null)[] = faces.map(() => null);
   if (usable.length === 0) return { prints, skipped };
 

@@ -246,7 +246,7 @@ async function matchIfBrand(
   faces: readonly DetectedFace[],
   storage: Storage,
 ) {
-  if (!input.brand) return { matches: [], warnings: [], notCompared: 0 };
+  if (!input.brand) return { matches: [], warnings: [], facesNotCompared: 0 };
   return matchFaces(
     {
       brand: input.brand,
@@ -312,19 +312,22 @@ export async function crop(input: CropInput, storage: Storage) {
     ...(result.anchor ? { anchor: result.anchor } : {}),
     ...(result.blurred === undefined ? {} : { blurred: result.blurred }),
     /**
-     * How many faces meco could not compare against this Brand's People — a
-     * face service that would not answer, or a face its warp could not read.
+     * How many Uncompared Faces there are — faces meco never compared against
+     * this Brand's People, because the face service would not answer or its warp
+     * could not read them.
      *
-     * Absent when none were, like every other optional field here. Of the whole
-     * photograph and not of the finished frame, deliberately: `blurred` counts
-     * what is in the picture because that is what the blur is about, whereas
-     * this is about a comparison that happens before any pixel is cut, and
-     * scoping it to the window would hide the very case a caller needs to see.
+     * **Present whenever a Brand was named, zero and all**, for the same reason
+     * `matches` is: a field that comes and goes cannot distinguish "nothing went
+     * wrong" from "this deployment does not report it", and distinguishing those
+     * is the entire point of issue #39. Omitting it when zero would have
+     * reproduced the silence one layer up from the one being fixed.
      *
-     * Without it, "nobody here is enrolled" and "meco could not look at one of
-     * these faces" arrive as the same empty `matches`. Issue #39.
+     * Of the whole photograph and not of the finished frame, deliberately.
+     * `blurred` counts what is in the picture because that is what a blur is
+     * about; this is about a comparison that happens before any pixel is cut,
+     * and scoping it to the window would hide the very case a caller needs.
      */
-    ...(named.notCompared > 0 ? { facesNotCompared: named.notCompared } : {}),
+    ...(input.brand ? { facesNotCompared: named.facesNotCompared } : {}),
     // Always present once a Brand was named, empty list and all: "meco knows
     // these People and recognised none of them here" is an answer, and a caller
     // cannot tell it from "matching never ran" if the field comes and goes.
@@ -394,10 +397,10 @@ export async function findSubjects(input: SubjectsInput, storage: Storage) {
           ),
         }
       : {}),
-    // The same count a Crop reports, and the reason it belongs here too: this
-    // route has no crop window at all, so "of the whole photograph" is the only
-    // thing the number could mean.
-    ...(named.notCompared > 0 ? { facesNotCompared: named.notCompared } : {}),
+    // The same count a Crop reports, present on the same terms, and the route
+    // where "of the whole photograph" is the only thing it could mean — there is
+    // no crop window here at all.
+    ...(input.brand ? { facesNotCompared: named.facesNotCompared } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
   };
 }

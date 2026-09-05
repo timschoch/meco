@@ -523,8 +523,9 @@ export interface FaceMatches {
   /** Empty unless something a caller should hear about went wrong. */
   warnings: string[];
   /**
-   * How many faces were never compared against the Brand's People at all —
-   * because meco-faces could not embed them, or because the call failed.
+   * How many Uncompared Faces there are: faces never compared against the
+   * Brand's People at all, because meco-faces could not embed them or because
+   * the call failed.
    *
    * Zero is the ordinary answer. It is a count rather than only a warning
    * because "nobody in this photograph is enrolled" and "meco could not look at
@@ -532,10 +533,10 @@ export interface FaceMatches {
    * and a caller cannot be asked to tell them apart by reading prose.
    *
    * Not the same as an unknown face. An unknown face was compared and matched
-   * nobody, which is the common and correct answer; an uncompared face was never
+   * nobody, which is the common and correct answer; an Uncompared Face was never
    * asked about. Both are hidden by Face Blur, and neither is ever a Match.
    */
-  notCompared: number;
+  facesNotCompared: number;
 }
 
 /**
@@ -565,7 +566,7 @@ export interface FaceMatches {
  */
 export async function matchFaces(input: MatchInput, storage: Storage): Promise<FaceMatches> {
   const brand = requireBrand(input.brand);
-  if (input.faces.length === 0) return { matches: [], warnings: [], notCompared: 0 };
+  if (input.faces.length === 0) return { matches: [], warnings: [], facesNotCompared: 0 };
 
   const stored = await facePrintsFor(brand, storage);
 
@@ -616,7 +617,7 @@ export async function matchFaces(input: MatchInput, storage: Storage): Promise<F
   const none = {
     matches: input.faces.map(() => null),
     warnings: galleryWarnings,
-    notCompared: 0,
+    facesNotCompared: 0,
   };
   if (enrolled.length === 0) return none;
 
@@ -634,28 +635,43 @@ export async function matchFaces(input: MatchInput, storage: Storage): Promise<F
     return {
       ...none,
       warnings: [...galleryWarnings, `No faces were named: ${(err as Error).message}`],
-      notCompared: input.faces.length,
+      facesNotCompared: input.faces.length,
     };
   }
 
   /**
-   * Faces meco-faces could not turn into a Face Print.
+   * The Uncompared Faces, counted off the answer rather than off the report.
    *
-   * One warning naming the reason, however many faces share it. The reason is
-   * the same sentence for every face the warp refuses, and one line per face
-   * would push the Crop's own warnings out of sight in a group photograph.
+   * A hole in `prints` is the fact; `uncompared` is meco-faces describing it.
+   * They should agree and the count is taken from the holes, because that is
+   * what matching actually acted on — an older service that answered with a
+   * `null` and no explanation would otherwise be reported as nothing wrong,
+   * which is the exact silence issue #39 exists to end.
+   */
+  const holes = embedded.prints.filter((print) => print === null).length;
+
+  /**
+   * One warning, listing every distinct reason rather than the first.
    *
-   * Before issue #39 this could not happen: a single unalignable face rejected
-   * the whole request, so this branch was the `catch` above and every face in
+   * Two faces can fail for different reasons — the warp refuses landmarks that
+   * collapse, that fall outside the image, and that warp too small — so quoting
+   * `uncompared[0]` alone would report one cause for a photograph that had
+   * several. One line per face would instead push the Crop's own warnings out of
+   * sight in a group photograph, so the reasons are gathered and said once.
+   *
+   * Before issue #39 none of this could happen: a single unalignable face
+   * rejected the whole request, so this was the `catch` above and every face in
    * the photograph was lost with it.
    */
+  const reasons = [...new Set(embedded.uncompared.map((face) => face.reason))];
   const skippedWarnings =
-    embedded.skipped.length === 0
+    holes === 0
       ? []
       : [
-          `${String(embedded.skipped.length)} of ${String(input.faces.length)} faces could ` +
-            `not be compared against this Brand's People: ${embedded.skipped[0]!.reason} ` +
-            "They are unknown rather than unmatched, so Face Blur still hides them.",
+          `${String(holes)} of ${String(input.faces.length)} faces could not be compared ` +
+            `against this Brand's People` +
+            (reasons.length > 0 ? `: ${reasons.join(" ")}` : ".") +
+            " They are unknown rather than unmatched, so Face Blur still hides them.",
         ];
 
   // Every face is embedded, and only then asked whether it may carry a name.
@@ -671,7 +687,7 @@ export async function matchFaces(input: MatchInput, storage: Storage): Promise<F
         : null,
     ),
     warnings: [...galleryWarnings, ...skippedWarnings],
-    notCompared: embedded.skipped.length,
+    facesNotCompared: holes,
   };
 }
 
@@ -831,7 +847,7 @@ export async function enrolReferencePhoto(
     // meco-faces, because only it knows why its warp refused the landmarks.
     throw new Error(
       "meco could not read a Face Print from that face" +
-        (embedded.skipped[0] ? `: ${embedded.skipped[0].reason}` : ".") +
+        (embedded.uncompared[0] ? `: ${embedded.uncompared[0].reason}` : ".") +
         " Use a photograph where the face is larger and turned towards the camera.",
     );
   }

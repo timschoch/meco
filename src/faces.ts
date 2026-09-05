@@ -315,8 +315,15 @@ const prints = z.object({
     .default([]),
 });
 
-/** One face meco-faces could not turn into a Face Print, and why. */
-export interface SkippedFace {
+/**
+ * One face meco-faces could not turn into a Face Print, and why.
+ *
+ * An **Uncompared Face** in `CONTEXT.md`'s terms. meco-faces calls its own half
+ * of this "skipped" on the wire, and rightly: it knows nothing about Persons or
+ * comparison, only that it skipped embedding a face. The name changes at this
+ * boundary because the consequence is meco's, not the service's.
+ */
+export interface UncomparedFace {
   /** Its position in the list that was sent, so a caller can say which face. */
   index: number;
   reason: string;
@@ -329,7 +336,7 @@ export interface EmbeddedFaces {
    */
   prints: (number[] | null)[];
   /** One entry per `null` above. Empty in the ordinary case. */
-  skipped: SkippedFace[];
+  uncompared: UncomparedFace[];
 }
 
 /**
@@ -407,5 +414,5 @@ export async function embedFaces(
         `${String(faces.length)} faces.`,
     );
   }
-  return { prints: parsed.data.prints, skipped: parsed.data.skipped };
+  return { prints: parsed.data.prints, uncompared: parsed.data.skipped };
 }

@@ -117,6 +117,15 @@ and is never matched for another.
 elliptical mask, and says how many in `blurred`. Without a `brand` there are no
 Matches, so it hides all of them.
 
+Some faces meco cannot ask about at all — the alignment refuses a face too small
+or too turned to warp, and the face service can fail outright. Those are
+**Uncompared Faces**, counted in `facesNotCompared` whenever a `brand` was named,
+zero and all. They are never a Match, so `blurUnknownFaces` hides them like any
+other face meco cannot name, and they stay in the Annotation as Subject Boxes.
+The count is there because "nobody in this photograph is enrolled" and "meco
+could not look at one of these faces" otherwise arrive as the same empty
+`matches`.
+
 Where the threshold and the margin came from, and what they are worth, is
 [ADR-0003](docs/adr/0003-face-recognition-licence-consent-and-threshold.md).
 
