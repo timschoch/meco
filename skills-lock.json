@@ -115,12 +115,6 @@
       "skillPath": "cursor-team-kit/skills/make-pr-easy-to-review/SKILL.md",
       "computedHash": "8b3e62ce5609388731966d66725a0962e6d6c249bf384b84e131eb24de3c2b27"
     },
-    "migrate-to-shoehorn": {
-      "source": "timschoch/mattpocock-skills",
-      "sourceType": "github",
-      "skillPath": "skills/misc/migrate-to-shoehorn/SKILL.md",
-      "computedHash": "6397731ced114f3657aa88b55ed13d1344a56d77ca449c568e3200c21740fa99"
-    },
     "neon": {
       "source": "neondatabase/agent-skills",
       "sourceType": "github",
