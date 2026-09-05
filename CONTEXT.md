@@ -74,9 +74,6 @@ _Avoid_: image field, photo placeholder, media area
 Everything true of one Source Image's bytes: its Content Hash, size and type, the Regions found in it, and the Models that looked. Keyed by the Content Hash alone, shared by every Brand, cached forever. Nothing Brand- or Template-dependent may enter it. A record, never a stored output, so the Gallery does not list it. Defined in the contracts section below.
 _Avoid_: metadata, tags, detection result, analysis
 
-**Detected Object**:
-The prototype's word for a non-face Region. Superseded by Region with a Label; do not use.
-
 **Kart Producer**:
 How frame composes one Subject from a kart and its driver together. It takes the largest `vehicle` Region, unions it with every Region overlapping it, and yields one Subject Box — falling back to the largest `person` Region when no vehicle was found. That fallback is what lets a driver be framed without their kart, and it is also its known limit: on a photograph that is not of a kart at all it frames the largest person and still calls itself `kart`. It selects on Region Kind and never on a Label, so replacing the Model that draws the boxes moves nothing here.
 
@@ -245,3 +242,35 @@ _Avoid_: layout, dry run, preflight, manifest, preview
 **Marker**:
 One of the two components a Template uses to name what compose must find in its layout: `ImageSlot`, exactly one, where the picture goes; `Occludes`, any number, around what will cover the picture. A Marker draws nothing of its own.
 _Avoid_: annotation, tag, hint, decorator, region
+
+## models
+
+The catalogue of vision Models and the one container that runs them. In: a Source Image's bytes. Out: its Annotation. It knows nothing of Brands, Persons, templates or crops.
+
+**Catalogue**:
+The fixed list of Models the models service holds, each behind its own Model Adapter with its licence text beside its weights. A request names Catalogue entries; an entry not in the Catalogue is refused, never fetched.
+_Avoid_: registry, model zoo, model list, plugins
+
+**Detector**:
+A Model Adapter that draws Regions from the Decoded Image alone. YuNet draws faces, D-FINE draws people and vehicles.
+_Avoid_: model, first stage, finder
+
+A `vehicle` is a road vehicle a person rides or drives. D-FINE's COCO Labels become Region Kinds by this table and no other; frame composes the kart Subject on it, so a change here is a change frame sees.
+
+| COCO Label                                                 | Region Kind |
+| ---------------------------------------------------------- | ----------- |
+| `person`                                                   | `person`    |
+| `motorbike`, `bicycle`, `car`, `bus`, `truck`              | `vehicle`   |
+| every other Label, `boat`, `aeroplane`, `train` among them | no Region   |
+
+**Enricher**:
+A Model Adapter that draws no Region of its own: it takes the Regions the Detectors found and hands them back with more on them. EdgeFace puts a Face Print on each face Region whose landmarks it can align. A Region an Enricher could not serve is returned unchanged, never dropped.
+_Avoid_: embedder, second stage, post-processor, plugin
+
+**Decode Bound**:
+The longest edge a Decoded Image may have, 1600 px. A larger Source Image is decoded smaller, never larger, and every Region is still a fraction of the Source Image, so the Annotation's size is the photograph's and not the copy's.
+_Avoid_: max size, downscale, thumbnail, resize, working size
+
+**Warm**:
+A Model whose session exists on the instance answering, so a request pays inference and not the load. True per instance, never per deployment: a scale-to-zero fleet has cold and warm instances at once.
+_Avoid_: loaded, ready, hot, cached
