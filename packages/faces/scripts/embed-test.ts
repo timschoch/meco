@@ -31,7 +31,7 @@ import { createFacesApp } from "../src/app.js";
 import { detectFaces } from "../src/detect.js";
 import { PRINT_LENGTH, embedFaces } from "../src/embed.js";
 import { LANDMARK_NAMES, type Landmarks, type Point } from "../src/yunet.js";
-import { FIXTURES, cosineSimilarity, readFixtureFaces } from "./fixture-faces.js";
+import { FIXTURES, atLongEdge, cosineSimilarity, readFixtureFaces } from "./fixture-faces.js";
 
 interface Reference {
   model: string;
@@ -394,6 +394,64 @@ check(
   "two different people score below 0.3",
   `worst ${Math.max(...different.map((p) => p.cosine)).toFixed(4)} over ${String(different.length)} pairs`,
 );
+
+// --------------------------------------- what a smaller photograph costs a print
+
+/**
+ * Whether a Face Print still names the same face when the photograph was bounded.
+ *
+ * meco cannot send a Source Image over 4.5 MB — a Vercel Function refuses the
+ * body — so it bounds the long edge before `/embed` sees it (issue #30). This is
+ * the one place that costs anything real: a print is warped from a 112x112 square
+ * of the *face*, so shrinking the photograph first does throw away detail the
+ * detector never wanted. The question is whether it throws away identity.
+ *
+ * It does not, and the measurement is the reason to believe it. A print off the
+ * bounded copy sits far nearer its own full-size print than any other face's, and
+ * the gap is not close: a match is decided at a cosine of 0.5 in meco, and the
+ * two populations here are separated by an order of magnitude more than the bound
+ * moves either of them.
+ *
+ * The group photograph is the hard case on purpose — four faces at four scales,
+ * each about a twelfth of the frame's width, in the one fixture that is genuinely
+ * too big to send. At a 1600 px long edge the smallest of them is ~100 px across,
+ * just under the 112 px template, so the warp is upsampling by the time the cap
+ * bites.
+ */
+const fullSize = await readFile(`${FIXTURES}artemis-2-crew-full.jpg`);
+const atFullSize = await detectFaces(fullSize);
+
+check(
+  atFullSize.faces.length === 4,
+  "the group photograph at full size has four faces to embed",
+  `${String(atFullSize.faces.length)} found in ${String(atFullSize.width)}x${String(atFullSize.height)}`,
+);
+
+if (atFullSize.faces.length === 4) {
+  const landmarks = atFullSize.faces.map((face) => ({ landmarks: face.landmarks }));
+  const full = await embedFaces(fullSize, landmarks);
+
+  for (const longEdge of [2048, 1600, 1280]) {
+    const smaller = await atLongEdge(fullSize, longEdge);
+    // The same landmarks, not re-detected ones: the question is what the resize
+    // does to the *pixels* the warp reads. Detection is measured in the detect
+    // test, and mixing the two would blur which of them had moved.
+    const bounded = await embedFaces(smaller, landmarks);
+
+    const mine = bounded.map((print, i) => cosineSimilarity(print, full[i]!));
+    const others = bounded.flatMap((print, i) =>
+      full.filter((_, j) => j !== i).map((other) => cosineSimilarity(print, other)),
+    );
+    const worstMine = Math.min(...mine);
+    const bestOther = Math.max(...others);
+
+    check(
+      worstMine > bestOther + 0.5,
+      `a print off the ${String(longEdge)} px copy is still that face's print`,
+      `own face ${worstMine.toFixed(4)} at worst, any other face ${bestOther.toFixed(4)} at best`,
+    );
+  }
+}
 
 // ------------------------------------------------------------------- the API
 

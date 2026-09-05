@@ -27,7 +27,7 @@ import sharp from "sharp";
 import { createApp } from "../src/app.js";
 import { CROP_PRODUCERS, solveCrop } from "../src/crop-solver.js";
 import { faceSubjectBoxes } from "../src/crop.js";
-import { FACES_URL, type Detection } from "../src/faces.js";
+import { FACES_URL, boundedSource, type Detection } from "../src/faces.js";
 import { MIN_FACE_PX, facePrintsFor, personPrefix } from "../src/people.js";
 import { LocalStorage, isPrivateKey } from "../src/storage.js";
 
@@ -399,6 +399,24 @@ const canned = new Map<string, Detection>();
 const detectCalls: string[] = [];
 
 /**
+ * Vercel's request-body cap, enforced here because that is where it really is.
+ *
+ * The face service runs in a container behind a rewrite, and the rewrite is a
+ * Function: a body over this size never reaches the container at all, it is
+ * refused by the platform with the two strings below. Nothing in this file used
+ * to cross that boundary, which is exactly why every suite stayed green while
+ * `resolvedBy` silently fell back to `centre` in production for any photograph
+ * off a phone — issue #30.
+ *
+ * So the stand-in is the platform as well as the service. Every call below is
+ * subject to it, not only the one that is about it.
+ */
+const PAYLOAD_LIMIT = 4.5 * 1024 * 1024;
+
+/** The largest body the stand-in was ever asked to read, over the whole run. */
+let largestBody = 0;
+
+/**
  * A Face Print the stand-in can make up, seeded from the face it was given.
  *
  * Not EdgeFace and not pretending to be: what enrolment needs from a print is
@@ -482,6 +500,14 @@ const facesService = createServer((req, res) => {
   req.on("end", () => {
     void (async () => {
       const body = Buffer.concat(chunks);
+      largestBody = Math.max(largestBody, body.length);
+      if (body.length > PAYLOAD_LIMIT) {
+        // Verbatim what production answered, so a warning that quotes it is
+        // recognisable as this and not as some other 413.
+        res.writeHead(413, { "content-type": "text/plain" });
+        res.end("Request Entity Too Large\n\nFUNCTION_PAYLOAD_TOO_LARGE");
+        return;
+      }
       const asked = new URL(req.url ?? "/", "http://local");
       // `/embed` turns faces the caller already found into Face Prints. It is a
       // second route on the same service, so the stand-in has to be one too, or
@@ -906,6 +932,124 @@ check(
   `${String(detectCalls.length)} calls`,
 );
 
+// ------------------------------------ a photograph too big for the platform
+
+/**
+ * The bug this whole bound exists for: issue #30.
+ *
+ * `artemis-2-crew-full.jpg` is the group photograph at the 5 424 279 bytes
+ * Commons serves it, which is the ordinary case and not an extreme one — a 12 MP
+ * photograph off a phone is 5–8 MB. Sent as it arrived it is refused by the
+ * stand-in above with the same 413 production answered with, the Annotation comes
+ * back empty with a warning, and the Crop falls back to `centre`. A caller who
+ * does not read `warnings` sees a Crop that is simply not framed on anybody.
+ *
+ * The recorded detection is filed under the hash of the bytes meco *sends*, which
+ * is the bounded copy. That is not the claim being tested and could not be: the
+ * teeth are the 413 the stand-in answers with, and `largestBody` below, which
+ * says in bytes what meco put on the wire without asking meco what it thinks it
+ * put there.
+ */
+const fullSizeBytes = await readFile(fixtures("artemis-2-crew-full.jpg"));
+check(
+  "the fixture is genuinely too big to send unchanged",
+  fullSizeBytes.length > PAYLOAD_LIMIT,
+  `${String(fullSizeBytes.length)} bytes against a ${String(PAYLOAD_LIMIT)} byte cap`,
+);
+
+const GROUP_FULL_SIZE = await fixturePhoto("artemis-2-crew-full.jpg");
+canned.set(sha((await boundedSource(fullSizeBytes)).bytes), recorded.images["artemis-2-crew.jpg"]!);
+
+const fullSizeCrop = await post("/v1/crop", {
+  source: GROUP_FULL_SIZE.url,
+  width: 1080,
+  height: 1080,
+  blurUnknownFaces: true,
+});
+cropKeys.add(String(fullSizeCrop.json.key));
+check(
+  "a photograph too big for the platform is still framed on a face",
+  fullSizeCrop.status === 200 &&
+    fullSizeCrop.json.resolvedBy === "face" &&
+    fullSizeCrop.json.warnings === undefined,
+  `${String(fullSizeCrop.status)} resolvedBy=${String(fullSizeCrop.json.resolvedBy)} ` +
+    `warnings=${JSON.stringify(fullSizeCrop.json.warnings)}`,
+);
+check(
+  "and every face in the frame is still hidden",
+  fullSizeCrop.json.blurred === 4,
+  `blurred=${String(fullSizeCrop.json.blurred)}`,
+);
+
+/**
+ * Small and heavy at once, which a long edge alone does not catch.
+ *
+ * The platform refuses on the body size, not on the pixel count, and the two come
+ * apart: 1600x1600 of random noise is 7.7 MB as a PNG. A screenshot or a scan
+ * gets there far more plausibly than a photograph does, and a bound that only
+ * looked at the edge would wave every one of them through into a 413.
+ *
+ * Nobody is expected to be found in noise. The claim is `warnings`: the face
+ * service was reached and answered, which is the whole difference between "no
+ * faces here" and "no faces were looked for".
+ */
+const noise = Buffer.alloc(1600 * 1600 * 3);
+for (let i = 0; i < noise.length; i++) noise[i] = Math.floor(Math.random() * 256);
+const heavy = await sharp(noise, { raw: { width: 1600, height: 1600, channels: 3 } })
+  .png()
+  .toBuffer();
+check(
+  "a 1600 px image can still be too heavy to send",
+  heavy.length > PAYLOAD_LIMIT,
+  `${String(heavy.length)} bytes at 1600x1600`,
+);
+
+const heavyCrop = await post("/v1/crop", {
+  source: `data:image/png;base64,${heavy.toString("base64")}`,
+  width: 1080,
+  height: 1080,
+});
+cropKeys.add(String(heavyCrop.json.key));
+check(
+  "and it reaches the face service too",
+  heavyCrop.status === 200 && heavyCrop.json.warnings === undefined,
+  `${String(heavyCrop.status)} resolvedBy=${String(heavyCrop.json.resolvedBy)} ` +
+    `warnings=${JSON.stringify(heavyCrop.json.warnings)}`,
+);
+
+check(
+  "meco never handed the face service more than the platform carries",
+  largestBody <= PAYLOAD_LIMIT,
+  `largest body ${String(largestBody)} bytes of ${String(PAYLOAD_LIMIT)} allowed`,
+);
+
+/**
+ * The size in the Annotation is the photograph's, not the copy's.
+ *
+ * Everything meco-faces says is a fraction and so survives the bound untouched —
+ * that is the whole reason the bound is safe. The size is the one number that
+ * does not, and it is what the console outlines a face in and what a caller reads
+ * to know what they uploaded. Reporting what was sent would shrink the
+ * photograph by the resize factor and nothing would say so.
+ */
+// Read defensively: a detection that failed is deliberately not stored, so a
+// regression here is a missing file rather than a wrong number, and a stack
+// trace out of `readFile` would end the run instead of reporting it.
+const fullSizeAnnotation = await readFile(
+  join(root, `annotations/${GROUP_FULL_SIZE.hash}.json`),
+  "utf8",
+).then(
+  (text) => JSON.parse(text) as { source: { width: number; height: number } },
+  () => null,
+);
+check(
+  "the Annotation records the photograph's own size, not the size meco sent",
+  fullSizeAnnotation?.source.width === 5878 && fullSizeAnnotation.source.height === 7348,
+  fullSizeAnnotation
+    ? `${String(fullSizeAnnotation.source.width)}x${String(fullSizeAnnotation.source.height)}`
+    : "nothing was filed — the detection failed",
+);
+
 /** One MCP tool call over the app's own `/mcp` route, answered as text. */
 let mcpId = 0;
 async function callTool(name: string, args: Json): Promise<string> {
@@ -1306,6 +1450,41 @@ check(
     String(tooSmallFace.json.error).includes("24 px") &&
     String(tooSmallFace.json.error).includes(String(MIN_FACE_PX)),
   `${String(tooSmallFace.status)} ${String(tooSmallFace.json.error).slice(0, 140)}`,
+);
+
+/**
+ * The same rule, in the frame that decides it.
+ *
+ * A face 80 px across in a 4000 px photograph is 32 px by the time it reaches the
+ * network, because meco bounds the photograph to `LONG_EDGE` first. `MIN_FACE_PX`
+ * has to be judged there and not in the photograph's own pixels, or the rule
+ * would wave through exactly the upsampling it exists to refuse — and it would do
+ * it for most photographs, since most are over 1600 px.
+ */
+const distantUrl = await photo(4000, 3000);
+const distantBytes = Buffer.from(distantUrl.slice("data:image/jpeg;base64,".length), "base64");
+canned.set(sha((await boundedSource(distantBytes)).bytes), {
+  width: 4000,
+  height: 3000,
+  faces: [
+    {
+      box: { x: 0.3, y: 0.3, width: 0.02, height: 0.0267 },
+      landmarks: {
+        rEye: point(0.304, 0.307),
+        lEye: point(0.314, 0.307),
+        nose: point(0.309, 0.313),
+        rMouth: point(0.305, 0.32),
+        lMouth: point(0.313, 0.32),
+      },
+      score: 0.9,
+    },
+  ],
+});
+const distantFace = await post(photosPath, { brand: "laica", source: distantUrl });
+check(
+  "a face big enough in the photograph but not in the copy is refused too",
+  distantFace.status === 400 && String(distantFace.json.error).includes("32 px"),
+  `${String(distantFace.status)} ${String(distantFace.json.error).slice(0, 140)}`,
 );
 
 // ------------------------------------------------------------------ multipart
@@ -1718,6 +1897,33 @@ check(
   "the same Crop with no Brand names nobody and falls back to the faces",
   noBrandCrop.json.resolvedBy === "face" && noBrandCrop.json.matches === undefined,
   `${String(noBrandCrop.json.resolvedBy)} matches=${JSON.stringify(noBrandCrop.json.matches)}`,
+);
+
+/**
+ * `/embed` has the same 4.5 MB body as `/detect`, and is reached down a different
+ * path — the Annotation is cached, but a Face Print is computed per request.
+ *
+ * So this is the same photograph as the framing check above, now with a Brand
+ * that has People: matching sends the Source Image a second time, to the other
+ * route. A `warnings` entry is what a refused body looks like from out here —
+ * "No faces were named" — and its absence is the claim. Nobody is expected to be
+ * recognised; the stand-in has no real Face Print for this photograph, and being
+ * unknown is the ordinary answer anyway.
+ */
+const fullSizeWithBrand = await post("/v1/crop", {
+  source: GROUP_FULL_SIZE.url,
+  brand: "laica",
+  width: 1080,
+  height: 1080,
+});
+cropKeys.add(String(fullSizeWithBrand.json.key));
+check(
+  "a photograph too big for the platform reaches the Face Print route too",
+  fullSizeWithBrand.status === 200 &&
+    fullSizeWithBrand.json.resolvedBy === "face" &&
+    fullSizeWithBrand.json.warnings === undefined,
+  `${String(fullSizeWithBrand.status)} resolvedBy=${String(fullSizeWithBrand.json.resolvedBy)} ` +
+    `warnings=${JSON.stringify(fullSizeWithBrand.json.warnings)}`,
 );
 
 // ------------------------------------------------ a stranger is not blurred over
