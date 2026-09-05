@@ -1,17 +1,38 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["ES2023"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "jsx": "react-jsx",
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "types": ["node"],
-    "noEmit": true
-  },
-  "include": ["src/**/*", "scripts/**/*"]
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/contracts"
+    },
+    {
+      "path": "./packages/store"
+    },
+    {
+      "path": "./packages/records"
+    },
+    {
+      "path": "./packages/models"
+    },
+    {
+      "path": "./packages/identify"
+    },
+    {
+      "path": "./packages/frame"
+    },
+    {
+      "path": "./packages/redact"
+    },
+    {
+      "path": "./packages/compose"
+    },
+    {
+      "path": "./packages/gateway"
+    },
+    {
+      "path": "./packages/webui"
+    },
+    {
+      "path": "./tsconfig.tools.json"
+    }
+  ]
 }
