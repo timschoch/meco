@@ -1,5 +1,10 @@
 // Fixtures for the contracts tests. Private to tests/ by the boundary rules.
-import type { Annotation } from "../index";
+import {
+  DEFAULT_PIN_TO,
+  type Annotation,
+  type FramingRequest,
+  type Match,
+} from "../index";
 
 export const detector = { name: "scrfd", version: "10g-bnkps-1" };
 export const printer = { name: "edgeface", version: "s-gamma-05-1" };
@@ -111,5 +116,119 @@ export const invalidAnnotations: { name: string; value: unknown }[] = [
         { ...face, facePrint: { model: printer, vector: [0.6, 0.8, 0.1] } },
       ],
     },
+  },
+];
+
+/** The Brand every FramingRequest and Match sample below is cut for. */
+export const brand = "hope-family";
+
+/** A full FramingRequest: named persons, an anchor, a Subject Area, two zones. */
+export const framingRequest: FramingRequest = {
+  brand,
+  source: { hash: annotation.hash },
+  target: { width: 1080, height: 1350, format: "jpeg", quality: 82 },
+  pinTo: ["match", "face"],
+  persons: ["p-nino", "p-lea"],
+  anchor: "top",
+  subjectArea: { x: 0.05, y: 0.05, width: 0.9, height: 0.55 },
+  occlusion: [
+    { x: 0, y: 0.72, width: 1, height: 0.28 },
+    { x: 0.7, y: 0, width: 0.3, height: 0.14 },
+  ],
+  redaction: { blurUnknownFaces: true },
+};
+
+/** Every optional field left out, `anchor` among them. */
+export const minimalFramingRequest: FramingRequest = {
+  brand,
+  source: { hash: annotation.hash },
+  target: { width: 1080, height: 1080 },
+  pinTo: DEFAULT_PIN_TO,
+  occlusion: [],
+  redaction: { blurUnknownFaces: false },
+};
+
+/** One named sample per rule the ticket calls out. The name is what a red run prints. */
+export const invalidFramingRequests: { name: string; value: unknown }[] = [
+  {
+    name: "a template id, which belongs to the gateway and not here",
+    value: { ...framingRequest, template: "story-1" },
+  },
+  {
+    name: "a source given as a URL instead of a Content Hash",
+    value: { ...framingRequest, source: "https://example.com/a.jpg" },
+  },
+  { name: "an empty pinTo", value: { ...framingRequest, pinTo: [] } },
+  {
+    name: "a duplicate in pinTo",
+    value: { ...framingRequest, pinTo: ["match", "face", "match"] },
+  },
+  {
+    name: "the British spelling of the centre anchor",
+    value: { ...framingRequest, anchor: "centre" },
+  },
+  {
+    name: "a target width of half a pixel",
+    value: {
+      ...framingRequest,
+      target: { ...framingRequest.target, width: 1080.5 },
+    },
+  },
+  {
+    name: "a quality of 0",
+    value: {
+      ...framingRequest,
+      target: { ...framingRequest.target, quality: 0 },
+    },
+  },
+  {
+    name: "an occlusion zone whose x + width is above 1",
+    value: {
+      ...framingRequest,
+      occlusion: [{ x: 0.9, y: 0.1, width: 0.2, height: 0.2 }],
+    },
+  },
+  {
+    name: "more occlusion zones than the free-area sweep can afford",
+    value: {
+      ...framingRequest,
+      // One past the cap of 16 the schema sets.
+      occlusion: Array.from({ length: 17 }, (_, i) => ({
+        x: 0,
+        y: i / 100,
+        width: 0.1,
+        height: 0.01,
+      })),
+    },
+  },
+  { name: "an empty brand", value: { ...framingRequest, brand: "" } },
+  {
+    name: "a persons list with an empty id",
+    value: { ...framingRequest, persons: [""] },
+  },
+];
+
+/** One Match: this face Region is this Person, for this Brand, on this call. */
+export const match: Match = {
+  regionId: face.id,
+  personId: "p-nino",
+  brand,
+  similarity: 0.71,
+};
+
+export const invalidMatches: { name: string; value: unknown }[] = [
+  {
+    name: "a similarity above 1",
+    value: { ...match, similarity: 1.0001 },
+  },
+  {
+    name: "a similarity below -1",
+    value: { ...match, similarity: -1.0001 },
+  },
+  { name: "an empty brand", value: { ...match, brand: "" } },
+  { name: "an empty person id", value: { ...match, personId: "" } },
+  {
+    name: "a region id that is not <kind>-<n>",
+    value: { ...match, regionId: "face_1" },
   },
 ];
