@@ -2406,9 +2406,33 @@ const WIDE = { width: 1920, height: 1080 };
     refused.status === 400 && (refused.json as EnrolJson).results[0]?.status === "rejected",
     `${String(refused.status)} ${refusal.slice(0, 120)}`,
   );
+  /**
+   * The refusal has to be readable by the person who hits it.
+   *
+   * Somebody enrolling a driver will meet this, and "no face was found" about a
+   * photograph with a driver plainly in it reads as a bug. So the message says
+   * three things: what meco thinks it is looking at, that this is a limit rather
+   * than a malfunction, and which photograph would work instead. Checked as
+   * three properties rather than as one string, so rewording it does not fail
+   * this and dropping half of it does.
+   */
   check(
-    "and the refusal says no face was found, not something about a size or a score",
-    refusal.includes("No face was found") && refusal.includes("helmet"),
+    "the refusal names what meco sees there rather than only saying no",
+    // The Not-a-Face Print's own `what`, not the word "helmet": the message
+    // says "crash helmet" on its own account, so matching that would pass with
+    // the interpolation deleted — a check that had gone vacuous once the prose
+    // grew, which is the failure mode this whole ticket is about.
+    refusal.includes("back of the helmet") && refusal.includes("on-track-rear-helmet.jpg#0"),
+    refusal,
+  );
+  check(
+    "it says this is a limit and not a malfunction",
+    refusal.includes("limit rather than a fault"),
+    refusal,
+  );
+  check(
+    "and it says which photograph would work instead",
+    refusal.includes("helmet off") && refusal.includes("Reference Photo"),
     refusal,
   );
   check(
@@ -2432,11 +2456,31 @@ const WIDE = { width: 1920, height: 1080 };
     source: VISOR_OPEN.url,
     consent: true,
   });
+  const outOfSampleError = String((outOfSample.json as EnrolJson).results[0]?.error ?? "");
   check(
     "and so is a helmet meco has never been shown, which is the real claim",
-    outOfSample.status === 400 &&
-      String((outOfSample.json as EnrolJson).results[0]?.error ?? "").includes("No face was found"),
-    String((outOfSample.json as EnrolJson).results[0]?.error ?? "").slice(0, 130),
+    outOfSample.status === 400 && outOfSampleError.includes("recognise anyone by"),
+    outOfSampleError.slice(0, 130),
+  );
+
+  /**
+   * And this is the trade, asserted rather than left in a comment.
+   *
+   * `on-track-visor-open.jpg` is a real driver with his face visible through an
+   * open visor. He is refused, at 0.6935 — and he is the photograph a karting
+   * brand posts every weekend. Two lines of `NOT_A_FACE_THRESHOLD` say
+   * `paddock-mixed`'s visor-up driver at 0.5601 "must go on being recognisable",
+   * and this man is the same case a little closer to the camera.
+   *
+   * It is checked because it is the one consequence of the Not-a-Face rule that
+   * will be met by a person rather than by a test, and because a future widening
+   * of the reference set could quietly turn it into something else without
+   * anybody deciding to.
+   */
+  check(
+    "a driver whose face shows through an open visor is refused too — the known cost",
+    outOfSample.status === 400 && /0\.69\d\d/.test(outOfSampleError),
+    outOfSampleError.slice(0, 160),
   );
 
   // ------------------------------------------- a Brand that already holds one

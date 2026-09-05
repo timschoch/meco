@@ -767,20 +767,74 @@ check(
   );
 
   /**
-   * The floor an unseen helmet has to be caught below.
+   * How far the threshold sits below the nearest helmet meco has ever been shown.
    *
-   * `docs/research/kart-and-driver-subjects.md` measured nine helmets over 36
-   * pairs and the worst two agreed at 0.639. Any helmet is therefore at least
-   * that alike to the committed one, and a threshold above 0.639 would let the
-   * least typical helmet through. This is the one number here that comes from
-   * outside the committed fixtures, and it is the reason the threshold is not
-   * simply pushed up to buy more room on the false-refusal side.
+   * This check used to assert `NOT_A_FACE_THRESHOLD <= 0.639`, the smallest of
+   * the research document's 36 helmet-to-helmet pairs. That is **the wrong
+   * quantity**, and it is the one #40 was raised about: the rule scores a
+   * candidate against *one committed reference*, and a minimum over pairs
+   * between other helmets says nothing on its own about the distance to that
+   * reference. 0.639 turned out to belong to a pair the reference is not part
+   * of, so the check was carrying a number nothing here verified — with the
+   * authority of a green test, which is what people trust when they move a
+   * constant.
+   *
+   * #43 measured the real thing: the shipped reference against the other eight
+   * of the nine, **0.7092 to 0.9629, eight of eight caught**. Two of the nine
+   * are CC0 and both are already committed; the other seven are CC BY-SA and
+   * cannot join them under `fixtures/karts/LICENCE.md`. So that measurement
+   * cannot be recomputed here, and what follows splits into the part that can
+   * be checked and the part that is quoted — labelled, so no unverified number
+   * sits in the gate wearing the same clothes as a measured one.
    */
-  const WORST_HELMET_PAIR = 0.639;
+  const WORST_OF_THE_NINE = 0.7092;
+  const ENCODE_NOISE = 0.019;
+
+  /**
+   * The one of those eight that is committed, against the figure recorded for it.
+   *
+   * One number and one constant, because they are one measurement:
+   * `on-track-visor-open` is both the nearest of the eight to the reference —
+   * which is what makes 0.7092 the worst of them — and the only one of the eight
+   * committed here. Naming it twice would let a future edit to the research
+   * update one and leave the other silently stale.
+   *
+   * Asserting `NOT_A_FACE_THRESHOLD < 0.7092` on its own would be theatre: it is
+   * strictly weaker than the `NOT_A_FACE_THRESHOLD < bestNotAFace` above, at
+   * 0.6935, so nothing could ever trip it that has not already failed. These two
+   * can fail. The first says the committed encode is the *conservative* one, so
+   * the fixtures are not flattering the threshold; the second says the two
+   * readings of the same pixels still agree, within the 0.019 ADR-0003 measured
+   * a print moving across JPEG encodes. Between them a fixture re-encode that
+   * drifted, or a research figure that moved, reddens the gate.
+   */
+  const visorOpen = measured.find((e) => e.name.startsWith("on-track-visor-open"));
   check(
-    NOT_A_FACE_THRESHOLD <= WORST_HELMET_PAIR,
-    "and below the worst helmet-to-helmet pair the research measured, over 36 pairs",
-    `${NOT_A_FACE_THRESHOLD.toFixed(2)} against ${WORST_HELMET_PAIR.toFixed(3)}`,
+    visorOpen !== undefined && visorOpen.cosine <= WORST_OF_THE_NINE,
+    "recorded, not measured here: the committed encode is the conservative reading",
+    visorOpen
+      ? `${visorOpen.cosine.toFixed(4)} committed against ${WORST_OF_THE_NINE.toFixed(4)} in ` +
+        "docs/research/kart-and-driver-subjects.md, the worst of the eight — seven of the " +
+        "nine are CC BY-SA and cannot be committed, so that figure is quoted, not measured"
+      : "on-track-visor-open is not in the table",
+  );
+  check(
+    visorOpen !== undefined && Math.abs(visorOpen.cosine - WORST_OF_THE_NINE) <= ENCODE_NOISE,
+    "and the two readings of that pair agree within what a JPEG encode moves",
+    visorOpen
+      ? `${Math.abs(visorOpen.cosine - WORST_OF_THE_NINE).toFixed(4)} apart, against ` +
+        `${ENCODE_NOISE.toFixed(3)} of encode noise`
+      : "on-track-visor-open is not in the table",
+  );
+
+  // Which way the threshold can move, and how far, said as movement rather than
+  // as a band — a band reads as symmetric and this one is not. The binding
+  // constraint is real faces, the opposite of what the old 0.639 row implied.
+  check(
+    bestNotAFace - NOT_A_FACE_THRESHOLD > NOT_A_FACE_THRESHOLD - worstFace,
+    "and the tight side is real faces, not helmets",
+    `${(bestNotAFace - NOT_A_FACE_THRESHOLD).toFixed(4)} of room above, ` +
+      `${(NOT_A_FACE_THRESHOLD - worstFace).toFixed(4)} below`,
   );
 
   /**

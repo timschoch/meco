@@ -347,19 +347,37 @@ export const MATCH_MARGIN = 0.05;
  * - `on-track-visor-open`, a different helmet held out of the reference set,
  *   scores **0.6935**. `paddock-mixed`'s man seen from behind scores 0.7457.
  *   Both are rejections measured out of sample rather than assumed.
- * - The worst helmet-to-helmet pair over the research document's 36 pairs is
- *   **0.639**, which is the floor an unseen helmet has to be caught below.
+ * - Against the eight other helmets of the research document's nine, measured
+ *   for #40 rather than deduced: **0.7092 at worst, eight of eight caught**.
+ *   Seven of those eight are CC BY-SA and cannot be committed, so `pnpm
+ *   test:match` quotes that figure and labels it as recorded; the one that is
+ *   committed is the 0.6935 above, and the two agree within the noise a JPEG
+ *   re-encode puts on a print.
  *
- * So the band is 0.5601 to 0.639 and 0.60 is the middle of it. That is 0.04 of
- * room either side, against the 0.22 `MATCH_THRESHOLD` enjoys, and the tightness
- * is real rather than hidden: below about 57 px a small face and a helmet are
- * genuinely hard to tell apart by print. `pnpm test:match` re-measures all of it.
+ * So 0.60 can **rise by 0.0935** before it stops refusing the nearest non-face,
+ * and **fall by only 0.0399** before it starts refusing the closest real face.
+ * **The binding constraint is real faces, not helmets** — the tight side is the
+ * one where the mistake is a face going unnamed. Do not read the two as a band
+ * with the threshold in the middle: an earlier version of this comment did, off
+ * a number that was never about this reference, and that reading invites
+ * tightening in the direction that starts refusing real people. ADR-0003's
+ * amendment has the full account.
+ *
+ * Both numbers are tighter than `MATCH_THRESHOLD`'s 0.2145 and 0.2304, and the
+ * tightness is real rather than hidden: below about 57 px a small face and a
+ * helmet are genuinely hard to tell apart by print.
+ *
+ * **0.60 is a rounded constant, not a tuned one.** ADR-0003 measured one pair
+ * moving **0.019** across JPEG encodes of the same pixels — about half the
+ * clearance below — so the fourth decimal of anything here is noise, and a
+ * threshold quoted to four decimals would claim precision the input lacks.
  *
  * It is shipped at that margin because the two mistakes are not the same size. A
  * face wrongly called a Not-a-Face is never a Match, so it is blurred and not
  * pinned on — cautious. A Not-a-Face wrongly taken for a face is a stranger's
  * name in a published post with their face left sharp, which is the failure
- * issue #34 reported from production. Given a choice this errs towards the first.
+ * issue #34 reported from production. The tight side is the cautious one, which
+ * is the right way round.
  */
 export const NOT_A_FACE_THRESHOLD = 0.6;
 
@@ -864,14 +882,40 @@ export async function enrolReferencePhoto(
    * The size rule above has already run, so what is left here is the print. Both
    * are asked again at match time; see `whyNotIdentifiable`, which is the same
    * question and the reason a Brand enrolled before this existed is safe too.
+   *
+   * ## A driver in a helmet cannot be enrolled, and that is the trade
+   *
+   * `on-track-visor-open.jpg` is a real driver with the visor up and his face
+   * visible, and it scores **0.6935** against the committed Not-a-Face Print. So
+   * it is refused — and it is exactly the photograph a karting brand posts every
+   * weekend.
+   *
+   * **The visor is not what decides it; how much of the box is helmet is.**
+   * `NOT_A_FACE_THRESHOLD` records `paddock-mixed`'s visor-up driver at 0.5601,
+   * accepted, and he must go on being recognisable. He is photographed from the
+   * front at conversational distance, so the open visor fills most of the box
+   * and the shell is mostly outside it; the on-track driver's box is shell, chin
+   * bar and visor surround with the face a small part of it. A refusal that said
+   * "a visor is no good" would be telling a brand something false.
+   *
+   * That is not a hole in the rule, it is the rule: enrolling this would put a
+   * print in the gallery that names every other helmeted stranger, which is
+   * issue #34. ADR-0003 carries the full ledger.
+   *
+   * It is written here because somebody will try exactly this and be told no,
+   * which is why the message names what meco thinks it sees, says it is a limit,
+   * and describes the photograph that would work.
    */
   const notIdentifiable = notAFace(print);
   if (notIdentifiable) {
     throw new Error(
-      `No face was found in this photograph — ${notIdentifiable.what} is what meco sees ` +
-        `there (${notIdentifiable.score.toFixed(4)} against ${notIdentifiable.name}, refused at ` +
-        `${String(NOT_A_FACE_THRESHOLD)}). A Reference Photo has to show the Person's face, ` +
-        "turned towards the camera and close enough to recognise.",
+      "meco cannot see a face here that it could recognise anyone by — what it finds " +
+        `looks like the ${notIdentifiable.what} (${notIdentifiable.score.toFixed(4)} against ` +
+        `${notIdentifiable.name}, refused at ${NOT_A_FACE_THRESHOLD.toFixed(2)}). This is a ` +
+        "limit rather than a fault: the more of the frame a crash helmet fills, the less " +
+        "of a person is left to tell one from another, and a Face Print taken from one " +
+        "would match strangers. Use a Reference Photo with the helmet off — or one taken " +
+        "close and square on, so the face fills the box rather than the shell.",
     );
   }
 
