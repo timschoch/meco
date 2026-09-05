@@ -17,9 +17,6 @@ export { ImageSlot, Occludes } from "./lib/markers";
  */
 export const LOGO_SRC = "meco:logo";
 
-/** The same, for a Look that ships a second wordmark for a light field. */
-export const LOGO_ALT_SRC = "meco:logo-alt";
-
 /** A font face the Look ships, already read off disk. */
 export interface LookFont {
   /** The family a Template names in `fontFamily`. */
@@ -29,14 +26,17 @@ export interface LookFont {
 }
 
 /**
- * How a Brand's Templates look: colours, fonts and wordmark. Code and not data,
- * so `look.colors.banana` is a typecheck rather than a wrong picture.
+ * How a Brand's Templates look: colours, fonts and wordmark.
+ *
+ * Code and not data, so the Look and the Templates written against it are
+ * edited together and typechecked together. `colors` is still an open map here:
+ * a Template is handed the `Look` its Brand resolves to at run time, so nothing
+ * yet ties `swisshutless-story` to the Swiss Hutless palette at the type level.
+ * Narrowing that is worth doing when a second Look exists to get it wrong.
  */
-export interface Look<
-  Colors extends Record<string, string> = Record<string, string>,
-> {
+export interface Look {
   readonly brand: string;
-  readonly colors: Colors;
+  readonly colors: Readonly<Record<string, string>>;
   readonly fonts: readonly LookFont[];
   /** The family headings render in. */
   readonly headingFamily: string;
@@ -44,8 +44,6 @@ export interface Look<
   readonly bodyFamily: string;
   /** The wordmark, as encoded PNG bytes. */
   readonly logo: Uint8Array;
-  /** A second wordmark for a light field, when the Brand has one. */
-  readonly logoAlt?: Uint8Array;
 }
 
 /**

@@ -57,10 +57,19 @@ export function findMarked(
       });
     }
     const kids = childrenOf(node);
+    if (kids.length !== box.children.length) {
+      // The walk is only sound while the two trees mirror each other. Stopping
+      // quietly here would hand back a Plan missing whatever sits further
+      // along, which is worse than no Plan: frame would keep the Subject clear
+      // of zones that are not all the zones.
+      throw new Error(
+        `takumi measured ${box.children.length} children where the tree has ${kids.length}; the source and measured trees have diverged.`
+      );
+    }
     for (let i = 0; i < kids.length; i++) {
       const child = kids[i];
       const measuredChild = box.children[i];
-      if (child === undefined || measuredChild === undefined) return;
+      if (child === undefined || measuredChild === undefined) continue;
       walk(child, measuredChild);
     }
   };

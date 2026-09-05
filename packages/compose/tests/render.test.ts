@@ -1,10 +1,10 @@
-import { readFileSync } from "node:fs";
+import fs, { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ComposeError, render } from "../index";
-import { GOLDEN_CASES, inputFor } from "./cases";
+import { ComposeError, render, type RenderInput } from "../index";
+import { GOLDEN_CASES, inputFor, STORY_CASE } from "./cases";
 import { GOLDENS } from "./goldens";
-import { centredWindow, decode, KART_FIXTURE, widenBy } from "./fixture";
+import { centredWindow, decode, widenBy } from "./fixture";
 import { meanAbsoluteDifference, raster } from "./pixels";
 
 /**
@@ -14,16 +14,18 @@ import { meanAbsoluteDifference, raster } from "./pixels";
  * Measured, not guessed. Every number below is this check's own output on the
  * committed golden, which was generated on darwin-arm64.
  *
- * - darwin-arm64 (Apple M4, Node 22.22, sharp 0.35.4, takumi 2.13.6): 0.0000.
+ * - darwin-arm64 (Apple M4, Node 22.22, takumi 2.13.6, sharp 0.35.4): 0.0000.
  *   takumi is byte-deterministic within a process (ADR-0009) and, as the
- *   determinism test above shows, across calls too.
- * - linux-x64 (GitHub Actions ubuntu-latest, Node 22): 0.0000.
+ *   determinism check below shows, across calls too.
+ * - linux-x64 (GitHub Actions ubuntu-latest, Node 22): 0.0000, run 33998908844.
  *
  * The threshold has to sit under what a wrong Look makes, and that difference
  * is small because a wordmark is 0.5 % of a story's area: swapping in the Hope
  * Family logo scores 0.3558, and `fit: "cover"` for `fit: "fill"` scores
- * 0.5592. At 0.02 the check clears both platforms by its full margin and still
- * catches the weaker of those two mutations by 18x.
+ * 0.5592. At 0.02 the check clears both platforms by their full margin and
+ * still catches the weaker of those two mutations by 18x. Should the two
+ * platforms ever stop agreeing exactly, a whole-image mean can no longer tell
+ * drift from a wrong Look and this has to become a per-tile comparison.
  */
 const GOLDEN_THRESHOLD = 0.02;
 
@@ -38,31 +40,9 @@ const MAGIC: Record<string, (b: Uint8Array) => boolean> = {
     String.fromCharCode(...b.slice(8, 12)) === "WEBP",
 };
 
-const STORY = {
-  template: "swisshutless-story",
-  placement: "instagram/story",
-  brand: "swisshutless",
-} as const;
-
-const FIELDS = {
-  headline: "Wohlen",
-  kicker: "Nächstes Rennen",
-  subline: "Wohlen, Schweiz",
-  footnote: "12. – 14. Juni 2026",
-};
-
-async function storyInput(
-  overrides: Partial<Parameters<typeof render>[0]> = {}
-) {
-  const source = await decode(KART_FIXTURE);
-  return {
-    ...STORY,
-    fields: FIELDS,
-    source,
-    window: centredWindow(source, { width: 1080, height: 1920 }),
-    ...overrides,
-  };
-}
+/** The golden's own call, so the tests and the committed picture cannot drift. */
+const story = (overrides: Partial<RenderInput> = {}) =>
+  inputFor(STORY_CASE, overrides);
 
 describe("render", () => {
   afterEach(() => {
@@ -70,11 +50,9 @@ describe("render", () => {
   });
 
   it("turns a fixture photograph into a 1080x1920 JPEG by default", async () => {
-    const { bytes, mime, width, height } = await render(await storyInput());
+    const { bytes, mime } = await render(await story());
 
     expect(mime).toBe("image/jpeg");
-    expect(width).toBe(1080);
-    expect(height).toBe(1920);
     expect(MAGIC.jpeg?.(bytes)).toBe(true);
     expect(bytes.length).toBeGreaterThan(SMALLEST_PLAUSIBLE_RENDER);
 
@@ -85,7 +63,7 @@ describe("render", () => {
   it.each(["png", "webp"] as const)(
     "encodes %s when the caller asks for it",
     async (format) => {
-      const { bytes, mime } = await render(await storyInput({ format }));
+      const { bytes, mime } = await render(await story({ format }));
 
       expect(mime).toBe(`image/${format}`);
       expect(MAGIC[format]?.(bytes)).toBe(true);
@@ -94,17 +72,27 @@ describe("render", () => {
     }
   );
 
-  it("makes no network call", async () => {
+  it("reaches neither the network nor the disk", async () => {
+    // A Look reads its fonts and wordmark when its module loads, so by the time
+    // `render` runs there is nothing left for it to open. Both spies watch the
+    // JavaScript layer only — sharp and takumi do their own I/O in Rust — which
+    // is why the fonts being committed, rather than fetched, is what actually
+    // makes the claim true.
+    const input = await story({ format: "png" });
     const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const readSpy = vi.spyOn(fs, "readFileSync");
+    const openSpy = vi.spyOn(fs.promises, "readFile");
 
-    await render(await storyInput({ format: "png" }));
+    await render(input);
 
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(readSpy).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
   });
 
   it("is deterministic: two renders of the same call are byte-identical", async () => {
-    const first = await render(await storyInput({ format: "png" }));
-    const second = await render(await storyInput({ format: "png" }));
+    const first = await render(await story({ format: "png" }));
+    const second = await render(await story({ format: "png" }));
 
     expect(Buffer.from(second.bytes).equals(Buffer.from(first.bytes))).toBe(
       true
@@ -117,15 +105,15 @@ describe("golden images", () => {
     "$template at $placement matches its golden",
     async (test) => {
       const fresh = await raster(
-        (await render(await inputFor(test, "png"))).bytes
+        (await render(await inputFor(test, { format: "png" }))).bytes
       );
       const golden = await raster(
         readFileSync(fileURLToPath(new URL(test.golden, GOLDENS)))
       );
 
       const difference = meanAbsoluteDifference(fresh, golden);
-      // Printed on every run so the platform's own number is on the record,
-      // including CI's.
+      // Printed on every run so each platform's own number is on the record,
+      // CI's included.
       console.log(
         `golden ${test.golden}: mean absolute difference ${difference.toFixed(4)} (threshold ${GOLDEN_THRESHOLD})`
       );
@@ -134,33 +122,54 @@ describe("golden images", () => {
   );
 });
 
-describe("refusals", () => {
-  it("refuses a window whose aspect is two source pixels off the Image Slot", async () => {
-    const source = await decode(KART_FIXTURE);
-    const window = widenBy(
-      centredWindow(source, { width: 1080, height: 1920 }),
-      source,
-      2
-    );
+describe("the framing_mismatch tolerance", () => {
+  const STORY_ASPECT = { width: 1080, height: 1920 };
 
-    await expect(render(await storyInput({ source, window }))).rejects.toThrow(
+  it("refuses a window two source pixels off the Image Slot's aspect", async () => {
+    const source = await decode(STORY_CASE.fixture);
+    const window = widenBy(centredWindow(source, STORY_ASPECT), source, 2);
+
+    await expect(render(await story({ source, window }))).rejects.toThrow(
       expect.objectContaining({ code: "framing_mismatch" })
     );
   });
 
-  it("accepts a window one source pixel off, which is all a 1000 px source can do", async () => {
-    const source = await decode(KART_FIXTURE);
+  it("accepts the nearest window a 1600x1000 photograph can offer", async () => {
+    const source = await decode(STORY_CASE.fixture);
     // 1600x1000 cannot express 9:16 exactly: the nearest window is 563x1000,
     // half a pixel wide of the ideal 562.5. Refusing it would refuse every
     // window frame can actually cut from this photograph.
-    const window = centredWindow(source, { width: 1080, height: 1920 });
+    const window = centredWindow(source, STORY_ASPECT);
     expect(Math.round(window.width * source.width)).toBe(563);
 
     await expect(
-      render(await storyInput({ source, window, format: "png" }))
+      render(await story({ source, window, format: "png" }))
     ).resolves.toBeDefined();
   });
 
+  it("accepts a window one pixel wide of ideal, whatever the slot's aspect", async () => {
+    // The regression the first two cases miss. A 1126x2000 window is exactly
+    // 1 px wider than the ideal 1125x2000, so it must pass — but read on the
+    // height axis the same deviation is 1.78 px, and a check that takes the
+    // larger of the two would refuse a window frame could not improve on.
+    const source = await decode(STORY_CASE.fixture);
+    const tall = { ...source, width: 2252, height: 2000 };
+    tall.data = Buffer.alloc(tall.width * tall.height * 3, 90);
+    const window = {
+      x: 0,
+      y: 0,
+      width: 1126 / tall.width,
+      height: 1,
+    };
+    expect(Math.round(window.width * tall.width)).toBe(1126);
+
+    await expect(
+      render(await story({ source: tall, window, format: "png" }))
+    ).resolves.toBeDefined();
+  });
+});
+
+describe("refusals", () => {
   it.each([
     [{ template: "no-such-template" }, "unknown_template"],
     [{ brand: "no-such-brand" }, "unknown_brand"],
@@ -168,7 +177,7 @@ describe("refusals", () => {
     [{ placement: "no-such-placement" }, "placement_not_supported"],
     [{ fields: { kicker: "only a kicker" } }, "invalid_fields"],
   ])("refuses %o with %s", async (overrides, code) => {
-    const call = render(await storyInput(overrides));
+    const call = render(await story(overrides));
 
     await expect(call).rejects.toBeInstanceOf(ComposeError);
     await expect(call).rejects.toThrow(expect.objectContaining({ code }));

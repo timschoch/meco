@@ -13,7 +13,7 @@ import { GOLDEN_CASES, inputFor } from "./cases";
 import { GOLDENS } from "./goldens";
 
 for (const test of GOLDEN_CASES) {
-  const { bytes } = await render(await inputFor(test, "png"));
+  const { bytes } = await render(await inputFor(test, { format: "png" }));
   const path = fileURLToPath(new URL(test.golden, GOLDENS));
   writeFileSync(path, bytes);
   console.log(`${test.golden}: ${bytes.length} bytes`);

@@ -1,7 +1,11 @@
 import type { ReactElement, ReactNode } from "react";
 import { Bitmap } from "@takumi-rs/helpers/jsx";
 import type { RgbaImage } from "@takumi-rs/helpers";
-import { IMAGE_SLOT_MARKER, MARKER_ATTRIBUTE, OCCLUDES_MARKER } from "./marker";
+import {
+  IMAGE_SLOT_MARKER,
+  MARKER_ATTRIBUTE,
+  OCCLUDES_MARKER,
+} from "./measured-tree";
 
 interface MarkerProps {
   readonly style?: Record<string, unknown>;

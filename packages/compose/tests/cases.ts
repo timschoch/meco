@@ -29,10 +29,20 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
   },
 ];
 
-/** The exact `render` call a golden case stands for. */
+/** The story every test starts from, so one edit moves the golden and the tests together. */
+export const STORY_CASE = GOLDEN_CASES[0]!;
+
+/**
+ * The exact `render` call a golden case stands for, with anything a test wants
+ * to vary laid over the top.
+ *
+ * The window is the tallest centred one of the Placement's own aspect. That
+ * holds only while a Template's Image Slot fills the canvas; the first Template
+ * whose slot is a column (#117) takes its aspect from the Plan instead.
+ */
 export async function inputFor(
   test: GoldenCase,
-  format: RenderInput["format"] = "png"
+  overrides: Partial<RenderInput> = {}
 ): Promise<RenderInput> {
   const source = await decode(test.fixture);
   const placement = PLACEMENTS.find((p) => p.id === test.placement);
@@ -44,6 +54,6 @@ export async function inputFor(
     fields: test.fields,
     source,
     window: centredWindow(source, placement),
-    format,
+    ...overrides,
   };
 }

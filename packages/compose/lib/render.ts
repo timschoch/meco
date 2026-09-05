@@ -7,7 +7,11 @@ import { placement as placementById, type Placement } from "../placements";
 import type { DecodedImage } from "./decoded-image";
 import { ComposeError } from "./errors";
 import { LOOKS } from "./looks/registry";
-import { findMarked, IMAGE_SLOT_MARKER, type MeasuredBox } from "./marker";
+import {
+  findMarked,
+  IMAGE_SLOT_MARKER,
+  type MeasuredBox,
+} from "./measured-tree";
 import { lookImages, sharedRenderer } from "./renderer";
 import { TEMPLATES } from "./templates/registry";
 
@@ -53,9 +57,6 @@ export interface RenderInput {
 export interface RenderResult {
   readonly bytes: Uint8Array;
   readonly mime: string;
-  /** What was rendered, in pixels. The Placement's size. */
-  readonly width: number;
-  readonly height: number;
 }
 
 interface Resolved {
@@ -166,11 +167,17 @@ function refuseAspectMismatch(
   cut: { width: number; height: number },
   slot: MeasuredBox
 ): void {
-  // The box with the slot's aspect that the window should have been, at the
-  // window's own scale, on each axis in turn.
+  // The box with the slot's aspect the window should have been, holding each
+  // axis fixed in turn.
   const wantedWidth = (cut.height * slot.width) / slot.height;
   const wantedHeight = (cut.width * slot.height) / slot.width;
-  const off = Math.max(
+  // The smaller of the two, because they are one deviation seen at two scales,
+  // not two independent errors: the height figure is the width figure times the
+  // slot's aspect ratio, so `Math.max` would always read the long axis and make
+  // the real tolerance 1/1.78 of a pixel for a story. The smaller number is the
+  // question worth asking — how far is this window from a correct one, moving
+  // whichever axis is cheaper to move.
+  const off = Math.min(
     Math.abs(cut.width - wantedWidth),
     Math.abs(cut.height - wantedHeight)
   );
@@ -244,10 +251,5 @@ export async function render(input: RenderInput): Promise<RenderResult> {
     css,
   });
 
-  return {
-    bytes,
-    mime: MIME[format],
-    width: placement.width,
-    height: placement.height,
-  };
+  return { bytes, mime: MIME[format] };
 }

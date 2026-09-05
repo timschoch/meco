@@ -1,5 +1,5 @@
 import { Renderer } from "@takumi-rs/core";
-import { LOGO_ALT_SRC, LOGO_SRC, type Look } from "../template";
+import { LOGO_SRC, type Look } from "../template";
 import { LOOKS } from "./looks/registry";
 
 let ready: Promise<Renderer> | undefined;
@@ -31,7 +31,5 @@ export function sharedRenderer(): Promise<Renderer> {
 
 /** The image table takumi resolves a Template's wordmark `src` against. */
 export function lookImages(look: Look): { src: string; data: Uint8Array }[] {
-  const images = [{ src: LOGO_SRC, data: look.logo }];
-  if (look.logoAlt) images.push({ src: LOGO_ALT_SRC, data: look.logoAlt });
-  return images;
+  return [{ src: LOGO_SRC, data: look.logo }];
 }
