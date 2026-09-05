@@ -16,8 +16,43 @@
     "                    is what every other print is measured against. Only one",
     "                    detection carries it, and deliberately one with no human",
     "                    face in it at all.",
-    "Provenance and licence of the photographs: LICENCE.md beside this file."
+    "Provenance and licence of the photographs: LICENCE.md beside this file.",
+    "sources gives the pixel size of the Commons original each fixture was derived",
+    "from. scripts/match-calibration.ts needs it to check that every fixture is",
+    "committed at the bound src/faces.ts applies to a Source Image — a fixture",
+    "smaller than that bound would be calibrated on faces production never sees.",
+    "Covers every photograph in this directory, including any not yet classified."
   ],
+  "sources": {
+    "on-track-rear-helmet.jpg": {
+      "width": 600,
+      "height": 400
+    },
+    "on-track-visor-open.jpg": {
+      "width": 1015,
+      "height": 1015
+    },
+    "on-track-dark-visor.jpg": {
+      "width": 4096,
+      "height": 2560
+    },
+    "paddock-mixed.jpg": {
+      "width": 2832,
+      "height": 1888
+    },
+    "podium-trophy.jpg": {
+      "width": 2000,
+      "height": 2500
+    },
+    "podium-trophy-2.jpg": {
+      "width": 1272,
+      "height": 1577
+    },
+    "street-karting-crowd.jpg": {
+      "width": 1600,
+      "height": 1200
+    }
+  },
   "images": [
     {
       "file": "on-track-rear-helmet.jpg",
@@ -49,26 +84,65 @@
       "file": "paddock-mixed.jpg",
       "note": "Nine detections in a paddock. Eight are faces a person could name; one is the back of a head. This is the false-positive guard: a rule that refuses any of the eight is worse than the bug it fixes.",
       "faces": [
-        { "label": "man pointing", "is": "face" },
-        { "label": "man in sunglasses", "is": "face" },
-        { "label": "man with a moustache", "is": "face" },
-        { "label": "boy in a race suit", "is": "face" },
-        { "label": "driver in a helmet, visor up, face towards the camera", "is": "face" },
-        { "label": "woman with long hair", "is": "face" },
-        { "label": "youth in a cap, in profile", "is": "face" },
-        { "label": "man in glasses, seen from behind", "is": "not-a-face" },
-        { "label": "small child looking down", "is": "face" }
+        {
+          "label": "man pointing",
+          "is": "face"
+        },
+        {
+          "label": "man in sunglasses",
+          "is": "face"
+        },
+        {
+          "label": "man with a moustache",
+          "is": "face"
+        },
+        {
+          "label": "boy in a race suit",
+          "is": "face"
+        },
+        {
+          "label": "driver in a helmet, visor up, face towards the camera",
+          "is": "face"
+        },
+        {
+          "label": "woman with long hair",
+          "is": "face"
+        },
+        {
+          "label": "youth in a cap, in profile",
+          "is": "face"
+        },
+        {
+          "label": "man in glasses, seen from behind",
+          "is": "not-a-face"
+        },
+        {
+          "label": "small child looking down",
+          "is": "face"
+        }
       ]
     },
     {
       "file": "podium-trophy.jpg",
       "note": "The same driver as podium-trophy-2.jpg, helmet off, at a different event. The pair that must go on matching each other.",
-      "faces": [{ "label": "driver with a trophy", "is": "face", "person": "A" }]
+      "faces": [
+        {
+          "label": "driver with a trophy",
+          "is": "face",
+          "person": "A"
+        }
+      ]
     },
     {
       "file": "podium-trophy-2.jpg",
       "note": "The same driver again, a second event.",
-      "faces": [{ "label": "driver on the podium", "is": "face", "person": "A" }]
+      "faces": [
+        {
+          "label": "driver on the podium",
+          "is": "face",
+          "person": "A"
+        }
+      ]
     }
   ]
 }
