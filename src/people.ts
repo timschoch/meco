@@ -24,18 +24,24 @@ import sharp from "sharp";
 import { z } from "zod";
 
 import { BRANDS } from "./brands.js";
-import { detectFaces, embedFaces, type DetectedFace, type FaceBox } from "./faces.js";
+import { detectFaces, embedFaces, sentScale, type DetectedFace, type FaceBox } from "./faces.js";
 import { PRIVATE_PREFIX, type Storage } from "./storage.js";
 
 /**
- * How small a face may be and still be worth enrolling, in pixels of the Source
- * Image.
+ * How small a face may be and still be worth enrolling, in pixels of the copy
+ * meco-faces is given.
  *
  * EdgeFace is trained on 112×112 crops. A face smaller than this is upsampled
  * into the network, and what comes back is a Face Print of the interpolation
  * rather than of the person — it compares cleanly against everything and
  * identifies nobody. Refusing is the honest answer; the fix is a better
  * photograph, and only the caller has one.
+ *
+ * Of the copy and not of the Source Image, because it is the copy that gets
+ * upsampled: meco bounds a photograph to `LONG_EDGE` on the way out (see
+ * `./faces.js`), so a 60 px face in a 4000 px photograph arrives as 24 px. Judged
+ * in the photograph's own frame this rule would pass exactly the faces it exists
+ * to refuse.
  */
 export const MIN_FACE_PX = 40;
 
@@ -470,7 +476,12 @@ export interface PickableFace {
   index: number;
   box: FaceBox;
   score: number;
-  /** The face's shorter side in pixels of the photograph. */
+  /**
+   * The face's shorter side in pixels, in the frame `MIN_FACE_PX` is judged in —
+   * the copy meco-faces is given, which for a photograph over `LONG_EDGE` is
+   * smaller than the photograph. It is here so a caller can see why a face was
+   * refused, and it orders the faces the same way either frame would.
+   */
   pixels: number;
 }
 
@@ -487,7 +498,9 @@ export type Enrolment =
   | { status: "pick-a-face"; width: number; height: number; faces: PickableFace[] };
 
 function facePixels(face: DetectedFace, width: number, height: number): number {
-  return Math.min(face.box.width * width, face.box.height * height);
+  return (
+    Math.min(face.box.width * width, face.box.height * height) * sentScale(width, height)
+  );
 }
 
 export interface EnrolInput {

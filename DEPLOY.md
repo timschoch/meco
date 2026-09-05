@@ -286,9 +286,15 @@ MECO_TOKEN=<preview token> pnpm --filter meco-faces exec tsx scripts/latency.ts 
 
 ### What meco sends
 
-meco bounds a Source Image to a **1600 px long edge** before either `/detect` or
-`/embed` sees it — `LONG_EDGE` in `src/faces.ts`. A photograph already within
-that is passed through untouched, byte for byte.
+meco bounds a Source Image to a **1600 px long edge and 4 MB** before either
+`/detect` or `/embed` sees it — `LONG_EDGE` and `MAX_BYTES` in `src/faces.ts`. A
+photograph inside both is passed through untouched, byte for byte; anything
+outside either is resized (never enlarged) and re-encoded as JPEG at quality 90.
+Two bounds because a long edge is not a body size and the platform refuses on the
+body size: 1600x1600 of random noise is 7.7 MB as a PNG, and a screenshot or a
+scan reaches that far more plausibly than a photograph does. The worst case out
+of the re-encoder is 2.1 MB — that same noise — so the invariant holds by
+construction rather than by luck of the fixtures.
 
 This is not a tuning knob. A Vercel Function refuses a request body over 4.5 MB,
 and the rewrite that fronts this container is a Function, so a photograph over
@@ -297,9 +303,10 @@ roughly 4.5 MB never reached the service at all: it came back
 and Person matching went quietly unavailable. A 12 MP photograph off a phone is
 5–8 MB, so that was the ordinary case (issue #30).
 
-What the bound costs, measured on `fixtures/faces/artemis-2-crew-original.jpg` —
-the untouched 5878x7348, 5 424 279-byte Commons original of the group fixture,
-four faces at four scales:
+What the bound costs, measured on `fixtures/faces/artemis-2-crew-full.jpg` — the
+group photograph at the 5878x7348 and 5 424 279 bytes Commons serves it, four
+faces at four scales. Every row of this table is printed by `pnpm test:detect`
+and `pnpm test:embed`, pass or fail:
 
 | Long edge sent | Bytes | Worst box off the hand-marked one | Worst box moved from the full-size detection | Worst Face Print cosine against its own full-size print |
 |---|---|---|---|---|
@@ -309,31 +316,51 @@ four faces at four scales:
 | 1280 | 0.25 MB | 0.0115 | 0.0008 | 0.9593 |
 | 640 | 0.08 MB | 0.0113 | 0.0004 | — |
 
+Landmarks are measured beside the boxes and move no further: 0.0035 at worst, at
+1600 px. They are checked separately because they come out of a different head of
+the network, and a box can sit still while an eye drifts.
+
 Read it as three separate claims:
 
 - **Detection cannot tell.** The tolerance the hand-marked boxes are judged
   against is 0.03, and no box moves as much as 0.002 between full size and any
-  cap. That is expected rather than lucky: YuNet is fed a 640 px long edge
-  whatever it is handed, so everything above that is thrown away inside the
-  service anyway. Detect also gets faster — 109 ms to 12 ms on this photograph,
-  most of it the decode.
+  long edge down to 640. That is expected rather than lucky: YuNet is fed a
+  640 px long edge whatever it is handed, so everything above that is thrown
+  away inside the service anyway. Detect also gets faster — about 70 ms to about
+  13 ms on this photograph, most of it the decode; the suite prints both, and on
+  a laptop that is also building things they swing.
 - **Embedding does move, and it does not matter.** A Face Print off the bounded
-  copy is 0.96 cosine to the print off the original, because the warp reads real
-  pixels of the face. Identity is untouched: on the fixtures the worst
-  same-person cosine goes 0.7146 to 0.7117 and the best different-person cosine
-  0.2985 to 0.2979, against a `MATCH_THRESHOLD` of 0.5 in `src/people.ts` — a
-  gap of 0.42 that the bound moves by 0.003. There is headroom below 1600 too:
-  the same print is still 0.79 at a 320 px long edge and only collapses to 0.34
-  at 160 px.
+  copy is 0.96 cosine to the print off the full-size photograph, because the warp
+  reads real pixels of the face: at 1600 px the smallest of these four faces is
+  ~100 px across, just under the 112 px template. Identity survives it, and the
+  suite states that as a margin rather than as a cosine — each print stays nearer
+  its own full-size print than any other face's, 0.96 against 0.26.
 - **Nothing needs remapping.** Both routes answer in fractions of the image, and
   a fraction does not change with resolution. The one number that does is the
-  size, so `detectFaces` reports the photograph's own size rather than the size
-  it sent — which is what "is this face big enough to enrol" is measured in.
+  size, so `detectFaces` reports the photograph's own size rather than the size it
+  sent — which is what the console outlines a face in, and what an Annotation
+  records. `MIN_FACE_PX` in `src/people.ts` goes the other way and is measured in
+  the copy, because it is the copy that gets upsampled into the network.
 
-Reproduce all of it with `pnpm test:detect` and `pnpm test:embed`; both print the
-numbers whether they pass or fail. `pnpm test:http` holds the other half: its
-stand-in enforces the same 4.5 MB the platform does, so the boundary that hid
-this bug is now inside a suite.
+`pnpm test:http` holds the other half: its stand-in enforces the same 4.5 MB the
+platform does, so the boundary that hid this bug is now inside a suite. Reverting
+either bound turns it red with the verbatim production failure.
+
+**Two numbers here are not reproducible from the repository**, because they need
+the full-size Commons files of all four fixture photographs and only the group
+one is committed. Both were measured once, by detecting and embedding each
+photograph at full size and again at a 1600 px long edge:
+
+- The **worst same-person cosine goes 0.7146 to 0.7117** and the **best
+  different-person cosine 0.2985 to 0.2979**, against a `MATCH_THRESHOLD` of 0.5
+  in `src/people.ts` — a gap of 0.42 that the bound moves by 0.003. That is the
+  measurement the bound rests on, and it is the reason `/embed` is given the same
+  bounded photograph rather than a tighter full-resolution crop around each face:
+  the crop scores 0.999 against the full-size print instead of 0.96, and buys
+  nothing that a Match can see.
+- The print **holds to 0.79 at a 320 px long edge and collapses to 0.34 at 160**,
+  which is where the headroom below 1600 comes from. Redo that one by adding 320
+  and 160 to the long edges in the bound section of `packages/faces/scripts/embed-test.ts`.
 
 Raising the platform cap was not pursued. Sending 5 MB over the rewrite so a
 detector can look at a 640 px grid is waste even where it is allowed.

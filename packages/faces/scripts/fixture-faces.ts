@@ -14,6 +14,8 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
+import sharp from "sharp";
+
 import { detectFaces, type Face } from "../src/detect.js";
 import { decodeUpright } from "../src/embed.js";
 import type { RawImage } from "../src/align.js";
@@ -105,6 +107,23 @@ export async function readFixtureFaces(): Promise<FixtureImage[]> {
 
   return images;
 }
+
+/**
+ * The same photograph, resized so its long edge is at most `longEdge`.
+ *
+ * Exactly what meco does to a Source Image before it sends one — `boundedSource`
+ * in `src/faces.ts` — written out again here rather than imported, because this
+ * is a separate service and it must not learn what its caller happens to be
+ * configured with. Both test scripts need it and both must do it the same way,
+ * or the detect and embed halves of one measurement would not be about the same
+ * bytes.
+ */
+export const atLongEdge = (image: Buffer, longEdge: number): Promise<Buffer> =>
+  sharp(image)
+    .rotate()
+    .resize({ width: longEdge, height: longEdge, fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 90 })
+    .toBuffer();
 
 /**
  * How alike two Face Prints are, from -1 to 1.

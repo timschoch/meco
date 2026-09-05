@@ -18,7 +18,8 @@ import sharp from "sharp";
 
 import { createFacesApp } from "../src/app.js";
 import { detectFaces, type Face } from "../src/detect.js";
-import { type Box } from "../src/yunet.js";
+import { LANDMARK_NAMES, type Box } from "../src/yunet.js";
+import { atLongEdge } from "./fixture-faces.js";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/faces/", import.meta.url));
 
@@ -117,29 +118,36 @@ for (const image of expected.images) {
  * not depend on the resolution it is handed, and this is where that is measured
  * rather than assumed.
  *
- * `artemis-2-crew-original.jpg` is the untouched 5878x7348 Commons original of
- * the group fixture, so the hand-marked boxes of `artemis-2-crew.jpg` are its
- * boxes too: a box is a fraction of the image and a fraction does not change with
- * resolution. That is also the claim being checked — if any coordinate mapping
- * were needed after a resize, these numbers would move.
+ * `artemis-2-crew-full.jpg` is the same photograph as `artemis-2-crew.jpg` at the
+ * size Commons serves it, 5878x7348, so the hand-marked boxes of the smaller one
+ * are its boxes too: a box is a fraction of the image and a fraction does not
+ * change with resolution. That is also the claim being checked — if any
+ * coordinate mapping were needed after a resize, these numbers would move.
  *
- * The caps span both sides of meco's, so this keeps meaning what it means if that
- * number is ever retuned. There is no import of it: the detector is a separate
- * service and must not learn what its caller happens to be configured with.
+ * Landmarks are checked beside the boxes and not taken on trust with them. They
+ * come out of a different head of the network, a Crop's headroom rule and the
+ * whole of `/embed` are built on them, and a box can sit still while an eye
+ * drifts.
+ *
+ * The long edges span both sides of meco's, so this keeps meaning what it means
+ * if that number is ever retuned. There is no import of it: the detector is a
+ * separate service and must not learn what its caller is configured with.
  */
-const ORIGINAL = "artemis-2-crew-original.jpg";
-const originalOf = "artemis-2-crew.jpg";
-const marked = expected.images.find((i) => i.file === originalOf);
+const FULL_SIZE = "artemis-2-crew-full.jpg";
+const sameAs = "artemis-2-crew.jpg";
+const marked = expected.images.find((i) => i.file === sameAs);
 
 if (!marked) {
-  check(false, `${originalOf} is in expected.json`, "the group fixture's marked boxes are missing");
+  check(false, `${sameAs} is in expected.json`, "the group fixture's marked boxes are missing");
 } else {
-  const bytes = await readFile(`${FIXTURES}${ORIGINAL}`);
+  const bytes = await readFile(`${FIXTURES}${FULL_SIZE}`);
+  const startedFull = Date.now();
   const atFullSize = await detectFaces(bytes);
+  const fullMs = Date.now() - startedFull;
 
   check(
     atFullSize.width === 5878 && atFullSize.height === 7348,
-    `${ORIGINAL} is the untouched original`,
+    `${FULL_SIZE} is the photograph at the size Commons serves it`,
     `${String(atFullSize.width)}x${String(atFullSize.height)}, ${String(bytes.length)} bytes`,
   );
 
@@ -161,42 +169,60 @@ if (!marked) {
     });
   };
 
+  /** The furthest any of the five points has moved between two detections. */
+  const landmarksMoved = (a: Face, b: Face) =>
+    Math.max(
+      ...LANDMARK_NAMES.map((name) =>
+        Math.max(
+          Math.abs(a.landmarks[name].x - b.landmarks[name].x),
+          Math.abs(a.landmarks[name].y - b.landmarks[name].y),
+        ),
+      ),
+    );
+
   const truth = claim(atFullSize.faces);
   check(
     atFullSize.faces.length === marked.faces.length &&
       truth.every((f) => f.off <= expected.tolerance),
-    `${ORIGINAL} at full size`,
-    truth.map((f) => `${f.label} ${f.off.toFixed(4)}`).join(", "),
+    `${FULL_SIZE} at full size`,
+    `${String(fullMs)} ms, ` + truth.map((f) => `${f.label} ${f.off.toFixed(4)}`).join(", "),
   );
 
   for (const longEdge of [2048, 1600, 1280, 640]) {
-    const smaller = await sharp(bytes)
-      .rotate()
-      .resize({ width: longEdge, height: longEdge, fit: "inside" })
-      .jpeg({ quality: 90 })
-      .toBuffer();
+    const smaller = await atLongEdge(bytes, longEdge);
+    const started = Date.now();
     const found = await detectFaces(smaller);
+    const ms = Date.now() - started;
     const paired = claim(found.faces);
 
     check(
       found.faces.length === marked.faces.length && paired.every((f) => f.off <= expected.tolerance),
-      `${ORIGINAL} at ${String(longEdge)} px finds the same faces`,
-      `${(smaller.length / 1e6).toFixed(2)} MB, ` +
+      `${FULL_SIZE} at ${String(longEdge)} px finds the same faces`,
+      `${(smaller.length / 1e6).toFixed(2)} MB, ${String(ms)} ms, ` +
         paired.map((f) => `${f.label} ${f.off.toFixed(4)}`).join(", "),
     );
 
     // Against the full-size answer rather than against the hand-marked boxes:
     // a human's box has a few per cent of slack in it, and this has to catch a
     // shift far smaller than that slack would hide.
-    const moved = Math.max(
+    const boxes = Math.max(
       ...paired.map((f, i) =>
         f.face && truth[i]?.face ? deviation(f.face.box, truth[i].face.box) : Infinity,
       ),
     );
+    const points = Math.max(
+      ...paired.map((f, i) =>
+        f.face && truth[i]?.face ? landmarksMoved(f.face, truth[i].face) : Infinity,
+      ),
+    );
+    // A landmark is allowed twice a box's drift. It is a point estimate off a
+    // different head, nothing clamps it to anything, and it has no width to
+    // average its own error over — 0.01 is still a third of the slack a human's
+    // box is judged with.
     check(
-      moved <= 0.005,
-      `${ORIGINAL} at ${String(longEdge)} px puts them in the same places`,
-      `worst coordinate moved ${moved.toFixed(4)} from the full-size detection`,
+      boxes <= 0.005 && points <= 0.01,
+      `${FULL_SIZE} at ${String(longEdge)} px puts them in the same places`,
+      `worst box coordinate moved ${boxes.toFixed(4)}, worst landmark ${points.toFixed(4)}`,
     );
   }
 }

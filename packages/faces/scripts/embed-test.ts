@@ -31,7 +31,7 @@ import { createFacesApp } from "../src/app.js";
 import { detectFaces } from "../src/detect.js";
 import { PRINT_LENGTH, embedFaces } from "../src/embed.js";
 import { LANDMARK_NAMES, type Landmarks, type Point } from "../src/yunet.js";
-import { FIXTURES, cosineSimilarity, readFixtureFaces } from "./fixture-faces.js";
+import { FIXTURES, atLongEdge, cosineSimilarity, readFixtureFaces } from "./fixture-faces.js";
 
 interface Reference {
   model: string;
@@ -412,29 +412,27 @@ check(
  * two populations here are separated by an order of magnitude more than the bound
  * moves either of them.
  *
- * The group original is the hard case on purpose — four faces at four scales, the
- * smallest about a twentieth of the frame, in the one fixture that is genuinely
- * too big to send.
+ * The group photograph is the hard case on purpose — four faces at four scales,
+ * each about a twelfth of the frame's width, in the one fixture that is genuinely
+ * too big to send. At a 1600 px long edge the smallest of them is ~100 px across,
+ * just under the 112 px template, so the warp is upsampling by the time the cap
+ * bites.
  */
-const original = await readFile(`${FIXTURES}artemis-2-crew-original.jpg`);
-const atFullSize = await detectFaces(original);
+const fullSize = await readFile(`${FIXTURES}artemis-2-crew-full.jpg`);
+const atFullSize = await detectFaces(fullSize);
 
 check(
   atFullSize.faces.length === 4,
-  "the full-size group original has four faces to embed",
+  "the group photograph at full size has four faces to embed",
   `${String(atFullSize.faces.length)} found in ${String(atFullSize.width)}x${String(atFullSize.height)}`,
 );
 
 if (atFullSize.faces.length === 4) {
   const landmarks = atFullSize.faces.map((face) => ({ landmarks: face.landmarks }));
-  const full = await embedFaces(original, landmarks);
+  const full = await embedFaces(fullSize, landmarks);
 
   for (const longEdge of [2048, 1600, 1280]) {
-    const smaller = await sharp(original)
-      .rotate()
-      .resize({ width: longEdge, height: longEdge, fit: "inside" })
-      .jpeg({ quality: 90 })
-      .toBuffer();
+    const smaller = await atLongEdge(fullSize, longEdge);
     // The same landmarks, not re-detected ones: the question is what the resize
     // does to the *pixels* the warp reads. Detection is measured in the detect
     // test, and mixing the two would blur which of them had moved.
