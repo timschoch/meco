@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Box, Point } from "./geometry";
+import { Box, Point, pixels } from "./geometry";
 
 /** What a Model drew a Region around. meco's closed set; it grows by PR. */
 export const RegionKind = z.enum(["face", "person", "vehicle"]);
@@ -44,8 +44,13 @@ export const Embedding = z
     }
   );
 
-/** `<kind>-<n>`, `n` from 1. `assignRegionIds` is the one place that rule lives. */
-const REGION_ID = /^(?:face|person|vehicle)-[1-9][0-9]*$/;
+/**
+ * `<kind>-<n>`, `n` from 1. Built from {@link RegionKind}, so a kind added to
+ * the enum is legal in an id without a second edit here.
+ */
+const REGION_ID = new RegExp(
+  `^(?:${RegionKind.options.join("|")})-[1-9][0-9]*$`
+);
 
 /** One thing a Model found in the bytes. True of the bytes, so cached forever. */
 export const Region = z
@@ -101,8 +106,8 @@ export const Annotation = z
     hash: ContentHash,
     mime: Mime,
     /** Pixels, as a viewer sees the image: after EXIF orientation. */
-    width: z.int().positive(),
-    height: z.int().positive(),
+    width: pixels,
+    height: pixels,
     /** Every Model that ran. A missing one is a cache miss, never a wrong answer. */
     producedBy: z.array(ModelId),
     regions: z.array(Region),
@@ -112,6 +117,13 @@ export const Annotation = z
     {
       error: "producedBy must not name a model twice",
       path: ["producedBy"],
+    }
+  )
+  .refine(
+    (a) => new Set(a.regions.map((r) => r.id)).size === a.regions.length,
+    {
+      error: "two regions must not share an id",
+      path: ["regions"],
     }
   );
 

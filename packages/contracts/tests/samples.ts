@@ -1,9 +1,9 @@
 // Fixtures for the contracts tests. Private to tests/ by the boundary rules.
 import type { Annotation } from "../index";
 
-const detector = { name: "scrfd", version: "10g-bnkps-1" };
-const printer = { name: "edgeface", version: "s-gamma-05-1" };
-const objects = { name: "dfine", version: "s-coco-1" };
+export const detector = { name: "scrfd", version: "10g-bnkps-1" };
+export const printer = { name: "edgeface", version: "s-gamma-05-1" };
+export const objects = { name: "dfine", version: "s-coco-1" };
 
 const point = (x: number, y: number) => ({ x, y });
 
@@ -50,8 +50,11 @@ export const annotation: Annotation = {
   ],
 };
 
-/** The face Region of {@link annotation}, the base for the invalid samples. */
-const face = annotation.regions[0]!;
+/** The face Region of {@link annotation}. The base for a Region sample. */
+export const face = annotation.regions[0]!;
+
+/** The vehicle Region of {@link annotation}: a Region with no landmarks or print. */
+export const vehicle = annotation.regions[1]!;
 
 /**
  * One named sample per field rule the ticket calls out. The name is what a red
@@ -96,6 +99,10 @@ export const invalidAnnotations: { name: string; value: unknown }[] = [
     },
   },
   { name: "an unknown schema number", value: { ...annotation, schema: 2 } },
+  {
+    name: "two regions sharing an id",
+    value: { ...annotation, regions: [face, { ...face, score: 0.5 }] },
+  },
   {
     name: "an embedding vector that is not unit length",
     value: {

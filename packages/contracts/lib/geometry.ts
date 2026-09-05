@@ -29,10 +29,13 @@ export const Box = z
     path: ["height"],
   });
 
-/** A size in whole pixels. Never fractions: the one place pixels appear. */
+/** A count of whole pixels. The one shape in contracts that is not a fraction. */
+export const pixels = z.int().positive();
+
+/** A size in whole pixels: a target, or the image the Annotation describes. */
 export const Size = z.strictObject({
-  width: z.int().positive(),
-  height: z.int().positive(),
+  width: pixels,
+  height: pixels,
 });
 
 export type Point = z.infer<typeof Point>;
