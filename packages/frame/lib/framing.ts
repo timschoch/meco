@@ -27,6 +27,23 @@ export interface CropWindow {
 /** Which rung composed the Subject the window was placed on. */
 export type ResolvedBy = "match" | "face" | "kart" | "anchor" | "center";
 
+/**
+ * What a rung of `pinTo` answers with when it composes something. The rung
+ * that answers decides all four fields at once, so no caller can pair a
+ * `resolvedBy` with another rung's Subject.
+ *
+ * Declared here rather than beside a rung, so that every rung can be its own
+ * file without any of them importing another.
+ */
+export interface ComposedSubject {
+  resolvedBy: ResolvedBy;
+  leadRegionId: string;
+  /** The composed Subject, in source fractions. */
+  subject: Box;
+  /** Every Region this rung keeps in frame, the leader included. */
+  keptRegionIds: string[];
+}
+
 /** The step of the ladder that rescued a window which could not hold everything. */
 export type FallbackRung = "zoom-out" | "relax" | "drop" | "clip";
 

@@ -14,6 +14,12 @@ import {
 } from "@meco/contracts";
 import artemis2Crew from "./fixtures/artemis-2-crew.json";
 import astronautPortrait from "./fixtures/astronaut-portrait.json";
+import onTrackDarkVisor from "./fixtures/on-track-dark-visor.json";
+import onTrackRearHelmet from "./fixtures/on-track-rear-helmet.json";
+import onTrackVisorOpen from "./fixtures/on-track-visor-open.json";
+import paddockMixed from "./fixtures/paddock-mixed.json";
+import podiumTrophy from "./fixtures/podium-trophy.json";
+import podiumTrophy2 from "./fixtures/podium-trophy-2.json";
 import soyuzCrew from "./fixtures/soyuz-crew.json";
 
 const HASH = "7c".repeat(32);
@@ -135,6 +141,81 @@ export const FACE_FIXTURES: {
   },
   { name: "artemis-2-crew.jpg", raw: artemis2Crew, leadRegionId: "face-4" },
   { name: "soyuz-crew.jpg", raw: soyuzCrew, leadRegionId: "face-2" },
+];
+
+/**
+ * The six karting photographs, converted from `fixtures/karts/objects.json` —
+ * real D-FINE output — into contracts Annotations by the Region Kind table in
+ * `CONTEXT.md`, models: `person` becomes `person`, `motorbike` becomes
+ * `vehicle`, and every other COCO Label draws no Region. `boat`, `handbag` and
+ * `baseball bat` are dropped there and never reach frame.
+ *
+ * `subject` is what the prototype's rule composed, recorded beside the
+ * detections in that file and verified by rendering it over the photograph. It
+ * is the regression target, so it is copied here rather than re-derived: a
+ * mutation of the rule must not be able to mutate the expectation with it. The
+ * same holds for `leadRegionId` and `keptRegionIds`.
+ */
+export const KART_FIXTURES: {
+  name: string;
+  raw: unknown;
+  leadRegionId: string;
+  keptRegionIds: string[];
+  subject: Box;
+}[] = [
+  {
+    name: "on-track-dark-visor.jpg",
+    raw: onTrackDarkVisor,
+    leadRegionId: "vehicle-1",
+    keptRegionIds: ["person-1", "person-2", "vehicle-1", "vehicle-2"],
+    subject: { x: 0.4008, y: 0.0973, width: 0.4337, height: 0.4956 },
+  },
+  {
+    name: "on-track-rear-helmet.jpg",
+    raw: onTrackRearHelmet,
+    leadRegionId: "vehicle-1",
+    keptRegionIds: ["person-1", "vehicle-1"],
+    subject: { x: 0.1408, y: 0.2578, width: 0.5878, height: 0.5205 },
+  },
+  {
+    name: "on-track-visor-open.jpg",
+    raw: onTrackVisorOpen,
+    leadRegionId: "vehicle-2",
+    keptRegionIds: ["person-1", "person-2", "vehicle-2"],
+    subject: { x: 0.0077, y: 0.2626, width: 0.9481, height: 0.6218 },
+  },
+  {
+    name: "paddock-mixed.jpg",
+    raw: paddockMixed,
+    leadRegionId: "vehicle-1",
+    keptRegionIds: [
+      "person-1",
+      "person-6",
+      "person-18",
+      "person-19",
+      "person-22",
+      "person-23",
+      "person-24",
+      "person-25",
+      "vehicle-1",
+      "vehicle-2",
+    ],
+    subject: { x: 0.2703, y: 0, width: 0.4951, height: 0.7614 },
+  },
+  {
+    name: "podium-trophy.jpg",
+    raw: podiumTrophy,
+    leadRegionId: "person-1",
+    keptRegionIds: ["person-1"],
+    subject: { x: 0.237, y: 0.0908, width: 0.4067, height: 0.8969 },
+  },
+  {
+    name: "podium-trophy-2.jpg",
+    raw: podiumTrophy2,
+    leadRegionId: "person-1",
+    keptRegionIds: ["person-1", "person-2"],
+    subject: { x: 0.1465, y: 0.1108, width: 0.6732, height: 0.8823 },
+  },
 ];
 
 /** The four Placement shapes meco renders, as target sizes. */

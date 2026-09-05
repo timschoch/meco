@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "hash": "d46b5196c350542e55d3a345f730680a00afee4cecd076e22eb6f73124496581",
+  "mime": "image/jpeg",
+  "width": 600,
+  "height": 400,
+  "producedBy": [
+    {
+      "name": "dfine",
+      "version": "prototype"
+    }
+  ],
+  "regions": [
+    {
+      "id": "person-1",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.3508,
+        "y": 0.2578,
+        "width": 0.2129,
+        "height": 0.3589
+      },
+      "score": 0.7114,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "vehicle-1",
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.1408,
+        "y": 0.416,
+        "width": 0.5878,
+        "height": 0.3623
+      },
+      "score": 0.8488,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    }
+  ]
+}

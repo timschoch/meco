@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "hash": "063e3931204957a3bbedcd475af98e18bcc64e64382578ccd9f5ce30de3aed05",
+  "mime": "image/jpeg",
+  "width": 1272,
+  "height": 1577,
+  "producedBy": [
+    {
+      "name": "dfine",
+      "version": "prototype"
+    }
+  ],
+  "regions": [
+    {
+      "id": "person-1",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.1627,
+        "y": 0.1108,
+        "width": 0.657,
+        "height": 0.8796
+      },
+      "score": 0.9017,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-2",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.1465,
+        "y": 0.3546,
+        "width": 0.2787,
+        "height": 0.6385
+      },
+      "score": 0.5938,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-3",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.9364,
+        "y": 0.7185,
+        "width": 0.0627,
+        "height": 0.1651
+      },
+      "score": 0.2866,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-4",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.9247,
+        "y": 0.7188,
+        "width": 0.0749,
+        "height": 0.2789
+      },
+      "score": 0.4046,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    }
+  ]
+}
