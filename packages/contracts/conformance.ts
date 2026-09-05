@@ -6,3 +6,7 @@ export {
   type Sample,
   type SchemaSamples,
 } from "./lib/schema-conformance";
+export {
+  adapterConformance,
+  type AdapterFixtures,
+} from "./lib/adapter-conformance";

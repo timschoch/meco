@@ -30,23 +30,29 @@ export const Landmarks = z.strictObject({
 /** How close to unit length a Face Print vector must be. */
 const UNIT_LENGTH_TOLERANCE = 1e-3;
 
+/** Whether a Face Print vector is unit length. The rule, in one place. */
+export const isUnitLength = (vector: number[]): boolean =>
+  Math.abs(Math.hypot(...vector) - 1) <= UNIT_LENGTH_TOLERANCE;
+
+/**
+ * A Face Print's fields, without the unit-length rule. Private: the exported
+ * {@link FacePrint} adds the rule, and the adapter Conformance Checks assert
+ * it under their own name.
+ */
+const FacePrintFields = z.strictObject({
+  model: ModelId,
+  vector: z.array(z.number().finite()).min(1),
+});
+
 /**
  * A Face Print with the network that made it. Its own Model, because the print
  * comes from a different network than the box, and prints from two networks
  * are not comparable.
  */
-export const FacePrint = z
-  .strictObject({
-    model: ModelId,
-    vector: z.array(z.number().finite()).min(1),
-  })
-  .refine(
-    (e) => Math.abs(Math.hypot(...e.vector) - 1) <= UNIT_LENGTH_TOLERANCE,
-    {
-      error: `vector must be unit length within ${UNIT_LENGTH_TOLERANCE}`,
-      path: ["vector"],
-    }
-  );
+export const FacePrint = FacePrintFields.refine((e) => isUnitLength(e.vector), {
+  error: `vector must be unit length within ${UNIT_LENGTH_TOLERANCE}`,
+  path: ["vector"],
+});
 
 /**
  * `<kind>-<n>`, `n` from 1. Built from {@link RegionKind}, so a kind added to
@@ -59,31 +65,69 @@ const REGION_ID = new RegExp(
 /** The id rule alone, so a Match keys by a Region without restating the shape. */
 export const RegionId = z.string().regex(REGION_ID);
 
+/**
+ * A Region's own fields, each with its own rule, and none of the rules that
+ * read two fields at once. Split out because the adapter Conformance Checks
+ * name those cross-field rules one by one: were they folded in here, a face
+ * missing its landmarks would fail the check that parses a Region as well as
+ * the check named for landmarks, and a red run would stop saying which rule
+ * broke. {@link Region} layers all of them back on.
+ */
+export const RegionFields = z.strictObject({
+  kind: RegionKind,
+  /** The Model's own word (`motorbike`). Never selected on: that is `kind`. */
+  label: z.string().min(1),
+  box: Box,
+  score: z.number().min(0).max(1),
+  model: ModelId,
+  landmarks: Landmarks.optional(),
+  facePrint: FacePrintFields.optional(),
+});
+
+/** Whether a Region that is a face carries the landmarks a face must have. */
+export const hasFaceLandmarks = (r: {
+  kind: RegionKind;
+  landmarks?: unknown;
+}): boolean => r.kind !== "face" || r.landmarks !== undefined;
+
+const printOnlyOnFace = (r: { kind: RegionKind; facePrint?: unknown }) =>
+  r.facePrint === undefined || r.kind === "face";
+
+const PRINT_ON_A_FACE = {
+  error: "only a face region carries a face print in schema 1",
+  path: ["facePrint"],
+};
+
+/**
+ * What the adapter Conformance Check that parses a Region parses against: the
+ * field rules, plus the one cross-field rule no check is named for. The two
+ * that are named — a face's landmarks, a print's length — are left out, so a
+ * defect fails the check it is named by and no other. The three checks
+ * together hold everything {@link Region} holds bar its id.
+ */
+export const AdapterRegionRules = RegionFields.refine(
+  printOnlyOnFace,
+  PRINT_ON_A_FACE
+);
+
 /** One thing a Model found in the bytes. True of the bytes, so cached forever. */
-export const Region = z
-  .strictObject({
-    id: RegionId,
-    kind: RegionKind,
-    /** The Model's own word (`motorbike`). Never selected on: that is `kind`. */
-    label: z.string().min(1),
-    box: Box,
-    score: z.number().min(0).max(1),
-    model: ModelId,
-    landmarks: Landmarks.optional(),
-    facePrint: FacePrint.optional(),
-  })
+export const Region = RegionFields.extend({ id: RegionId })
   .refine((r) => r.id.startsWith(`${r.kind}-`), {
     error: "id must be prefixed with its kind",
     path: ["id"],
   })
-  .refine((r) => r.kind !== "face" || r.landmarks !== undefined, {
+  .refine(hasFaceLandmarks, {
     error: "a face region must carry landmarks",
     path: ["landmarks"],
   })
-  .refine((r) => r.facePrint === undefined || r.kind === "face", {
-    error: "only a face region carries a face print in schema 1",
-    path: ["facePrint"],
-  });
+  .refine(printOnlyOnFace, PRINT_ON_A_FACE)
+  .refine(
+    (r) => r.facePrint === undefined || isUnitLength(r.facePrint.vector),
+    {
+      error: `a face print vector must be unit length within ${UNIT_LENGTH_TOLERANCE}`,
+      path: ["facePrint", "vector"],
+    }
+  );
 
 export type RegionKind = z.infer<typeof RegionKind>;
 export type ModelId = z.infer<typeof ModelId>;

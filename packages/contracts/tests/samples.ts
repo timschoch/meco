@@ -13,7 +13,7 @@ export const objects = { name: "dfine", version: "s-coco-1" };
 const point = (x: number, y: number) => ({ x, y });
 
 /** A 512-value unit vector, the shape a Face Print really has. */
-const unitVector = (seed: number): number[] => {
+export const unitVector = (seed: number): number[] => {
   const raw = Array.from({ length: 512 }, (_, i) => Math.sin(seed + i));
   const length = Math.hypot(...raw);
   return raw.map((v) => v / length);

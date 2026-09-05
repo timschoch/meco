@@ -17,9 +17,11 @@ export {
   DEFAULT_ANCHOR,
   DEFAULT_PIN_TO,
   FramingRequest,
+  MAX_OCCLUSION_ZONES,
   PinTo,
   Redaction,
   Target,
 } from "./lib/framing-request";
 export { Match } from "./lib/match";
 export { assignRegionIds, type AdapterRegion } from "./lib/region-ids";
+export type { DecodedImage, ModelAdapter } from "./lib/adapter";

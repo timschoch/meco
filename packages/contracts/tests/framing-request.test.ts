@@ -4,6 +4,7 @@ import {
   DEFAULT_ANCHOR,
   DEFAULT_PIN_TO,
   FramingRequest,
+  MAX_OCCLUSION_ZONES,
   PinTo,
 } from "../index";
 import { schemaConformance } from "../conformance";
@@ -42,6 +43,37 @@ describe("FramingRequest defaults", () => {
   it("offers the caller's ladder as a constant the gateway applies", () => {
     expect(DEFAULT_PIN_TO).toEqual(["match", "face", "kart"]);
     expect(PinTo.options).toEqual(["match", "face", "kart"]);
+  });
+});
+
+// The cap frame reads. Exported because frame's own seam block names it, and
+// asserted against the schema so the constant and the rule cannot drift apart:
+// a re-export of a number the schema disagrees with would be worse than the
+// duplicate it replaces.
+describe("MAX_OCCLUSION_ZONES", () => {
+  it("is the literal 16", () => {
+    const cap: 16 = MAX_OCCLUSION_ZONES;
+    expect(cap).toBe(16);
+  });
+
+  it("is the count the schema accepts, and one more is refused", () => {
+    const zones = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        x: 0,
+        y: i / 100,
+        width: 0.1,
+        height: 0.01,
+      }));
+    const withZones = (count: number) => ({
+      ...framingRequest,
+      occlusion: zones(count),
+    });
+    expect(
+      FramingRequest.safeParse(withZones(MAX_OCCLUSION_ZONES)).success
+    ).toBe(true);
+    expect(
+      FramingRequest.safeParse(withZones(MAX_OCCLUSION_ZONES + 1)).success
+    ).toBe(false);
   });
 });
 
