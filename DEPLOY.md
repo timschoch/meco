@@ -558,6 +558,44 @@ anyone meco has enrolled, because nobody is enrolled yet.**
 It needs no model and no network — it reads `fixtures/faces/face-prints.json`
 and calls the same `matchFacePrint` the service calls.
 
+### Change the object model
+
+Two rules, and the first one is a trap that costs nothing to avoid and cannot be
+seen from the model card.
+
+**Never ship an `_obj365` or an `_obj2coco` checkpoint.** D-FINE publishes both,
+they score better than the COCO-only ones, and they are the variants its own
+README recommends for fine-tuning. They are also trained on Objects365, which
+states it is *"available for the academic purpose only"* — and D-FINE's README
+says so itself, verbatim:
+
+```
+License note: Checkpoints trained or pretrained on Objects365 (*_obj365,
+*_obj2coco) may be subject to the Objects365 dataset terms and should not be
+assumed to be commercially cleared under the D-FINE license.
+```
+
+`dfine_n_coco` is COCO-only and outside that carve-out. COCO is not a second
+Objects365: its annotations are CC BY 4.0 with no non-commercial clause. The
+rule generalises past D-FINE — an Objects365 lineage disqualifies a detector for
+this product however good it is, and the lineage is usually in the checkpoint's
+name rather than on its card.
+
+**And prefer an export that ships its own `LICENSE`.** Apache-2.0 §4 requires the
+licence text to travel with a redistributed derivative, and the weights are
+redistributed inside this image. A repository that declares a licence but ships
+no text cannot discharge that on our behalf. That is the whole reason this image
+carries `AnnotateIt/dfine-nano-coco-onnx` rather than the more obvious
+`onnx-community/dfine_n_coco-ONNX`, which declares nothing at all — see
+`packages/faces/models/LICENCE-dfine.txt`, which is both the record and the
+attribution.
+
+When the model changes: update `REVISION`, `BYTES` and `SHA256` in
+`packages/faces/scripts/verify-dfine.ts`, rewrite `LICENCE-dfine.txt`, run
+`pnpm --filter meco-faces verify:dfine`, and re-record `fixtures/karts/objects.json`
+— the fixture expectations are that model's answers, and `pnpm test:objects` and
+`pnpm test:crop` both read them.
+
 ### Change the recognition model
 
 `packages/faces/models/edgeface_xs_gamma_06.onnx` is committed, and

@@ -675,6 +675,37 @@ for (const image of karts.images) {
 }
 
 /**
+ * The detector's score floor is load-bearing, and this is where that is proved.
+ *
+ * `SCORE_THRESHOLD` is 0.28 in `packages/faces/src/objects.ts`, which reads like
+ * a number left over from the superseded weights: a good detection now scores
+ * 0.66-0.90 rather than 0.28-0.55, so raising the floor looks free. It is not.
+ * The hard photographs live at the weak end, and the hardest one in the set —
+ * the one YuNet returns no faces at all on — has only two karts in it, at 0.284
+ * and 0.280.
+ *
+ * Filtering the recorded detections is exactly what a higher floor would do, so
+ * this needs no service and no model to say it.
+ */
+{
+  const dark = karts.images.find((i) => i.file === "on-track-dark-visor.jpg");
+  const at = (floor: number) =>
+    kartSubjectBox((dark?.objects ?? []).filter((o) => o.score >= floor));
+  const held = at(0.28);
+  const raised = at(0.3);
+  check(
+    "raising the score floor to 0.30 loses the hardest photograph's kart",
+    held !== null &&
+      raised !== null &&
+      Math.abs(held.x - (dark?.subject.x ?? -1)) < 1e-3 &&
+      Math.abs(raised.x - held.x) > 0.01,
+    held && raised
+      ? `0.28 frames x=${held.x.toFixed(3)}, 0.30 frames x=${raised.x.toFixed(3)} — its karts score 0.284 and 0.280`
+      : "no box",
+  );
+}
+
+/**
  * The photograph the whole feature exists for, stated as its own check.
  *
  * YuNet returns **zero** faces on `on-track-dark-visor.jpg`, so before this

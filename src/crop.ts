@@ -504,13 +504,15 @@ export function kartSubjectBox(objects: readonly DetectedObject[]): SubjectBox |
  * caller named, then the centre — the anchor nobody named. The first producer
  * that yields a box wins the framing.
  *
- * The kart is a rung above saliency rather than a replacement for it, and that
- * is the measured shape of the thing rather than caution. On the same 32 on-track
- * photographs saliency frames 25 usably and the detector 21 — but they fail on
- * *disjoint* pictures. The detector fixes two of saliency's three head-cut
- * failures, saliency covers all seven of the detector's, and **no photograph
- * defeats both**. Ordered this way the pair is effectively complete; either one
- * alone is not.
+ * The kart is a rung above saliency because it is **better** than saliency, which
+ * was not true when this rung was first proposed and is worth stating plainly.
+ * Q11 measured the detector at 21 of 32 against saliency's 25 and argued for the
+ * ordering on complementarity alone — the two failed on disjoint photographs, so
+ * the pair covered the set even though the top rung was the weaker one. Q12 then
+ * found those numbers were measured against a checkpoint that was corrected four
+ * months after the export, and on the fixed weights the detector frames **31 of
+ * 32**. So it leads on merit, and saliency stays underneath it as the fallback
+ * for the one photograph it misses. Do not write the old justification back in.
  */
 async function subjectBoxes(
   data: Buffer,
