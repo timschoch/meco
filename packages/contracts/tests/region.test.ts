@@ -19,15 +19,15 @@ describe("Region", () => {
     expect(Region.safeParse({ ...face, id: "face-0" }).success).toBe(false);
   });
 
-  it("refuses an embedding on a region that is not a face", () => {
+  it("refuses a face print on a region that is not a face", () => {
     const print = { model: printer, vector: [0.6, 0.8] };
-    expect(Region.safeParse({ ...vehicle, embedding: print }).success).toBe(
+    expect(Region.safeParse({ ...vehicle, facePrint: print }).success).toBe(
       false
     );
   });
 
-  it("accepts an embedding vector that is unit length within 1e-3", () => {
+  it("accepts a face print vector that is unit length within 1e-3", () => {
     const print = { model: printer, vector: [0.6, 0.8] };
-    expect(Region.safeParse({ ...face, embedding: print }).success).toBe(true);
+    expect(Region.safeParse({ ...face, facePrint: print }).success).toBe(true);
   });
 });

@@ -31,7 +31,7 @@ const UNIT_LENGTH_TOLERANCE = 1e-3;
  * comes from a different network than the box, and prints from two networks
  * are not comparable.
  */
-export const Embedding = z
+export const FacePrint = z
   .strictObject({
     model: ModelId,
     vector: z.array(z.number().finite()).min(1),
@@ -63,7 +63,7 @@ export const Region = z
     score: z.number().min(0).max(1),
     model: ModelId,
     landmarks: Landmarks.optional(),
-    embedding: Embedding.optional(),
+    facePrint: FacePrint.optional(),
   })
   .refine((r) => r.id.startsWith(`${r.kind}-`), {
     error: "id must be prefixed with its kind",
@@ -73,15 +73,15 @@ export const Region = z
     error: "a face region must carry landmarks",
     path: ["landmarks"],
   })
-  .refine((r) => r.embedding === undefined || r.kind === "face", {
-    error: "only a face region carries an embedding in schema 1",
-    path: ["embedding"],
+  .refine((r) => r.facePrint === undefined || r.kind === "face", {
+    error: "only a face region carries a face print in schema 1",
+    path: ["facePrint"],
   });
 
 export type RegionKind = z.infer<typeof RegionKind>;
 export type ModelId = z.infer<typeof ModelId>;
 export type Landmarks = z.infer<typeof Landmarks>;
-export type Embedding = z.infer<typeof Embedding>;
+export type FacePrint = z.infer<typeof FacePrint>;
 export type Region = z.infer<typeof Region>;
 
 /** The schema number this build writes. An unknown number means re-annotate. */

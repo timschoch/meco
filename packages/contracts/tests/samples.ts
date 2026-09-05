@@ -37,7 +37,7 @@ export const annotation: Annotation = {
         rMouth: point(0.46, 0.29),
         lMouth: point(0.5, 0.29),
       },
-      embedding: { model: printer, vector: unitVector(1) },
+      facePrint: { model: printer, vector: unitVector(1) },
     },
     {
       id: "vehicle-1",
@@ -104,11 +104,11 @@ export const invalidAnnotations: { name: string; value: unknown }[] = [
     value: { ...annotation, regions: [face, { ...face, score: 0.5 }] },
   },
   {
-    name: "an embedding vector that is not unit length",
+    name: "a face print vector that is not unit length",
     value: {
       ...annotation,
       regions: [
-        { ...face, embedding: { model: printer, vector: [0.6, 0.8, 0.1] } },
+        { ...face, facePrint: { model: printer, vector: [0.6, 0.8, 0.1] } },
       ],
     },
   },

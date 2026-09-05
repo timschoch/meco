@@ -5,7 +5,7 @@ export { Box, Point, Size } from "./lib/geometry";
 export {
   ANNOTATION_SCHEMA,
   Annotation,
-  Embedding,
+  FacePrint,
   Landmarks,
   ModelId,
   Region,
