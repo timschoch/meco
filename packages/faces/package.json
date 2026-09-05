@@ -17,6 +17,7 @@
     "test:embed": "tsx scripts/embed-test.ts",
     "dump:aligned": "tsx scripts/align-dump.ts",
     "dump:prints": "tsx scripts/print-dump.ts",
+    "dump:detected": "tsx scripts/detect-dump.ts",
     "dump:karts": "tsx scripts/kart-dump.ts",
     "dump:objects": "tsx scripts/objects-dump.ts"
   },

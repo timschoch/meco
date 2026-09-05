@@ -81,7 +81,7 @@ function check(ok: boolean, name: string, detail = ""): void {
 // ------------------------------------------- the size these numbers are for
 
 /**
- * Every kart fixture is the bytes production would send, at the size it sends.
+ * Every fixture is the bytes production would send, at the size it sends.
  *
  * `src/faces.ts` bounds a Source Image to `LONG_EDGE` before the models ever see
  * it, and `withoutEnlargement` means that bound only ever shrinks. So a fixture
@@ -109,30 +109,59 @@ function check(ok: boolean, name: string, detail = ""): void {
  *   caller sending that photograph can produce.
  */
 {
-  const KARTS = fileURLToPath(new URL("../fixtures/karts/", import.meta.url));
-  const { sources } = JSON.parse(await readFile(`${KARTS}expected.json`, "utf8")) as {
-    sources: Record<string, { width: number; height: number }>;
-  };
+  /**
+   * One file may opt out, and only by saying which job it has instead.
+   *
+   * `full-size` is the untouched Commons original, kept so a test can bound it
+   * *itself* — `detect-test.ts` runs `artemis-2-crew-full.jpg` at 2048, 1600,
+   * 1280 and 640 px and asserts the same faces come back. Shrinking that file to
+   * the bound would delete the thing it exists for, so it is asserted the other
+   * way round: it must still be the original, and `boundedSource` must still
+   * have work to do on it.
+   */
+  interface FixtureSource {
+    width: number;
+    height: number;
+    role?: "full-size";
+  }
 
-  for (const [file, natural] of Object.entries(sources)) {
-    const bytes = await readFile(`${KARTS}${file}`);
-    // `boundedSource` reports the size *after* EXIF orientation, which is the
-    // frame every fraction downstream is in. Reading `sharp` metadata here
-    // instead would compare a rotated fixture against the wrong edge.
-    const bounded = await boundedSource(bytes);
-    const longEdge = Math.max(bounded.sourceWidth, bounded.sourceHeight);
-    const wanted = Math.min(LONG_EDGE, Math.max(natural.width, natural.height));
+  for (const dir of ["faces", "karts"]) {
+    const at = fileURLToPath(new URL(`../fixtures/${dir}/`, import.meta.url));
+    const { sources } = JSON.parse(await readFile(`${at}expected.json`, "utf8")) as {
+      sources: Record<string, FixtureSource>;
+    };
 
-    check(
-      bounded.bytes.equals(bytes),
-      `${file} is what production sends, byte for byte`,
-      `${String(bytes.length)} B in, ${String(bounded.bytes.length)} B out`,
-    );
-    check(
-      longEdge === wanted,
-      `${file} is committed at the production bound`,
-      `${String(longEdge)} px, and the bound on a ${String(natural.width)}x${String(natural.height)} original is ${String(wanted)} px`,
-    );
+    for (const [file, natural] of Object.entries(sources)) {
+      const bytes = await readFile(`${at}${file}`);
+      // `boundedSource` reports the size *after* EXIF orientation, which is the
+      // frame every fraction downstream is in. Reading `sharp` metadata here
+      // instead would compare a rotated fixture against the wrong edge.
+      const bounded = await boundedSource(bytes);
+      const longEdge = Math.max(bounded.sourceWidth, bounded.sourceHeight);
+      const naturalEdge = Math.max(natural.width, natural.height);
+
+      if (natural.role === "full-size") {
+        check(
+          longEdge === naturalEdge && !bounded.bytes.equals(bytes),
+          `${dir}/${file} is the untouched original, for the test to bound itself`,
+          `${String(longEdge)} px against a ${String(naturalEdge)} px original, ` +
+            `and boundedSource takes it to ${String(bounded.bytes.length)} B`,
+        );
+        continue;
+      }
+
+      const wanted = Math.min(LONG_EDGE, naturalEdge);
+      check(
+        bounded.bytes.equals(bytes),
+        `${dir}/${file} is what production sends, byte for byte`,
+        `${String(bytes.length)} B in, ${String(bounded.bytes.length)} B out`,
+      );
+      check(
+        longEdge === wanted,
+        `${dir}/${file} is committed at the production bound`,
+        `${String(longEdge)} px, and the bound on a ${String(natural.width)}x${String(natural.height)} original is ${String(wanted)} px`,
+      );
+    }
   }
 }
 

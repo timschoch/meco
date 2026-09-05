@@ -566,10 +566,11 @@ throwing.
   `fixtures/faces/edgeface-reference.json`. Measured: cosine 1.000000 on all
   nine fixture faces, against a floor of 0.99.
 - **The meaning.** The same person in three photographs — two portraits four
-  years apart and a launch-pad group shot — scores **0.8689**, **0.8182** and
-  **0.7304**; the worst of the thirty-three different-people pairs scores
-  **0.2855**. Those are a sanity floor and not an operating point; the operating
-  point is the next section.
+  years apart and a launch-pad group shot — scores **0.8681**, **0.8228** and
+  **0.7263**; the worst of the thirty-three different-people pairs scores
+  **0.2979**. Measured at the 1600 px bound `src/faces.ts` applies, which since
+  issue #53 is the size the fixtures are committed at. Those are a sanity floor
+  and not an operating point; the operating point is the next section.
 - **The committed Face Prints.** `fixtures/faces/face-prints.json` is what the
   match calibration sweeps, and meco cannot recompute it — the embedder is in
   this package. So this test re-embeds every fixture face and fails on any
@@ -665,6 +666,31 @@ second embeds exactly those pixels — which is what makes the committed referen
 a statement about the input meco-faces really sends — and the third rewrites
 `fixtures/faces/face-prints.json` so the match calibration is sweeping the new
 model rather than the old one.
+
+### Change the face fixtures without changing the model
+
+The same three commands, with **`--keep-onnx`** on the middle one:
+
+```
+pnpm --filter meco-faces dump:detected         # the recorded detections
+pnpm --filter meco-faces dump:aligned
+.temp/edgeface-venv/bin/python packages/faces/scripts/export-edgeface.py --keep-onnx
+pnpm --filter meco-faces dump:prints
+```
+
+The two halves of that script run for different reasons. The **export** changes
+when the model changes; the **reference Face Prints** change whenever the aligned
+squares do, and the squares move whenever the fixture pixels move. Issue #53 was
+the second without the first — the fixtures were re-derived at `LONG_EDGE` and
+every square shifted — and re-exporting there would have rewritten a shipped
+model with whatever torch happened to be installed. `--keep-onnx` holds the
+committed export fixed and re-earns the reference against it, so the comparison
+is still ONNX against PyTorch on the same pixels. It refuses to run if the
+`.onnx` is not already there.
+
+**Check the model file did not move**: `md5 -q packages/faces/models/edgeface_xs_gamma_06.onnx`
+before and after. If it changed, you did not want `--keep-onnx`, you wanted the
+section above.
 
 **Changing the recognition model invalidates every stored Face Print.** A print
 from one network means nothing against a print from another, and a stored print

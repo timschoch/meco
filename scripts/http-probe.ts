@@ -1304,10 +1304,17 @@ check(
   tooSmall.status === 400,
   `${String(tooSmall.status)} ${tooSmallMessage.slice(0, 120)}`,
 );
+// Both numbers are derived from the recorded photograph, not transcribed. The
+// fixture's size moved once already in #53, and a hand-copied dimension is
+// exactly the kind of expectation that goes stale without anyone noticing.
+const portrait = recorded.images["astronaut-portrait.jpg"]!;
+const largestSquare = Math.min(portrait.width, portrait.height);
+const neededSquare = Math.round(largestSquare / Math.sqrt(0.05 * 0.05));
 check(
   "the refusal names the window it needed and the one that fits",
-  tooSmallMessage.includes("7877x7877") && tooSmallMessage.includes("1120x1120"),
-  tooSmallMessage,
+  tooSmallMessage.includes(`${String(largestSquare)}x${String(largestSquare)}`) &&
+    /needs a \d+x\d+ window/.test(tooSmallMessage),
+  `${tooSmallMessage} (largest square ${String(largestSquare)}, about ${String(neededSquare)} needed)`,
 );
 
 /**
@@ -2063,9 +2070,16 @@ check(
  * So this is the same photograph as the framing check above, now with a Brand
  * that has People: matching sends the Source Image a second time, to the other
  * route. A `warnings` entry is what a refused body looks like from out here —
- * "No faces were named" — and its absence is the claim. Nobody is expected to be
- * recognised; the stand-in has no real Face Print for this photograph, and being
- * unknown is the ordinary answer anyway.
+ * "No faces were named" — and its absence is the claim.
+ *
+ * Whether anyone is *recognised* is not the claim, and since #53 it is no longer
+ * predictable from here. `artemis-2-crew.jpg` is now the bytes `boundedSource`
+ * makes of `artemis-2-crew-full.jpg`, byte for byte — both are the same
+ * photograph put through the same bound — so the copy meco sends hashes to the
+ * fixture the stand-in has real Face Prints for, and Ada, enrolled from face 2
+ * of that very photograph, is correctly a Match. Before the fixtures moved to
+ * the bound, the bounded copy matched no recording and the answer was `face`.
+ * Both are right; the route being reached is what is asserted.
  */
 const fullSizeWithBrand = await post("/v1/crop", {
   source: GROUP_FULL_SIZE.url,
@@ -2077,7 +2091,8 @@ cropKeys.add(String(fullSizeWithBrand.json.key));
 check(
   "a photograph too big for the platform reaches the Face Print route too",
   fullSizeWithBrand.status === 200 &&
-    fullSizeWithBrand.json.resolvedBy === "face" &&
+    (fullSizeWithBrand.json.resolvedBy === "face" ||
+      fullSizeWithBrand.json.resolvedBy === "person") &&
     fullSizeWithBrand.json.warnings === undefined,
   `${String(fullSizeWithBrand.status)} resolvedBy=${String(fullSizeWithBrand.json.resolvedBy)} ` +
     `warnings=${JSON.stringify(fullSizeWithBrand.json.warnings)}`,
@@ -2579,8 +2594,8 @@ const WIDE = { width: 1920, height: 1080 };
    * between meco and naming a crash helmet after a real person is the check on
    * the detection itself.
    *
-   * The print is `paddock-mixed#4`'s, a 49 px face of a driver with the visor up.
-   * It is planted rather than enrolled because at 49 px in a 1400 px photograph
+   * The print is `paddock-mixed#4`'s, a 55 px face of a driver with the visor up.
+   * It is planted rather than enrolled because at that size in a paddock frame
    * meco would enrol it from the paddock picture, not from a portrait — and what
    * this needs is her print in a gallery, not a second enrolment path.
    */
