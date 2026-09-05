@@ -425,7 +425,7 @@ let largestBody = 0;
  * gallery. Nothing in the ordinary run exercises them, so they are exercised
  * here: without this, either could be deleted and every suite would stay green.
  */
-let mangleEmbed: "short-print" | "wrong-count" | null = null;
+let mangleEmbed: "short-print" | "wrong-count" | "hole-without-reason" | null = null;
 
 /**
  * A Face Print the stand-in can make up, seeded from the face it was given.
@@ -608,7 +608,10 @@ const facesService = createServer((req, res) => {
                 : mangleEmbed === "wrong-count"
                   ? prints.slice(1)
                   : prints,
-            skipped,
+            // An answer with a hole and no explanation for it — what an older
+            // meco-faces, or one that gained a new refusal it does not report,
+            // would send. meco has to count the holes, not the explanations.
+            skipped: mangleEmbed === "hole-without-reason" ? [] : skipped,
           }),
         );
         return;
@@ -2858,6 +2861,39 @@ const WIDE = { width: 1920, height: 1080 };
       `facesNotCompared=${String(mangled.json.facesNotCompared)} of ${String(faceCount)}`,
     );
   }
+
+  /**
+   * A hole nobody explained is still a hole.
+   *
+   * `skipped` is `.default([])` in the schema, so a service that answers with a
+   * `null` print and no entry beside it parses cleanly. Counting the
+   * explanations rather than the holes would report nothing wrong about a
+   * photograph meco demonstrably could not fully compare — the exact silence
+   * this ticket exists to end, arriving through the one door left open.
+   */
+  mangleEmbed = "hole-without-reason";
+  const unexplained = await post("/v1/crop", {
+    source: PADDOCK.url,
+    brand: "laica",
+    width: 1080,
+    height: 1350,
+    blurUnknownFaces: true,
+  });
+  mangleEmbed = null;
+  cropKeys.add(String(unexplained.json.key));
+  check(
+    "a hole the face service did not explain is still counted",
+    unexplained.json.facesNotCompared === 1 && matchesOf(unexplained.json).length === 1,
+    `facesNotCompared=${String(unexplained.json.facesNotCompared)} ` +
+      `matches=${String(matchesOf(unexplained.json).length)}`,
+  );
+  check(
+    "and the warning says so without inventing a reason it was not given",
+    ((unexplained.json.warnings ?? []) as string[]).some(
+      (w) => w.includes("could not be compared") && !w.includes("112px"),
+    ),
+    JSON.stringify(unexplained.json.warnings),
+  );
 
   // Enrolling has nothing to fall back on, so there a hole is a refusal — and it
   // has to say why, or the caller cannot fix their photograph.

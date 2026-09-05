@@ -21,6 +21,7 @@ import sharp from "sharp";
 import {
   ALIGNED_SIZE,
   ARCFACE_DST,
+  UnalignableFace,
   alignFace,
   applyMatrix,
   asPoints,
@@ -29,7 +30,7 @@ import {
 } from "../src/align.js";
 import { createFacesApp } from "../src/app.js";
 import { detectFaces } from "../src/detect.js";
-import { PRINT_LENGTH, embedFaces } from "../src/embed.js";
+import { PRINT_LENGTH, decodeUpright, embedFaces } from "../src/embed.js";
 import { LANDMARK_NAMES, type Landmarks, type Point } from "../src/yunet.js";
 import { NOT_A_FACE_PRINTS } from "../../../src/not-a-face-prints.js";
 import { FIXTURES, atLongEdge, cosineSimilarity, readFixtureFaces } from "./fixture-faces.js";
@@ -625,6 +626,56 @@ if (atFullSize.faces.length === 4) {
       allRefused.skipped.length === 2,
     "a request where no face can be aligned answers with holes, not a failure",
     `${String(allRefused.skipped.length)} skipped of 2`,
+  );
+
+  /**
+   * Which failures are about one face, and which are about the service.
+   *
+   * `embedFaces` decides that by type — `instanceof UnalignableFace` becomes a
+   * hole, everything else still takes the request down. This is the taxonomy
+   * that decision rests on, and it is worth pinning because the two answers are
+   * opposite: a hole tells a caller to retake a photograph, and a thrown request
+   * tells them the service is broken.
+   *
+   * The honest limit, written down rather than implied: no committed fixture can
+   * make `alignFace` throw a *non*-`UnalignableFace` from inside that loop, so
+   * what is proven here is the classification, not the propagation. The
+   * propagation fails safe either way — an unclassified throw escapes and the
+   * request fails, which is the direction to be wrong in.
+   */
+  check(
+    (() => {
+      try {
+        similarityTransform([], []);
+        return false;
+      } catch (err) {
+        return err instanceof Error && !(err instanceof UnalignableFace);
+      }
+    })(),
+    "a fit with no point pairs is a bad argument, not an unreadable face",
+    "so it is never turned into a hole",
+  );
+  check(
+    await (async () => {
+      const upright = await decodeUpright(bytes);
+      // Every landmark on one point: nothing to fit a transform to, which is a
+      // fact about this face and must be classified as one.
+      const collapsed = { x: 10, y: 10 };
+      try {
+        await alignFace(upright, {
+          rEye: collapsed,
+          lEye: collapsed,
+          nose: collapsed,
+          rMouth: collapsed,
+          lMouth: collapsed,
+        });
+        return false;
+      } catch (err) {
+        return err instanceof UnalignableFace;
+      }
+    })(),
+    "a face whose landmarks collapse to one point is an unreadable face",
+    "so it becomes a hole rather than a failed request",
   );
 
   const none = await embedFaces(bytes, []);
