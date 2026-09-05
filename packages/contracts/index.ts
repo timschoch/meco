@@ -17,6 +17,7 @@ export {
   DEFAULT_ANCHOR,
   DEFAULT_PIN_TO,
   FramingRequest,
+  MAX_OCCLUSION_ZONES,
   PinTo,
   Redaction,
   Target,

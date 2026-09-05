@@ -48,7 +48,7 @@ export const Redaction = z.strictObject({
  * Template emits two or three, so the cap refuses abuse at the edge where
  * refusals belong and never honest work. Decided on #82.
  */
-const MAX_OCCLUSION_ZONES = 16;
+export const MAX_OCCLUSION_ZONES = 16;
 
 /**
  * Everything true of one output and of nothing else. Never cached and never a
