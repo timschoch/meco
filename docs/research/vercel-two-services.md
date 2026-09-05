@@ -1,7 +1,10 @@
 # Two containers, one Vercel project: current first-choice approach
 
 Researched 2026-09-06 against vercel.com/docs and vercel.com/changelog (primary
-sources only).
+sources only), then corrected the same day against live deployments where the
+builder disagreed with the docs. `DEPLOY.md` is the operational source of
+truth and this document does not contradict it; where a doc quotation here and
+a measurement disagree, the measurement stands.
 
 ## Summary
 
@@ -9,13 +12,18 @@ Vercel's current first-choice mechanism for "two tightly coupled containers,
 one project" is the **`services`** model in `vercel.json` (GA as of the
 2026-06-30 changelog entry, superseding the older `experimentalServices` key).
 Each service gets a `root`, an optional `runtime: "container"`, and an
-`entrypoint` naming its Dockerfile/Containerfile path **relative to that
-service's `root`** — a materially different (and better) rule than the one the
-meco prototype hit. Both of DEPLOY.md's build-context gotchas are now
-addressed by the model itself: `entrypoint` is documented today as a **path**,
-not a bare filename that must match `Dockerfile`/`Containerfile` by basename,
-and the build context is explicitly the service's own `root`, not the
-repository root. Public exposure is via top-level `rewrites` targeting
+`entrypoint` naming its Dockerfile/Containerfile path relative to that
+service's `root`.
+
+**The docs say both of DEPLOY.md's build-context gotchas are gone. They are
+not.** Measured 2026-09-06 against live deployments: the `entrypoint` basename
+is still validated against a fixed list, and the build context is still the
+entrypoint's own directory rather than the service's `root`. Section 2 carries
+the deployment ids and the verbatim errors, and the recommendation at the end
+is written to what deploys, not to what is documented. Read those two before
+trusting the doc quotations in between.
+
+Public exposure is via top-level `rewrites` targeting
 `{"service": "name"}`; private service-to-service calls go through
 **bindings**, which inject a deployment-aware URL env var into the caller at
 runtime only (not at build time, not in Routing Middleware). Region pinning
@@ -35,15 +43,15 @@ configuration object ([Service configuration
 reference](https://vercel.com/docs/services/config-reference), last updated
 2026-06-30):
 
-| Field | Type | Notes |
-|---|---|---|
-| `root` | `string`, **required** | "The path to the service root, relative to `vercel.json`." |
-| `framework` | `string` | Framework slug, e.g. `"nextjs"`, `"fastapi"`. Auto-detected if omitted. |
-| `runtime` | `string` | Runtime for the service; auto-detected if omitted. Set to `"container"` to force a Docker/OCI build. |
-| `entrypoint` | `string` | "The framework or runtime entrypoint, such as `main:app` for a Python ASGI app or a file path for Node.js." |
-| `installCommand`, `buildCommand`, `devCommand`, `ignoreCommand`, `outputDirectory` | `string` | Same semantics as the top-level `vercel.json` fields, scoped to this service. |
-| `bindings` | `array` | Caller-side declarations of other services to reach privately. |
-| `functions`, `headers`, `redirects`, `rewrites`, `routes`, `cleanUrls`, `trailingSlash` | — | Same shape as top-level `vercel.json`, but scoped to run only after a request has already been routed into this service. |
+| Field                                                                                   | Type                   | Notes                                                                                                                    |
+| --------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `root`                                                                                  | `string`, **required** | "The path to the service root, relative to `vercel.json`."                                                               |
+| `framework`                                                                             | `string`               | Framework slug, e.g. `"nextjs"`, `"fastapi"`. Auto-detected if omitted.                                                  |
+| `runtime`                                                                               | `string`               | Runtime for the service; auto-detected if omitted. Set to `"container"` to force a Docker/OCI build.                     |
+| `entrypoint`                                                                            | `string`               | "The framework or runtime entrypoint, such as `main:app` for a Python ASGI app or a file path for Node.js."              |
+| `installCommand`, `buildCommand`, `devCommand`, `ignoreCommand`, `outputDirectory`      | `string`               | Same semantics as the top-level `vercel.json` fields, scoped to this service.                                            |
+| `bindings`                                                                              | `array`                | Caller-side declarations of other services to reach privately.                                                           |
+| `functions`, `headers`, `redirects`, `rewrites`, `routes`, `cleanUrls`, `trailingSlash` | —                      | Same shape as top-level `vercel.json`, but scoped to run only after a request has already been routed into this service. |
 
 Source: [Service configuration reference](https://vercel.com/docs/services/config-reference).
 
@@ -63,6 +71,7 @@ Images](https://vercel.com/docs/functions/container-images) (last updated
     }
   }
   ```
+
   (["Using custom container images with services"](https://vercel.com/docs/services#using-custom-container-images-with-services))
 
 - The canonical two-service container example, verbatim from [Container
@@ -111,13 +120,14 @@ Images](https://vercel.com/docs/functions/container-images) (last updated
 ## 2. Build context rules — DEPLOY.md's two gotchas, re-checked
 
 DEPLOY.md (`/Users/tim/repo/meco/DEPLOY.md`, lines 139–166) records two
-failed deployments building the `meco-faces` container under the *previous*
+failed deployments building the `meco-faces` container under the _previous_
 container/rewrite mechanism (not the `services` key — meco's `vercel.json`
 predates GA `services` and instead declares an `entrypoint`-bearing block
 directly plus a rewrite, matching the pre-`services` container model):
 
 > **The `entrypoint` basename must be a Dockerfile or a Containerfile.** A
 > descriptive name is refused before anything is built:
+>
 > ```
 > Error: Container service "meco-faces" has invalid "entrypoint" "Dockerfile.faces".
 > It must name a Dockerfile or Containerfile.
@@ -126,18 +136,24 @@ directly plus a rewrite, matching the pre-`services` container model):
 > **The build context is the entrypoint's own directory, and `root` is
 > ignored.** Moving the file to `packages/faces/Dockerfile.vercel` gets past
 > the first check and then cannot see the workspace lockfile:
+>
 > ```
 > Error: building at STEP "COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./":
 > checking on sources under "/vercel/path0/packages/faces":
 > copier: stat: "/pnpm-lock.yaml": no such file or directory
 > buildah build … -f /vercel/path0/packages/faces/Dockerfile.vercel /vercel/path0/packages/faces
 > ```
+>
 > So the file has to sit at the repository root, and its basename has to be
 > one of the two Vercel accepts.
 
 ### Do these gotchas still hold today?
 
-**No — both are described differently, and more favorably, in current docs.**
+**Yes. Both do. Measured 2026-09-06 on the meco project — see the block at the
+end of this section.** What follows first is what the docs say, because the
+gap between the two is the finding.
+
+**The docs describe both differently, and more favorably.**
 The current `services` model's `entrypoint` field is documented as a general
 path ("The framework or runtime entrypoint, such as `main:app` for a Python
 ASGI app or a file path for Node.js" — [Service configuration
@@ -174,7 +190,7 @@ service's own root**, which is the opposite of both DEPLOY.md failures:
    nested `entrypoint` path, or the lockfile copied/vendored into the service
    directory before build. Current docs do not show a "root at monorepo root,
    entrypoint nested two directories down" example, so meco's exact failure
-   mode 2 (needing the *repo* root as context while the Dockerfile lives
+   mode 2 (needing the _repo_ root as context while the Dockerfile lives
    nested) is not directly contradicted or confirmed for that specific
    combination — flagged as unverified below.
 
@@ -189,12 +205,59 @@ config for containers at all — under that mechanism "root": "." for a
 container was always a no-op because there was no per-container root concept,
 only a single project-root auto-detected file. That reading is consistent
 with DEPLOY.md's own text ("A root-level `Containerfile` is what is left") —
-meco's `meco-faces` service was very likely declared through the *legacy*
+meco's `meco-faces` service was very likely declared through the _legacy_
 container-service mechanism, not through GA `services`, since meco's
 `vercel.json` predates the `services` GA changelog date. **This is my
 interpretation connecting DEPLOY.md's account to the versioned docs, not a
 literal Vercel statement that "this bug used to exist and was fixed" — flagged
 as inference, not a sourced claim.**
+
+### Measured 2026-09-06 — both gotchas still hold
+
+Everything above this heading is what the documentation says. The builder does
+something else. Two preview deployments on Vercel project
+`timschochs-projects/meco`, GA `services` with `runtime: "container"`, settle
+it. **Where this section and the reading of the docs above disagree, this
+section wins**, and `DEPLOY.md` is written to it.
+
+**Gotcha 1 holds: the `entrypoint` basename comes from a fixed list.** It is
+validated before anything is built. Deployment
+`dpl_2r67PFbajSyQAeqw9LKbu2eM26mK`, with
+`"entrypoint": "Containerfile.gateway"`:
+
+```
+Error: Container service "gateway" has invalid "entrypoint" "Containerfile.gateway".
+It must name a Dockerfile or Containerfile.
+```
+
+So the "custom filename" reading of the `Dockerfile.vercel` worked example is
+wrong: `Dockerfile.vercel` is itself on the accepted list, not an example of
+arbitrary naming.
+
+**Gotcha 2 holds: the build context is the entrypoint's own directory, not the
+service's `root`.** Deployment `dpl_7q2U1yZ228j4crCeoB6UyvdUcSjL`, with
+`"root": "."` and `"entrypoint": "packages/gateway/Containerfile"`:
+
+```
+Error: building at STEP "COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./":
+checking on sources under "/vercel/path0/packages/gateway":
+copier: stat: "/pnpm-lock.yaml": no such file or directory
+```
+
+The buildah invocation, from the same log, shows the context argument
+explicitly — it is the entrypoint's directory, and `root` did not set it:
+
+```
+buildah build --platform linux/amd64 --layers --network host \
+  -t vcr.vercel.com/timschochs-projects/meco/gateway:4e9e063177af \
+  -f /vercel/path0/packages/gateway/Containerfile /vercel/path0/packages/gateway
+```
+
+This is the combination the original research flagged as unverified and worth
+testing against a live deployment. It is now tested, and it fails.
+
+`root` is not a no-op: it is what `entrypoint` resolves against. It just does
+not reach the build context.
 
 ## 3. Bindings, env scoping, regions, warmth/scale-to-zero
 
@@ -208,12 +271,19 @@ Declared on the **caller**, per [Service bindings](https://vercel.com/docs/servi
     "orders": {
       "root": "services/orders/",
       "bindings": [
-        { "type": "service", "service": "inventory", "format": "url", "env": "INVENTORY_URL" }
+        {
+          "type": "service",
+          "service": "inventory",
+          "format": "url",
+          "env": "INVENTORY_URL"
+        }
       ]
     },
     "inventory": { "root": "services/inventory/", "entrypoint": "main:app" }
   },
-  "rewrites": [{ "source": "/api/(.*)", "destination": { "service": "orders" } }]
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "orders" } }
+  ]
 }
 ```
 
@@ -254,7 +324,7 @@ scopes a variable to a **deployment Environment** (Production / Preview /
 Development / a custom environment) at the **project** level — there is no
 mention of scoping a variable to one `services` entry. The `services`
 config-reference page lists no `env` field on the service object (only
-`bindings`, which are a distinct mechanism — an *injected*, generated URL, not
+`bindings`, which are a distinct mechanism — an _injected_, generated URL, not
 a user-set variable). **This is a gap, not a confirmed absence**: I found no
 page stating "env vars cannot be scoped per service," only that no documented
 mechanism sets one. Every service in a project draws from the same
@@ -328,33 +398,36 @@ independently observed (`/health` reporting `"warm": false` per-instance,
 cold starts costing ~200–2500ms depending on which model session an instance
 has not yet created).
 
-## Recommendation for meco
+## Recommendation for meco — what shipped
 
-Given `gateway` and `models` are two containers in one repo, one Vercel
-project, model them as two `services` entries, each `runtime: "container"`,
-each with its own directory holding a `Dockerfile.vercel` at that directory's
-root — mirroring the container-images doc's canonical two-service example
-rather than DEPLOY.md's forced repo-root-`Containerfile` workaround (that
-workaround was for the legacy, pre-`services` mechanism; GA `services` does
-not have that basename/root restriction per section 2 above).
+This section was rewritten on 2026-09-06 to match what deploys. The original
+recommendation was a per-package `Dockerfile.vercel` with `root` set to that
+package, read off the container-images doc's canonical example. It does not
+build: section 2's measurement shows the context follows the entrypoint, not
+`root`, and a pnpm workspace cannot install from one package directory.
+
+`gateway` and `models` are two `services` entries, each `runtime: "container"`,
+each with a Containerfile **at the repository root**, named from Vercel's
+accepted list.
 
 ### Directory layout
 
 ```
 meco/
 ├── vercel.json
-├── packages/
-│   ├── gateway/
-│   │   ├── Dockerfile.vercel
-│   │   ├── package.json
-│   │   └── src/…
-│   └── models/
-│       ├── Dockerfile.vercel
-│       ├── package.json
-│       └── src/…
+├── Containerfile           # builds gateway
+├── Dockerfile.vercel       # builds models
 ├── package.json            # workspace root
-└── pnpm-workspace.yaml
+├── pnpm-lock.yaml
+├── pnpm-workspace.yaml
+└── packages/
+    ├── gateway/
+    └── models/
 ```
+
+The two names carry no meaning and cannot be made to — the basename is
+validated against a fixed list, so a descriptive name is refused. Each file's
+first line names the service it builds, and `vercel.json` is the map.
 
 ### `vercel.json`
 
@@ -362,71 +435,86 @@ meco/
 {
   "services": {
     "gateway": {
+      "root": ".",
       "runtime": "container",
-      "root": "packages/gateway",
-      "entrypoint": "Dockerfile.vercel",
+      "entrypoint": "Containerfile",
       "bindings": [
         {
           "type": "service",
           "service": "models",
           "format": "url",
-          "env": "MODELS_INTERNAL_URL"
+          "env": "MODELS_URL"
         }
       ]
     },
     "models": {
+      "root": ".",
       "runtime": "container",
-      "root": "packages/models",
       "entrypoint": "Dockerfile.vercel"
     }
   },
-  "rewrites": [
-    { "source": "/(.*)", "destination": { "service": "gateway" } }
-  ]
+  "rewrites": [{ "source": "/(.*)", "destination": { "service": "gateway" } }]
 }
 ```
 
 Notes on this shape:
 
+- **Two services sharing `root: "."` is accepted.** Verified on deployment
+  `BDmBEqXDeytYSkE6ucXwxXwKBWjW`, 2026-09-06: both images built and both
+  services ran. Distinct roots are not required.
 - `models` gets **no top-level rewrite**, so it is private per section 1 —
-  only reachable from `gateway` via the `MODELS_INTERNAL_URL` binding, which
-  matches the module table's intent ("`gateway` — one endpoint: auth, quota,
-  pricing, routing").
-- Each `Dockerfile.vercel` needs its own `COPY` steps that work relative to
-  its own service `root` as build context. If `models`' or `gateway`'s image
-  build needs workspace-root files (`pnpm-lock.yaml`, `pnpm-workspace.yaml`),
-  they must be `COPY`-able from inside that service's directory context —
-  either vendor/symlink those files into `packages/gateway/` and
-  `packages/models/` at commit time, or (per section 2's caveat) test whether
-  setting `root: "."` with `entrypoint: "packages/gateway/Dockerfile.vercel"`
-  gives the whole repo as context; this exact combination is not shown in
-  current docs and should be verified directly against a live deployment
-  before relying on it, per this repo's own verification rule.
-- Env vars (`FACES_URL`/`MODELS_INTERNAL_URL`-equivalent, `MECO_TOKEN`, Blob
-  tokens) still go through project-level Environment scoping
-  (Production/Preview/Development) — no per-service env scoping is
-  documented, so both services see the same superset of project env vars for
-  a given Environment; use distinct variable names per service where they'd
-  otherwise collide.
-- Call `models` from `gateway` with `fetch(new URL(path,
-  process.env.MODELS_INTERNAL_URL))`, from a route handler/function only —
-  never from Routing Middleware, and never expect the binding to resolve
-  during the build step.
+  only reachable from `gateway` over the `MODELS_URL` binding, which matches
+  the module table's intent ("`gateway` — one endpoint: auth, quota, pricing,
+  routing"). Confirmed by request: on the same deployment, `/health` answers
+  from `gateway` and every other path, `/models/health` included, gets
+  `gateway`'s 404.
+- Each Containerfile `COPY`s from the repository root, which is its context:
+  `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` and `packages/`. No
+  vendoring, no symlinks, no build arg — the workspace files are simply in the
+  context. `.dockerignore` at the root keeps `node_modules`, `dist`,
+  `fixtures` and `docs` out of it.
+- The runtime stage copies a bundled entry point and nothing else. pnpm's
+  workspace symlinks do not survive a `COPY`, so the image carries no
+  `node_modules`.
+- The end-to-end proof, deployment `BDmBEqXDeytYSkE6ucXwxXwKBWjW`:
+
+  ```
+  $ curl -s https://meco-d3ee5vv0c-timschochs-projects.vercel.app/health
+  {"ok":true,"service":"gateway","version":"5ea23b38b1c0937198dd7f646cf917a62a6f1a01","models":{"bound":true,"reachable":true,"status":200}}
+  ```
+
+  Both containers built, `gateway` is publicly routed, the binding injected
+  `MODELS_URL`, and `models` answered its own `/health` with a 200 over it.
+
+- Env vars (`MECO_TOKEN`, the Blob tokens) still go through project-level
+  Environment scoping (Production/Preview/Development) — no per-service env
+  scoping is documented, so both services see the same superset of project env
+  vars for a given Environment; use distinct variable names per service where
+  they would otherwise collide.
+- Call `models` from `gateway` with
+  `fetch(new URL(path, process.env.MODELS_URL))`, from a route handler or
+  function only — never from Routing Middleware, and never expect the binding
+  to resolve during the build step.
+
+## Settled by measurement, not by a source
+
+1. **DEPLOY.md's two failures are not historical.** Both reproduce on GA
+   `services` with `runtime: "container"` — see "Measured 2026-09-06" in
+   section 2 for the deployment ids and the verbatim errors. No changelog
+   entry names either as a fixed defect because neither was fixed. The
+   earlier reading of this document — that meco had merely been on a
+   superseded legacy mechanism — was wrong.
+2. **A container service cannot set `root` to the monorepo root and point
+   `entrypoint` at a nested Dockerfile to get repo-root build context.** It is
+   accepted and then builds with the nested directory as context. Same
+   measurement.
 
 ## What could not be verified against a primary source
 
-1. Whether DEPLOY.md's exact two failures (`entrypoint` basename validation;
-   `root` ignored for container build context) map onto a *documented*
-   before/after fix in the GA `services` model, versus meco simply having
-   used a now-superseded, undocumented legacy container mechanism. No
-   changelog entry naming either specific defect was found.
-2. Whether a container service can set `root` to the monorepo root while
-   pointing `entrypoint` at a nested Dockerfile path, to get repo-root build
-   context with a nested file — not demonstrated in any fetched doc.
-3. Whether env vars can be scoped per-service at all (as opposed to only per
+1. Whether env vars can be scoped per-service at all (as opposed to only per
    project-Environment). No field for this exists in the service
    configuration reference, but no page states it is impossible either.
-4. Whether `regions`/`functions.<path>.regions` is confirmed to work when
+2. Whether `regions`/`functions.<path>.regions` is confirmed to work when
    combined with `runtime: "container"` inside a `services` entry — inferred
    from the general Functions region mechanism, not shown in a container +
    services worked example.
