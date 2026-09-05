@@ -6,8 +6,8 @@
  * exists for is a karting photograph — `docs/research/kart-and-driver-subjects.md`
  * measures YuNet putting a box on the leading driver's head in 9 of 32 on-track
  * photographs, because a helmet is not a face. A COCO-pretrained detector finds
- * the kart on 21 of 32 and the driver on 20, and the two miss different
- * photographs.
+ * the kart on 29 of those 32 and the driver on 31, with no fine-tuning, no
+ * dataset and no labelling pass.
  *
  * Deliberately *not* a `/kart` endpoint. This service returns what it saw, in
  * the vocabulary the model was trained in; deciding that a `motorbike` and the
@@ -76,13 +76,25 @@ const MODEL_PATH = fileURLToPath(new URL(`../models/${OBJECT_MODEL.file}`, impor
 const INPUT_SIDE = 640;
 
 /**
- * How confident the network has to be. Q11 measured the set at this threshold.
+ * How confident the network has to be. The research measured the set here.
  *
- * Low by the standards of a detector meant to be right, and deliberately: a
- * kart is small, low, half-occluded by its own driver and nothing like the
- * motorbikes COCO was labelled with, so the scores it earns are 0.28-0.48 rather
- * than the 0.9 a photograph of a dog gets. Every number in the research was
- * measured here, so moving it invalidates them.
+ * It looks like a threshold left over from the weaker weights and it is not.
+ * With the corrected checkpoint a good detection scores **0.66-0.90** rather
+ * than the 0.28-0.55 the first measurements saw, which is an argument for
+ * raising this — and raising it is measured to be wrong. Run the committed
+ * fixtures through `kartSubjectBox` at a series of floors and the Subject Box
+ * moves at **0.30**, on the one photograph that matters most:
+ *
+ *   0.28  every fixture frames where it was measured to
+ *   0.30  `on-track-dark-visor.jpg` moves — its only two karts score 0.284
+ *         and 0.280, and losing them drops it onto a driver instead
+ *   0.35  `paddock-mixed.jpg` moves too, losing the second box on its kart
+ *
+ * A kart is small, low, half-occluded by its own driver and nothing like the
+ * motorbikes COCO was labelled with, so the *weak* end of the distribution is
+ * where the hard photographs live — and `on-track-dark-visor.jpg`, the one YuNet
+ * returns zero faces on, is down there. The confident scores rose; the floor
+ * still has to be a floor. `scripts/crop-solver-test.ts` holds this.
  */
 const SCORE_THRESHOLD = 0.28;
 
