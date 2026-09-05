@@ -24,7 +24,14 @@ import sharp from "sharp";
 import { z } from "zod";
 
 import { BRANDS } from "./brands.js";
-import { detectFaces, embedFaces, sentScale, type DetectedFace, type FaceBox } from "./faces.js";
+import {
+  detectFaces,
+  embedFaces,
+  sentScale,
+  type DetectedFace,
+  type EmbeddedFaces,
+  type FaceBox,
+} from "./faces.js";
 import { NOT_A_FACE_PRINTS } from "./not-a-face-prints.js";
 import { PRIVATE_PREFIX, type Storage } from "./storage.js";
 
@@ -515,6 +522,20 @@ export interface FaceMatches {
   matches: (Match | null)[];
   /** Empty unless something a caller should hear about went wrong. */
   warnings: string[];
+  /**
+   * How many faces were never compared against the Brand's People at all —
+   * because meco-faces could not embed them, or because the call failed.
+   *
+   * Zero is the ordinary answer. It is a count rather than only a warning
+   * because "nobody in this photograph is enrolled" and "meco could not look at
+   * one of these faces" are different answers that otherwise arrive identically,
+   * and a caller cannot be asked to tell them apart by reading prose.
+   *
+   * Not the same as an unknown face. An unknown face was compared and matched
+   * nobody, which is the common and correct answer; an uncompared face was never
+   * asked about. Both are hidden by Face Blur, and neither is ever a Match.
+   */
+  notCompared: number;
 }
 
 /**
@@ -544,7 +565,7 @@ export interface FaceMatches {
  */
 export async function matchFaces(input: MatchInput, storage: Storage): Promise<FaceMatches> {
   const brand = requireBrand(input.brand);
-  if (input.faces.length === 0) return { matches: [], warnings: [] };
+  if (input.faces.length === 0) return { matches: [], warnings: [], notCompared: 0 };
 
   const stored = await facePrintsFor(brand, storage);
 
@@ -592,21 +613,50 @@ export async function matchFaces(input: MatchInput, storage: Storage): Promise<F
     }
   }
 
-  const none = { matches: input.faces.map(() => null), warnings: galleryWarnings };
+  const none = {
+    matches: input.faces.map(() => null),
+    warnings: galleryWarnings,
+    notCompared: 0,
+  };
   if (enrolled.length === 0) return none;
 
-  let prints: number[][];
+  let embedded: EmbeddedFaces;
   try {
-    prints = await embedFaces(
+    embedded = await embedFaces(
       input.source,
       input.faces.map((face) => ({ landmarks: face.landmarks })),
     );
   } catch (err) {
+    // The whole call failed — the service is down, or the photograph is not one.
+    // Every face is uncompared, which is what `notCompared` has to say: a Crop
+    // that names nobody because nothing was asked is not the same answer as one
+    // that names nobody because nobody is enrolled.
     return {
       ...none,
       warnings: [...galleryWarnings, `No faces were named: ${(err as Error).message}`],
+      notCompared: input.faces.length,
     };
   }
+
+  /**
+   * Faces meco-faces could not turn into a Face Print.
+   *
+   * One warning naming the reason, however many faces share it. The reason is
+   * the same sentence for every face the warp refuses, and one line per face
+   * would push the Crop's own warnings out of sight in a group photograph.
+   *
+   * Before issue #39 this could not happen: a single unalignable face rejected
+   * the whole request, so this branch was the `catch` above and every face in
+   * the photograph was lost with it.
+   */
+  const skippedWarnings =
+    embedded.skipped.length === 0
+      ? []
+      : [
+          `${String(embedded.skipped.length)} of ${String(input.faces.length)} faces could ` +
+            `not be compared against this Brand's People: ${embedded.skipped[0]!.reason} ` +
+            "They are unknown rather than unmatched, so Face Blur still hides them.",
+        ];
 
   // Every face is embedded, and only then asked whether it may carry a name.
   // The print is what the question is about, so it has to exist before it can be
@@ -614,12 +664,14 @@ export async function matchFaces(input: MatchInput, storage: Storage): Promise<F
   // `unknownFaces` in `./face-blur.js` reads this by position and a shortened
   // list would blur the wrong faces.
   return {
-    matches: prints.map((print, i) =>
+    matches: embedded.prints.map((print, i) =>
+      print !== null &&
       whyNotIdentifiable(input.faces[i]!, print, input.width, input.height) === null
         ? matchFacePrint(print, enrolled, input.persons)
         : null,
     ),
-    warnings: galleryWarnings,
+    warnings: [...galleryWarnings, ...skippedWarnings],
+    notCompared: embedded.skipped.length,
   };
 }
 
@@ -770,8 +822,19 @@ export async function enrolReferencePhoto(
     );
   }
 
-  const [print] = await embedFaces(input.source, [{ landmarks: face.landmarks }]);
-  if (!print) throw new Error("meco-faces returned no Face Print for that face.");
+  const embedded = await embedFaces(input.source, [{ landmarks: face.landmarks }]);
+  const print = embedded.prints[0];
+  if (!print) {
+    // A hole is an answer at match time and a refusal here: enrolling is the one
+    // path with nothing to fall back to, and a Person recorded without a Face
+    // Print is a Person meco can never recognise. The reason comes from
+    // meco-faces, because only it knows why its warp refused the landmarks.
+    throw new Error(
+      "meco could not read a Face Print from that face" +
+        (embedded.skipped[0] ? `: ${embedded.skipped[0].reason}` : ".") +
+        " Use a photograph where the face is larger and turned towards the camera.",
+    );
+  }
 
   /**
    * A detection the detector was confident about but that holds no identity.

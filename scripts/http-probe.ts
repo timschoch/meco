@@ -503,7 +503,20 @@ const kartRecorded = JSON.parse(await readFile(kartFixtures("detected.json"), "u
 };
 const kartPrints = JSON.parse(await readFile(kartFixtures("face-prints.json"), "utf8")) as {
   prints: { file: string; index: number; is: string; print: number[] }[];
+  /** Faces the real `/embed` refuses. Replayed below, not invented. */
+  skipped: { file: string; index: number; label: string; reason: string }[];
 };
+
+/**
+ * Which faces the stand-in must refuse to embed, by photograph hash.
+ *
+ * `/embed` cannot cut a 112 px square from every set of landmarks, and issue #39
+ * is entirely about what meco does when it cannot. The stand-in has no warp and
+ * so cannot discover that for itself — it replays the refusal recorded by
+ * `pnpm --filter meco-faces dump:karts`, reason and all, so the case under test
+ * is the one the deployed service actually produces.
+ */
+const unembeddable = new Map<string, Map<number, string>>();
 
 /** One kart photograph, canned into the stand-in with its real Face Prints. */
 async function kartPhoto(name: string): Promise<{ url: string; hash: string }> {
@@ -516,6 +529,10 @@ async function kartPhoto(name: string): Promise<{ url: string; hash: string }> {
   const prints: number[][] = [];
   for (const p of kartPrints.prints.filter((p) => p.file === name)) prints[p.index] = p.print;
   realPrints.set(hash, prints);
+
+  const refused = new Map<number, string>();
+  for (const s of kartPrints.skipped.filter((s) => s.file === name)) refused.set(s.index, s.reason);
+  if (refused.size > 0) unembeddable.set(hash, refused);
 
   return { url: `data:image/jpeg;base64,${bytes.toString("base64")}`, hash };
 }
@@ -557,15 +574,22 @@ const facesService = createServer((req, res) => {
         const hash = sha(body);
         const known = realPrints.get(hash);
         const detection = canned.get(hash);
+        const refused = unembeddable.get(hash);
+        // The shape the real route answers with since #39: a hole where a face
+        // could not be embedded, its index and reason beside it, and never a
+        // shortened list. `skipped` travels even when empty, as it does there.
+        const skipped: { index: number; reason: string }[] = [];
+        const prints = faces.map((f, position) => {
+          const index = faceIndexOf(detection, f.landmarks);
+          const reason = refused?.get(index);
+          if (reason !== undefined) {
+            skipped.push({ index: position, reason });
+            return null;
+          }
+          return known?.[index] ?? cannedPrint(f.landmarks);
+        });
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            prints: faces.map((f) => {
-              const index = faceIndexOf(detection, f.landmarks);
-              return known?.[index] ?? cannedPrint(f.landmarks);
-            }),
-          }),
-        );
+        res.end(JSON.stringify({ prints, skipped }));
         return;
       }
       detectCalls.push(sha(body));
@@ -2568,6 +2592,165 @@ const WIDE = { width: 1920, height: 1080 };
   );
 
   await del(`/v1/people/${driver.id}?brand=laica`);
+}
+
+// ------------------------------- one face that cannot be embedded, and eight that can
+
+/**
+ * Issue #39: a face meco-faces cannot read must not take the photograph with it.
+ *
+ * `paddock-mixed.jpg` has nine detections and `#1` has no Face Print at all —
+ * the ArcFace warp cannot cut a 112 px square from its landmarks, so `/embed`
+ * refuses that one face. Before this change it refused the *request*, so meco
+ * named nobody in the photograph: the Crop returned 200, `matches` was empty,
+ * and with `blurUnknownFaces` every one of the nine was blurred. Safe, and
+ * wrong, and indistinguishable from "none of these people are enrolled".
+ *
+ * The reason and the index are replayed from `fixtures/karts/face-prints.json`,
+ * written by the real warp — see `unembeddable` above.
+ */
+{
+  const PADDOCK = await kartPhoto("paddock-mixed.jpg");
+  const detection = kartRecorded.images["paddock-mixed.jpg"]!;
+  const faceCount = detection.faces.length;
+
+  /**
+   * A Person enrolled from a *different* photograph of `paddock-mixed#4`.
+   *
+   * Planted, because at 49 px in a 1400 px frame meco would enrol her from this
+   * very picture and a Person recognised from the photograph she was enrolled
+   * in proves nothing. What matters is that she is found in a photograph that
+   * also contains a face meco cannot read.
+   */
+  const her = kartPrints.prints.find((p) => p.file === "paddock-mixed.jpg" && p.index === 4)!;
+  const person = (await post("/v1/people", { brand: "laica", name: "Paddock Driver" }))
+    .json as PersonJson;
+  const photoId = "paddockdriver0000000000000000000".slice(0, 32);
+  await storage.putAt(
+    `${personPrefix("laica", person.id)}/person.json`,
+    Buffer.from(
+      JSON.stringify({
+        ...person,
+        brand: "laica",
+        photos: [
+          {
+            photoId,
+            face: { x: 0.5, y: 0.42, width: 0.035, height: 0.06 },
+            format: "jpg",
+            enrolledAt: "2026-09-01T00:00:00.000Z",
+            consentAt: "2026-09-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    ),
+    "application/json",
+  );
+  await storage.putAt(
+    `${personPrefix("laica", person.id)}/${photoId}.print.json`,
+    Buffer.from(
+      JSON.stringify({
+        personId: person.id,
+        photoId,
+        print: her.print,
+        printedAt: "2026-09-01T00:00:00.000Z",
+      }),
+    ),
+    "application/json",
+  );
+
+  const cropped = await post("/v1/crop", {
+    source: PADDOCK.url,
+    brand: "laica",
+    width: 1080,
+    height: 1350,
+    blurUnknownFaces: true,
+  });
+  cropKeys.add(String(cropped.json.key));
+  const found = matchesOf(cropped.json);
+
+  check(
+    "one unreadable face does not stop the other eight being compared",
+    cropped.status === 200 && found.length === 1 && found[0]?.personId === person.id,
+    `${String(cropped.status)} ${found.map((m) => `${m.name} ${m.score.toFixed(4)}`).join(", ") || "nobody"}`,
+  );
+  check(
+    "the face meco could not read is counted, so the caller can tell it happened",
+    cropped.json.facesNotCompared === 1,
+    `facesNotCompared=${String(cropped.json.facesNotCompared)} of ${String(faceCount)} faces`,
+  );
+  check(
+    "and the warning names the reason rather than only the fact",
+    ((cropped.json.warnings ?? []) as string[]).some(
+      (w) => w.includes("could not be compared") && w.includes("112px template"),
+    ),
+    JSON.stringify(cropped.json.warnings),
+  );
+  check(
+    "the unreadable face is still blurred — it can never be a Match, so it is never shown",
+    typeof cropped.json.blurred === "number" && cropped.json.blurred > 0,
+    `blurred=${String(cropped.json.blurred)}`,
+  );
+
+  /**
+   * The distinction the count exists for.
+   *
+   * The same photograph against a Brand that has enrolled nobody: also no
+   * Matches, and `facesNotCompared` is **absent**, because matching never ran at
+   * all. Without the count these two answers are the same empty `matches`, which
+   * is the whole complaint in #39.
+   */
+  // Stated rather than assumed: this Brand having nobody enrolled is the whole
+  // premise, and a Brand that quietly acquired a Person would turn the check
+  // below into one that passes while testing nothing.
+  check(
+    "the Brand used for the comparison below really has enrolled nobody",
+    (await facePrintsFor("swisshutless", storage)).length === 0,
+    "swisshutless",
+  );
+  const noPeople = await post("/v1/crop", {
+    source: PADDOCK.url,
+    brand: "swisshutless",
+    width: 1080,
+    height: 1350,
+    blurUnknownFaces: true,
+  });
+  cropKeys.add(String(noPeople.json.key));
+  check(
+    "a Brand with nobody enrolled reports no count, so the two answers differ",
+    matchesOf(noPeople.json).length === 0 && noPeople.json.facesNotCompared === undefined,
+    `matches=${JSON.stringify(noPeople.json.matches)} ` +
+      `facesNotCompared=${String(noPeople.json.facesNotCompared)}`,
+  );
+
+  // `find subjects` carries the same count, and it is the route where "of the
+  // whole photograph" is the only thing the number could mean — there is no crop
+  // window here at all.
+  const subjects = await post("/v1/subjects", { source: PADDOCK.url, brand: "laica" });
+  check(
+    "find subjects reports it too, and still names her",
+    subjects.status === 200 &&
+      subjects.json.facesNotCompared === 1 &&
+      matchesOf(subjects.json).length === 1,
+    `facesNotCompared=${String(subjects.json.facesNotCompared)} ` +
+      `matches=${String(matchesOf(subjects.json).length)}`,
+  );
+
+  // Enrolling has nothing to fall back on, so there a hole is a refusal — and it
+  // has to say why, or the caller cannot fix their photograph.
+  const enrolHole = await post(`/v1/people/${person.id}/photos`, {
+    brand: "laica",
+    source: PADDOCK.url,
+    faceIndex: 1,
+    consent: true,
+  });
+  check(
+    "enrolling the face that cannot be read is refused, with the reason",
+    enrolHole.status === 400 &&
+      String((enrolHole.json as EnrolJson).results[0]?.error ?? "").includes("112px template"),
+    String((enrolHole.json as EnrolJson).results[0]?.error ?? "").slice(0, 130),
+  );
+
+  await del(`/v1/people/${person.id}?brand=laica`);
 }
 
 // ------------------------------------------------- a body that is not JSON

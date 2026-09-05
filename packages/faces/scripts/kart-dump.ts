@@ -84,8 +84,15 @@ const recordFace = (f: Face) => ({
 const expected = await readKartExpected();
 const detections: Record<string, unknown> = {};
 const prints: KartPrint[] = [];
-/** Detections a human classified but the aligner could not cut a square from. */
-const unalignable: string[] = [];
+/**
+ * Detections a human classified but the aligner cannot cut a square from.
+ *
+ * Recorded as data and not only as a sentence in the file's `$comment`, because
+ * `scripts/http-probe.ts` has to reproduce this exact behaviour in its stand-in
+ * for meco-faces: which face `/embed` refuses, and what it says about it. A
+ * stand-in that guessed would test a service meco does not have.
+ */
+const unalignable: { file: string; index: number; label: string; reason: string }[] = [];
 
 for (const image of expected.images) {
   const bytes = await readFile(`${KARTS}${image.file}`);
@@ -106,15 +113,20 @@ for (const image of expected.images) {
 
   for (const [index, face] of found.faces.entries()) {
     const marked = image.faces[index]!;
-    let print: number[];
-    try {
-      [print] = (await embedFaces(bytes, [{ landmarks: face.landmarks }])) as [number[]];
-    } catch (err) {
-      // A face the ArcFace warp cannot cut a 112 px square from has no Face
-      // Print at all, so there is nothing to commit and nothing to calibrate on.
-      // Recorded rather than swallowed: it is a real detection meco can never
-      // name, and a reader of this file should not have to count to notice.
-      unalignable.push(`${image.file}#${String(index)} — ${(err as Error).message}`);
+    // A face the ArcFace warp cannot cut a 112 px square from has no Face Print
+    // at all, so there is nothing to commit and nothing to calibrate on. Since
+    // issue #39 that arrives as a `null` beside a reason rather than as a thrown
+    // request. Recorded rather than swallowed: it is a real detection meco can
+    // never name, and a reader of this file should not have to count to notice.
+    const embedded = await embedFaces(bytes, [{ landmarks: face.landmarks }]);
+    const print = embedded.prints[0];
+    if (!print) {
+      unalignable.push({
+        file: image.file,
+        index,
+        label: marked.label,
+        reason: embedded.skipped[0]?.reason ?? "The face could not be aligned.",
+      });
       continue;
     }
     prints.push({
@@ -168,15 +180,12 @@ await writeFile(
         "meco's scripts/match-calibration.ts measures the Not-a-Face threshold",
         "over these, which is why they are committed: the calibration needs no",
         "model and no network. Kept current by `pnpm test:embed`.",
-        ...(unalignable.length > 0
-          ? [
-              "Detections with no print here, because the ArcFace warp could not cut",
-              "a 112 px square from them:",
-              ...unalignable.map((u) => `  ${u}`),
-            ]
-          : []),
+        "skipped names the detections with no print here, because the ArcFace",
+        "warp cannot cut a 112 px square from them. They are real faces meco can",
+        "never name; scripts/http-probe.ts replays them to reproduce issue #39.",
       ],
       prints,
+      skipped: unalignable,
     },
     null,
     2,
@@ -248,6 +257,8 @@ ${body}
 
 console.log(`wrote detected.json      (${String(Object.keys(detections).length)} photographs)`);
 console.log(`wrote face-prints.json   (${String(prints.length)} prints)`);
-for (const u of unalignable) console.log(`  no print: ${u}`);
+for (const u of unalignable) {
+  console.log(`  no print: ${u.file}#${String(u.index)} — ${u.reason}`);
+}
 console.log(`wrote src/not-a-face-prints.ts (${String(references.length)} reference)`);
 for (const r of references) console.log(`  ${r.file}#${String(r.index)} — ${r.label}`);

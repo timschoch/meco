@@ -9,9 +9,9 @@
     "meco's scripts/match-calibration.ts measures the Not-a-Face threshold",
     "over these, which is why they are committed: the calibration needs no",
     "model and no network. Kept current by `pnpm test:embed`.",
-    "Detections with no print here, because the ArcFace warp could not cut",
-    "a 112 px square from them:",
-    "  paddock-mixed.jpg#1 — The warped face came back 117x89, smaller than the 112px template."
+    "skipped names the detections with no print here, because the ArcFace",
+    "warp cannot cut a 112 px square from them. They are real faces meco can",
+    "never name; scripts/http-probe.ts replays them to reproduce issue #39."
   ],
   "prints": [
     {
@@ -6291,6 +6291,14 @@
         -0.011541856568824638,
         -0.006307303552252637
       ]
+    }
+  ],
+  "skipped": [
+    {
+      "file": "paddock-mixed.jpg",
+      "index": 1,
+      "label": "man in sunglasses",
+      "reason": "The warped face came back 117x89, smaller than the 112px template."
     }
   ]
 }

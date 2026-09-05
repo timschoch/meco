@@ -130,33 +130,88 @@ function l2Normalise(values: Float32Array): number[] {
   return Array.from(values, (v) => v / norm);
 }
 
+/** One face the warp could not cut a square from, and what went wrong. */
+export interface SkippedFace {
+  /** Its position in the list the caller sent. */
+  index: number;
+  reason: string;
+}
+
+export interface EmbedResult {
+  /**
+   * One entry per face given, in the order they were given. `null` where the
+   * face could not be embedded — never a shorter list, because the caller reads
+   * this by position.
+   */
+  prints: (number[] | null)[];
+  /** Empty in the ordinary case. One entry per `null` above, with the reason. */
+  skipped: SkippedFace[];
+}
+
 /**
  * Embed every face given, in the order they were given.
  *
  * One inference for the batch rather than one per face: the alignment is the
  * expensive half on a small model, and a group photo of eight people should not
  * pay eight session round trips for it.
+ *
+ * **A face that cannot be aligned is a hole, not a failure of the request.** The
+ * ArcFace warp refuses landmarks it cannot cut a 112 px square from, and before
+ * issue #39 that refusal rejected the whole call — so one such face in a nine-face
+ * photograph meant meco named nobody in it, including the eight faces that were
+ * fine. Worse, it degraded with crowd size, which is exactly where recognising
+ * people matters most.
+ *
+ * So the alignment is done per face and its failure is recorded rather than
+ * thrown. The network still sees one batch, of the faces that survived; if none
+ * did it is not loaded at all, because a batch of nothing has no answer to give.
  */
-export async function embedFaces(image: Buffer, faces: FaceToEmbed[]): Promise<number[][]> {
-  if (faces.length === 0) return [];
+export async function embedFaces(image: Buffer, faces: FaceToEmbed[]): Promise<EmbedResult> {
+  if (faces.length === 0) return { prints: [], skipped: [] };
 
   const upright = await decodeUpright(image);
-  const squares = await Promise.all(
-    faces.map((face) =>
-      alignFace(upright, inPixels(face.landmarks, upright.width, upright.height)),
-    ),
+  const aligned = await Promise.all(
+    faces.map(async (face) => {
+      try {
+        return {
+          square: await alignFace(upright, inPixels(face.landmarks, upright.width, upright.height)),
+        };
+      } catch (err) {
+        // Only the warp's own refusal. A model that will not load, or a buffer
+        // that is not an image, is not a fact about one face and must still take
+        // the request down — swallowing those would report a photograph full of
+        // holes when the truth is that the service is broken.
+        if (err instanceof EmbedModelLoadError) throw err;
+        return { reason: (err as Error).message };
+      }
+    }),
   );
 
+  const usable = aligned.flatMap((a, index) => (a.square ? [{ index, square: a.square }] : []));
+  const skipped = aligned.flatMap((a, index) =>
+    a.square ? [] : [{ index, reason: a.reason ?? "The face could not be aligned." }],
+  );
+  const prints: (number[] | null)[] = faces.map(() => null);
+  if (usable.length === 0) return { prints, skipped };
+
   const model = await loadEmbedModel();
-  const results = await model.run({ [model.inputNames[0]!]: toTensor(squares) });
+  const results = await model.run({
+    [model.inputNames[0]!]: toTensor(usable.map((u) => u.square)),
+  });
   const output = results[model.outputNames[0]!];
   if (!output) throw new EmbedModelLoadError(`${EMBED_MODEL.file} returned no output tensor.`);
 
   const values = output.data as Float32Array;
-  if (values.length !== faces.length * PRINT_LENGTH) {
+  if (values.length !== usable.length * PRINT_LENGTH) {
     throw new Error(
-      `Expected ${String(faces.length * PRINT_LENGTH)} floats back, got ${String(values.length)}.`,
+      `Expected ${String(usable.length * PRINT_LENGTH)} floats back, got ${String(values.length)}.`,
     );
   }
-  return faces.map((_, n) => l2Normalise(values.subarray(n * PRINT_LENGTH, (n + 1) * PRINT_LENGTH)));
+  // Scattered back to the caller's positions, not pushed in the batch's order:
+  // the batch is only the faces that aligned, and `prints[i]` has to belong to
+  // `faces[i]` however many holes are in between.
+  usable.forEach((u, n) => {
+    prints[u.index] = l2Normalise(values.subarray(n * PRINT_LENGTH, (n + 1) * PRINT_LENGTH));
+  });
+  return { prints, skipped };
 }

@@ -170,6 +170,12 @@ export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
    * The response keeps the caller's order, so `prints[i]` belongs to
    * `faces[i]`. No identity is returned or looked up — matching a Face Print to
    * a Person happens in meco, against a gallery this service cannot see.
+   *
+   * A face the ArcFace warp cannot cut a square from comes back as `null` in
+   * that list, with its index and the reason in `skipped`. It is a hole and not
+   * an error: before issue #39 it rejected the whole request, so one such face
+   * made a nine-face photograph name nobody. The list is never shortened —
+   * `prints[i]` belongs to `faces[i]` however many holes are in between.
    */
   routes.post("/embed", async (c) => {
     const body = await c.req.arrayBuffer();
@@ -186,10 +192,16 @@ export function createFacesApp(token = process.env.MECO_TOKEN): Hono {
 
     try {
       const started = performance.now();
-      const prints = await embedFaces(Buffer.from(body), faces);
+      const { prints, skipped } = await embedFaces(Buffer.from(body), faces);
       const ms = performance.now() - started;
-      console.log(`embed ${String(prints.length)} faces ${ms.toFixed(0)}ms`);
-      return c.json({ prints });
+      console.log(
+        `embed ${String(prints.length)} faces ${ms.toFixed(0)}ms` +
+          (skipped.length > 0 ? ` (${String(skipped.length)} not aligned)` : ""),
+      );
+      // `skipped` always travels, empty or not. A caller that reads it can tell
+      // "nothing went wrong" from "this build does not report it", which an
+      // absent field cannot say.
+      return c.json({ prints, skipped });
     } catch (err) {
       if (err instanceof EmbedModelLoadError) {
         console.error(err.message);

@@ -205,7 +205,9 @@ export function createMecoMcpHandler(storage: Storage) {
           "choose the region yourself, or a strategy to let the image decide — " +
           "'attention' keeps the most salient area. Give a subjectArea to say " +
           "where in the result the Subject has to land. Set blurUnknownFaces to " +
-          "hide every face that is not a recognised Person.",
+          "hide every face that is not a recognised Person. With a brand the " +
+          "answer carries facesNotCompared when meco could not look at a face " +
+          "at all — which is not the same as recognising nobody.",
         inputSchema: z.object({
           source: z.string().url().describe("URL of the Source Image."),
           width: z.number().int().positive(),
@@ -214,7 +216,9 @@ export function createMecoMcpHandler(storage: Storage) {
             .optional()
             .describe(
               "Recognise this Brand's People in the picture. Without it meco " +
-                "names nobody, and every face counts as unknown.",
+                "names nobody, and every face counts as unknown. If a face " +
+                "cannot be read at all the answer says so in facesNotCompared; " +
+                "such a face is never recognised and is still blurred.",
             ),
           pinTo: z
             .enum(PIN_TO)
@@ -271,7 +275,8 @@ export function createMecoMcpHandler(storage: Storage) {
           "Find the Subjects in a Source Image without cropping it: every face, " +
           "as a rectangle in fractions 0..1 from the top-left. Name a brand and " +
           "the answer also says which faces are People that Brand has enrolled, " +
-          "by region id. Use it to see what a Crop would be framed on before " +
+          "by region id, and facesNotCompared if any face could not be read. " +
+          "Use it to see what a Crop would be framed on before " +
           "choosing a size. The rectangles are cached under the image's own " +
           "hash, so asking twice costs one detection.",
         inputSchema: z.object({

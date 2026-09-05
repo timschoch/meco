@@ -619,7 +619,11 @@ function cropForm() {
         + (res.subjectAreaSatisfied === undefined ? ""
           : res.subjectAreaSatisfied ? " · Subject Area satisfied" : " · Subject Area missed")
         + (res.blurred === undefined ? ""
-          : " · " + res.blurred + (res.blurred === 1 ? " face blurred" : " faces blurred"));
+          : " · " + res.blurred + (res.blurred === 1 ? " face blurred" : " faces blurred"))
+        // A face meco could not read is not a face it recognised nobody in, and
+        // the card is where an operator would otherwise never learn the
+        // difference — "4 faces, 1 not compared" is the whole point of #39.
+        + (res.facesNotCompared ? " · " + res.facesNotCompared + " not compared" : "");
       show([el("div", { className: "cards" }, card(res.url, res.width + "×" + res.height + " · " + how))]);
     } catch (err) { fail(err); } finally { go.disabled = false; }
   };
