@@ -30,11 +30,11 @@ One package, `@meco/contracts`, whose only runtime dependency is zod. It exports
 
 ### The three shared types
 
-| Type | Holds | Keyed by | Lifetime |
-|---|---|---|---|
-| Annotation | `schema, hash, mime, width, height, producedBy, regions` | Content Hash | forever, shared by every Brand |
-| FramingRequest | `brand, source: { hash }, target, pinTo, persons?, anchor?, subjectArea?, occlusion, redaction` | nothing | one call, kept in the call record |
-| Match | `regionId, personId, brand, similarity` | nothing | one call, one Brand |
+| Type           | Holds                                                                                           | Keyed by     | Lifetime                          |
+| -------------- | ----------------------------------------------------------------------------------------------- | ------------ | --------------------------------- |
+| Annotation     | `schema, hash, mime, width, height, producedBy, regions`                                        | Content Hash | forever, shared by every Brand    |
+| FramingRequest | `brand, source: { hash }, target, pinTo, persons?, anchor?, subjectArea?, occlusion, redaction` | nothing      | one call, kept in the call record |
+| Match          | `regionId, personId, brand, similarity`                                                         | nothing      | one call, one Brand               |
 
 Boundary rule: if two outputs cut from the same bytes could disagree about it, it is FramingRequest; otherwise Annotation.
 
@@ -56,7 +56,7 @@ Boundary rule: if two outputs cut from the same bytes could disagree about it, i
 - `score`: `[0, 1]`.
 - `model`: `{ name, version }`, both non-empty.
 - `landmarks?`: `{ rEye, lEye, nose, rMouth, lMouth }`, each a Point in fractions. Required when `kind` is `face`.
-- `embedding?`: `{ model: { name, version }, vector: number[] }`. Only on `face` Regions in v1. Unit length within 1e-3.
+- `facePrint?`: `{ model: { name, version }, vector: number[] }`. Only on `face` Regions in v1. Unit length within 1e-3. Named for the Face Print in `CONTEXT.md`, whose avoid-list rules out _embedding_.
 
 ### FramingRequest fields
 
@@ -102,10 +102,10 @@ Two root files, per [`packages/README.md`](../../packages/README.md): `packages/
 ```ts
 // packages/contracts/index.ts
 export const Point, Box, Size;                      // zod; Point/Box fractions, Size pixels
-export const RegionKind, ModelId, Landmarks, Embedding, Region, Annotation;
+export const RegionKind, ModelId, Landmarks, FacePrint, Region, Annotation;
 export const PinTo, CropAnchor, Redaction, Target, FramingRequest;
 export const Match;
-export type Point, Box, Size, RegionKind, ModelId, Landmarks, Embedding, Region,
+export type Point, Box, Size, RegionKind, ModelId, Landmarks, FacePrint, Region,
   Annotation, PinTo, CropAnchor, Redaction, Target, FramingRequest, Match;
 export const ANNOTATION_SCHEMA: 1;
 export const DEFAULT_PIN_TO: PinTo[];               // ["match", "face", "kart"]
@@ -119,25 +119,26 @@ export function isComplete(annotation: Annotation, required: ModelId[]): boolean
 export interface Check { name: string; run(): Promise<void> }
 export interface AdapterFixtures { image: DecodedImage; blank: DecodedImage }
 export function adapterConformance(adapter: ModelAdapter, fixtures: AdapterFixtures): Check[];
-export function schemaConformance<T>(schema: ZodType<T>, samples: { valid: T[]; invalid: unknown[] }): Check[];
+export interface Sample<T> { name: string; value: T }
+export function schemaConformance<T>(schema: ZodType<T>, samples: { valid: Sample<T>[]; invalid: Sample<unknown>[] }): Check[];
 ```
 
 ### Conformance Checks
 
 `adapterConformance`, each with the mutation that must turn it red:
 
-| Check | Fails when |
-|---|---|
-| every region parses as `AdapterRegion` | a box with `w`, a fraction above 1, a negative score |
-| every region's `model` equals the adapter's declared `model` | an adapter stamping a different version |
-| every region's `kind` is in the declared `kinds` | an adapter emitting `vehicle` while declaring `[face]` |
-| `licence` is non-empty text | an empty string |
-| same image twice gives the same regions after rounding box, landmarks and score to 1e-4, and prints with cosine at least 0.9999 | an adapter that shuffles output or adds noise |
-| the blank image gives an empty array and no throw | an adapter that throws on nothing found |
-| a face region has landmarks | a face without `landmarks` |
-| an embedding, when present, is unit length within 1e-3 | an un-normalised vector |
+| Check                                                                                                                           | Fails when                                             |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| every region parses as `AdapterRegion`                                                                                          | a box with `w`, a fraction above 1, a negative score   |
+| every region's `model` equals the adapter's declared `model`                                                                    | an adapter stamping a different version                |
+| every region's `kind` is in the declared `kinds`                                                                                | an adapter emitting `vehicle` while declaring `[face]` |
+| `licence` is non-empty text                                                                                                     | an empty string                                        |
+| same image twice gives the same regions after rounding box, landmarks and score to 1e-4, and prints with cosine at least 0.9999 | an adapter that shuffles output or adds noise          |
+| the blank image gives an empty array and no throw                                                                               | an adapter that throws on nothing found                |
+| a face region has landmarks                                                                                                     | a face without `landmarks`                             |
+| a face print, when present, is unit length within 1e-3                                                                          | an un-normalised vector                                |
 
-`schemaConformance`: `schema.parse(JSON.parse(JSON.stringify(x)))` deep-equals `x` for every valid sample; every invalid sample is refused.
+`schemaConformance`: `schema.parse(JSON.parse(JSON.stringify(x)))` deep-equals `x` for every valid sample; every invalid sample is refused. Every sample carries its own name, so a red run says which rule broke rather than which array index.
 
 Consumption: a package's Vitest file does `for (const c of checks) it(c.name, c.run)`. No registry; the root `pnpm test` runs every package.
 
@@ -145,12 +146,12 @@ Consumption: a package's Vitest file does `for (const c of checks) it(c.name, c.
 
 Vocabulary borrowed, field names not. No projection function until a consumer exists.
 
-| contracts | IPTC Image Region |
-|---|---|
-| `kind: face`, `kind: person` | `rCtype: human` |
-| `kind: vehicle` | `rCtype: vehicle` |
-| every machine Region | `rRole: subjectArea` |
-| `box` | `rbShape: rectangle`, `rbUnit: relative`, `rbX rbY rbW rbH` |
+| contracts                    | IPTC Image Region                                           |
+| ---------------------------- | ----------------------------------------------------------- |
+| `kind: face`, `kind: person` | `rCtype: human`                                             |
+| `kind: vehicle`              | `rCtype: vehicle`                                           |
+| every machine Region         | `rRole: subjectArea`                                        |
+| `box`                        | `rbShape: rectangle`, `rbUnit: relative`, `rbX rbY rbW rbH` |
 
 ## Testing decisions
 
