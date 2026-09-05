@@ -2418,7 +2418,11 @@ const WIDE = { width: 1920, height: 1080 };
    */
   check(
     "the refusal names what meco sees there rather than only saying no",
-    refusal.includes("helmet") && refusal.includes("recognise anyone by"),
+    // The Not-a-Face Print's own `what`, not the word "helmet": the message
+    // says "crash helmet" on its own account, so matching that would pass with
+    // the interpolation deleted — a check that had gone vacuous once the prose
+    // grew, which is the failure mode this whole ticket is about.
+    refusal.includes("back of the helmet") && refusal.includes("on-track-rear-helmet.jpg#0"),
     refusal,
   );
   check(
@@ -2428,7 +2432,7 @@ const WIDE = { width: 1920, height: 1080 };
   );
   check(
     "and it says which photograph would work instead",
-    refusal.includes("helmet off") && refusal.includes("towards the camera"),
+    refusal.includes("helmet off") && refusal.includes("Reference Photo"),
     refusal,
   );
   check(

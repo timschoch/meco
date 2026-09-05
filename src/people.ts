@@ -354,29 +354,23 @@ export const MATCH_MARGIN = 0.05;
  *   committed is the 0.6935 above, and the two agree within the noise a JPEG
  *   re-encode puts on a print.
  *
- * So the room either side is **0.0935 above and 0.0399 below**, and the two are
- * not the same. Said as movement, which is the only way it is not read backwards:
+ * So 0.60 can **rise by 0.0935** before it stops refusing the nearest non-face,
+ * and **fall by only 0.0399** before it starts refusing the closest real face.
+ * **The binding constraint is real faces, not helmets** — the tight side is the
+ * one where the mistake is a face going unnamed. Do not read the two as a band
+ * with the threshold in the middle: an earlier version of this comment did, off
+ * a number that was never about this reference, and that reading invites
+ * tightening in the direction that starts refusing real people. ADR-0003's
+ * amendment has the full account.
  *
- * - 0.60 can **rise by 0.0935** before it stops refusing the nearest non-face.
- * - 0.60 can **fall by only 0.0399** before it starts refusing the closest real
- *   face — `paddock-mixed`'s visor-up driver at 49 px.
- *
- * **The binding constraint is real faces, not helmets.** An earlier version of
- * this comment bounded the top at 0.639, the smallest of 36 helmet-to-helmet
- * pairs, and called the band symmetric. That was the wrong quantity — the rule
- * scores against one reference, not between other helmets, and 0.639 belongs to
- * a pair this reference is not part of. Reading it that way makes the helmet
- * side look like the risk and invites tightening in the direction that starts
- * refusing real people. See ADR-0003's amendment.
- *
- * Both numbers are still tighter than `MATCH_THRESHOLD`'s 0.2145 and 0.2304, and
- * the tightness is real rather than hidden: below about 57 px a small face and a
+ * Both numbers are tighter than `MATCH_THRESHOLD`'s 0.2145 and 0.2304, and the
+ * tightness is real rather than hidden: below about 57 px a small face and a
  * helmet are genuinely hard to tell apart by print.
  *
- * **0.60 is a rounded constant, not a tuned one.** The research measured one
- * pair moving **0.019** on JPEG encoding alone — about half the clearance below
- * — so the fourth decimal of anything here is noise, and a threshold quoted to
- * four decimals would claim precision the input does not carry.
+ * **0.60 is a rounded constant, not a tuned one.** ADR-0003 measured one pair
+ * moving **0.019** across JPEG encodes of the same pixels — about half the
+ * clearance below — so the fourth decimal of anything here is noise, and a
+ * threshold quoted to four decimals would claim precision the input lacks.
  *
  * It is shipped at that margin because the two mistakes are not the same size. A
  * face wrongly called a Not-a-Face is never a Match, so it is blurred and not
@@ -894,19 +888,23 @@ export async function enrolReferencePhoto(
    * `on-track-visor-open.jpg` is a real driver with the visor up and his face
    * visible, and it scores **0.6935** against the committed Not-a-Face Print. So
    * it is refused — and it is exactly the photograph a karting brand posts every
-   * weekend. Two hundred lines up, `NOT_A_FACE_THRESHOLD` records that
-   * `paddock-mixed`'s visor-up driver at 0.5601 "must go on being recognisable";
-   * the same man a little closer to the camera is not.
+   * weekend.
    *
-   * That is not a hole in the rule, it is the rule. EdgeFace collapses helmets
-   * onto approximately one identity, so the closer a helmet fills the frame the
-   * less of a person is left to recognise. Enrolling it would put a print in the
-   * gallery that names every other helmeted stranger, which is issue #34.
+   * **The visor is not what decides it; how much of the box is helmet is.**
+   * `NOT_A_FACE_THRESHOLD` records `paddock-mixed`'s visor-up driver at 0.5601,
+   * accepted, and he must go on being recognisable. He is photographed from the
+   * front at conversational distance, so the open visor fills most of the box
+   * and the shell is mostly outside it; the on-track driver's box is shell, chin
+   * bar and visor surround with the face a small part of it. A refusal that said
+   * "a visor is no good" would be telling a brand something false.
    *
-   * It is written here because somebody will try exactly this and be told no.
-   * The message has to read as a limit rather than a malfunction, and has to say
-   * what does work — which is why it names the helmet it looks like and asks for
-   * the photograph that would succeed instead.
+   * That is not a hole in the rule, it is the rule: enrolling this would put a
+   * print in the gallery that names every other helmeted stranger, which is
+   * issue #34. ADR-0003 carries the full ledger.
+   *
+   * It is written here because somebody will try exactly this and be told no,
+   * which is why the message names what meco thinks it sees, says it is a limit,
+   * and describes the photograph that would work.
    */
   const notIdentifiable = notAFace(print);
   if (notIdentifiable) {
@@ -914,10 +912,10 @@ export async function enrolReferencePhoto(
       "meco cannot see a face here that it could recognise anyone by — what it finds " +
         `looks like the ${notIdentifiable.what} (${notIdentifiable.score.toFixed(4)} against ` +
         `${notIdentifiable.name}, refused at ${NOT_A_FACE_THRESHOLD.toFixed(2)}). This is a ` +
-        "limit rather than a fault: a crash helmet tells one person from another very " +
-        "poorly, even with the visor up, so a Face Print taken from one would match " +
-        "strangers. Enrol this Person from a photograph with the helmet off, face towards " +
-        "the camera and close enough to fill more of the frame.",
+        "limit rather than a fault: the more of the frame a crash helmet fills, the less " +
+        "of a person is left to tell one from another, and a Face Print taken from one " +
+        "would match strangers. Use a Reference Photo with the helmet off — or one taken " +
+        "close and square on, so the face fills the box rather than the shell.",
     );
   }
 
