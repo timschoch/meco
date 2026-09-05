@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./index.ts",
+    "./conformance": "./conformance.ts",
     "./template": "./template.ts",
     "./placements": "./placements.ts"
   },
