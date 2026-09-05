@@ -16,7 +16,7 @@
 
 4. **The thing that ships this week needs no new model.** Measured: `pinTo: "attention"` — the saliency producer that is already merged — frames the kart and its driver well in **25 of 32**, acceptably in **29 of 32**, and loses the driver's head in **3 of 32**. That is not close to the face producer's 9 of 32. The change is one line of policy, not one line of ML: **stop letting a face outrank saliency when the "face" is a helmet.**
 
-5. **The recommendation, when the 9% matters: a D-FINE-N kart detector feeding RTMPose-t — and [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning) found the fine-tuning is not a prerequisite.** Measured: the *pretrained* COCO model yields a usable kart-and-driver box in **21 of 32** with no dataset at all, because `motorbike` resolves a kart and `person` resolves the driver. It is worse than saliency's 25 — but the two fail on **disjoint** photographs and neither fails hard on the same one, so the answer is a ladder, not a replacement.
+5. **The recommendation, when the 9% matters: a D-FINE-N kart detector feeding RTMPose-t — and [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning) found the fine-tuning is not a prerequisite.** Measured: the *pretrained* COCO model yields a usable kart-and-driver box in **31 of 32** with no dataset at all, because `motorbike` resolves a kart and `person` resolves the driver. (Q11 first measured 21 of 32 against an export built from superseded weights; [Q12](#q12--what-licence-is-the-model-in-production-under-and-where-is-that-written-down) found the corrected checkpoint and the numbers moved with it.) That clears saliency's 25 — and the two still fail on **disjoint** photographs, so the answer remains a ladder rather than a replacement.
 
 6. **Second choice: RF-DETR-Nano, and it lost on size, not on accuracy.** The premise that killed it in Q5 — "no pre-exported ONNX" — is now false. `onnx-community/rfdetr_nano-ONNX` exists and is properly tagged `apache-2.0`. But [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning) measured the quantised D-FINE build as slower *and* less accurate than fp32, so the honest comparison is fp32 to fp32: **108.1 MB against 15.3 MB**, seven times the bytes for +5.7 COCO AP and an identical amount of TypeScript decode work. Cited. Take it only if a pilot shows 42.8 AP cannot find a kart.
 
@@ -426,6 +426,8 @@ Ships in a day. Fixes the visible problem for the brand that has it.
 
 *Added 5 Sep 2026, after the rest of this document. It asks whether the fine-tuning in [Q10](#q10--staged-plan) stage 1 is actually a prerequisite. **It is not**, and the reason is not the class anybody expected.*
 
+> **Read [Q12](#q12--what-licence-is-the-model-in-production-under-and-where-is-that-written-down) alongside this section.** Every number below was measured against `onnx-community/dfine_n_coco-ONNX`, which was exported on 2025-04-30 — before its base checkpoint was corrected by a commit titled `Fix weights` on 2025-08-20. On the fixed weights the same code, the same photographs and the same thresholds give **29 of 32 rather than 21**, and **31 of 32** once the largest-box rule this section left untested is applied. The findings below all hold in shape; the rates are the floor, not the result.
+
 Q5 and Q10 both assume a **fine-tuned** kart detector, which means a labelled dataset, which is a project rather than a week. But the thing that has to be framed is a *driver*, and `person` is a COCO class that every pretrained detector ships with. So the assumption was tested rather than carried.
 
 ### Method
@@ -542,6 +544,142 @@ The first row is the whole argument in one line. **The photograph the face detec
 
 ---
 
+## Q12 — What licence is the model in production under, and where is that written down?
+
+*Added 5 Sep 2026, as the gate on the kart producer build. [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning) recorded that the ONNX model card declares no licence. This resolves that, and in doing so found that **the artefact Q11 measured is built from superseded weights** — so the answer changes the numbers as well as the paperwork.*
+
+**The one-sentence answer: D-FINE-N is Apache-2.0, and the artefact to ship is [`AnnotateIt/dfine-nano-coco-onnx`](https://huggingface.co/AnnotateIt/dfine-nano-coco-onnx), which declares `license: apache-2.0` on the model itself and ships the Apache-2.0 text as a `LICENSE` file — unlike `onnx-community/dfine_n_coco-ONNX`, which declares nothing.**
+
+### The chain, link by link
+
+| Link | What it is | Licence | Where that is written |
+|---|---|---|---|
+| 1. Training code | `Peterande/D-FINE` | **Apache-2.0** | `LICENSE` — read directly, 169 lines, the verbatim Apache License 2.0 text, no added clause |
+| 2. Released checkpoint | `dfine_n_coco.pth` | Apache-2.0 by the repo that released it | Linked from the D-FINE README model zoo, hosted on `Peterande/storage` releases |
+| 3. HF weights | `ustc-community/dfine-nano-coco` | **Apache-2.0, declared** | `license: apache-2.0` in the card's YAML **and** as the HF tag `license:apache-2.0` |
+| 4a. ONNX as measured in Q11 | `onnx-community/dfine_n_coco-ONNX` | **none declared** | no `license` in cardData, no `license:*` tag, no `LICENSE` file |
+| 4b. ONNX recommended | `AnnotateIt/dfine-nano-coco-onnx` | **Apache-2.0, declared** | `license: apache-2.0` in cardData **and** tag, **plus** an 11,357-byte `LICENSE` file carrying the full Apache-2.0 text |
+
+**Link 3 is the one that matters, and it is clean.** The weights repo declares Apache-2.0 itself rather than inheriting it. Its commit history shows where the weights came from: `Add model from convert_d_fine_original_pytorch_checkpoint_to_hf.py` (28 Mar 2025) — a **format conversion of Peterande's released checkpoint**, not an independent retrain. So the grant does not have to travel from the code to the weights by implication; the party that published the weights stated it.
+
+That distinction matters more than it looks. See [below](#do-weights-inherit-the-code-licence).
+
+### Who published the ONNX, and why its card is blank
+
+`onnx-community` is the Transformers.js export effort — the org avatar resolves to the user id of Xenova (Joshua Lochner), and nearly every export carries `library_name: transformers.js`. It has **425 members, `isVerified: false`, and no organisation card at all** (`onnx-community/README` returns 401). There is **no organisation-level licence statement**, verified negative.
+
+The conversion tool is the [`convert-to-onnx`](https://huggingface.co/spaces/onnx-community/convert-to-onnx) Space. Its README declares `license: apache-2.0` — **that is the licence of the converter, not of anything it produces** — and says nothing about propagating a source repo's licence into the generated card. Which is exactly why `dfine_n_coco-ONNX`'s cardData is only `{library_name, base_model}`: the bot writes those two fields and stops.
+
+A further sign that the card is unmaintained rather than deliberate: its `base_model` names `ustc-community/dfine_n_coco` with underscores, which **404s**. HF's own tags resolve the correct hyphenated repo, so the machine-readable provenance is right and the human-readable link is broken.
+
+Hugging Face documents **no default licence** for a repo that declares none. Their licence docs say only that you *"are able to add a license… to let other users know about the permissions that you want to attribute"*, and their own taxonomy includes an opt-in `unknown` value that nobody selected here. The HF Terms of Service do grant each user a licence over public repo content, but scoped *"through our Services and functionalities"* — a platform grant, not a basis for redistributing weights inside a commercial product. **An untagged repo is a licence gap, not a licence grant**, and that is the whole problem with 4a.
+
+### Is COCO a problem?
+
+**No — and this is the question that was worth asking, because the repo has been burned by exactly this before.** [Q7](#q7--identity-without-a-face) records SVHN's *"for non-commercial use only"* quietly tainting digit models. COCO is not that.
+
+From COCO's terms of use:
+
+> **Annotations & Website.** The annotations in this dataset along with this website belong to the COCO Consortium and are licensed under a **Creative Commons Attribution 4.0 License**.
+>
+> **Images.** The COCO Consortium does not own the copyright of the images. Use of the images must abide by the Flickr Terms of Use.
+
+So: annotations **CC BY 4.0**, attribution only, **no non-commercial clause anywhere in COCO's terms**. The images are disclaimed rather than restricted.
+
+Contrast Objects365, which is the genuine hazard:
+
+> The Objects365 dataset is available for the **academic purpose only**. … **You will NOT distribute the above images.**
+
+That is an explicit whole-dataset commercial gate, and **D-FINE's own README says so** at line 137: *"Checkpoints trained or pretrained on Objects365 (`*_obj365`, `*_obj2coco`) may be subject to the Objects365 dataset terms and should not be assumed to be commercially cleared under the D-FINE license."*
+
+`dfine_n_coco` is COCO-only and sits outside that carve-out — and the carve-out is itself useful evidence, because a maintainer who names the checkpoints that are *not* cleared is telling you the others are. Q5's rule stands: **stay on `dfine_n_coco`, never an `_obj365` or `_obj2coco` variant.** The same rule rules out `PekingU/rtdetr_*_coco_o365`.
+
+**The one residual, stated so it is not a surprise later:** COCO's annotation JSON carries eight per-image Flickr licences and three of them are NonCommercial (`by-nc-sa/2.0`, `by-nc/2.0`, `by-nc-nd/2.0`). Whether a per-image NC licence flows through to a *trained model* — as opposed to redistributing the pixels — is unresolved by COCO's terms and by anything else found. It is diffuse, industry-wide, and applies equally to **every** COCO-pretrained detector, so it does not distinguish between any of the candidates in [Q6](#q6--second-choice-and-why-it-lost) or here. It is not a reason to choose differently; it is a reason to know.
+
+### Do weights inherit the code licence?
+
+Not automatically, and anyone who says otherwise is guessing. What was actually found:
+
+- **The Apache Software Foundation is silent.** Their licence FAQ and legal pages contain no mention of machine learning, model weights, or trained models. Verified negative.
+- **OSI treats parameters as separately licensable.** The Open Source AI Definition lists Code and Parameters as distinct required components, with *"Parameters shall be made available under OSI-approved terms"* — it never says a code licence covers them.
+- **The Linux Foundation built OpenMDW because code licences do not fit weights**, naming as an open problem *"whether the trained weights are licensable under typical understandings applicable to IP rights in software."*
+- **There are real counterexamples.** BLOOM's licence states verbatim: *"Whereas the Apache 2.0 license was applicable to resources used to develop the Model, the licensing conditions have been modified for the access and distribution of the Model."* Stable Diffusion is MIT code with OpenRAIL-M checkpoints.
+- **No court ruling or Copyright Office guidance addresses it.** That silence is the finding.
+
+**Which is why link 3 carries the weight of this answer, not link 1.** The claim is not "the code is Apache-2.0 so the weights must be". The claim is "the party that published these weights declared them Apache-2.0, in machine-readable metadata, on the repo the ONNX is a format conversion of" — and a format conversion is a derivative work that Apache-2.0 §4 expressly permits distributing, provided recipients get a copy of the licence. **`onnx-community` ships no `LICENSE` and no `NOTICE`, so it cannot discharge §4 on our behalf. `AnnotateIt` does.**
+
+### The switch is not only paperwork — the old export is built from broken weights
+
+This was found while checking dates, and it is the more consequential half of this section.
+
+`ustc-community/dfine-nano-coco`'s commit history:
+
+```
+2025-08-20  066438d3d8  Fix weights (#1)
+2025-05-05  b913c7901a  Update README.md
+2025-03-28  beb1274995  Add model from convert_d_fine_original_pytorch_checkpoint_to_hf.py
+```
+
+**`onnx-community/dfine_n_coco-ONNX` was exported 2025-04-30 — nearly four months before `Fix weights`.** `AnnotateIt/dfine-nano-coco-onnx` pins revision `066438d3d8f0da137a37b38fdf3368fd4afceced`, which is the fixed one, and publishes the source `model.safetensors` SHA-256 to prove it.
+
+So every number in Q11 was measured against a superseded checkpoint. Re-measured on the **same 32 photographs, the same decode, the same threshold and NMS**:
+
+| | onnx-community (2025-04-30) | AnnotateIt (fixed weights) |
+|---|---|---|
+| `person` present | 25 / 32 | **31 / 32** |
+| `motorbike` present | 21 / 32 | **29 / 32** |
+| **Usable kart-and-driver box** | **21 / 32** | **29 / 32** |
+| …with the largest-box rule (below) | — | **31 / 32** |
+| Photographs with nothing at all | 3 | 1 |
+| Bytes | 15,258,358 | 15,434,935 |
+| Warm inference, interleaved minimum | 28 ms | **27 ms** |
+
+The typical union-box score rises from the 0.28–0.55 band to **0.66–0.90**. The failures Q11 documented individually are simply gone: the crowd-only shots, the marshal, the spectator, the head-clipped boxes — all now frame the kart and its driver.
+
+**This clears saliency's 25 of 32**, which changes Q11's conclusion in one respect: the detector is no longer the weaker producer that survives on complementarity. It is the stronger one, and saliency covers its remaining failure. The ladder is unchanged; the ordering argument for it is now much easier.
+
+### The largest-box rule, which Q11 left untested
+
+Q11 listed "whether a largest-box rule beats a highest-score rule" as not determined. It was one line, so it was tested. Picking the **largest-area** vehicle box instead of the highest-scoring one changes the pick on 5 of 32 photographs:
+
+- **Fixes 2** — both were the failure Q11 named, where a distant kart outscored the foreground subject and the frame walked away from it.
+- **Neutral or better on 3** — one now spans both foreground karts rather than one.
+- **Regressions: none.**
+
+**29 / 32 → 31 / 32.** The only remaining failure is a single photograph where the detector produces no vehicle box at all, and saliency handles it.
+
+### On depending on `AnnotateIt`
+
+It is a small, unverified, single-member HF org. That is a real consideration and here is what was done about it rather than around it.
+
+The repo meets **this repository's own bar for an export**, the one `packages/faces/scripts/export-edgeface.py` sets — a pinned upstream revision, and a verification that the export still matches the source model:
+
+- Pinned source revision and the source `model.safetensors` SHA-256, both published in `PROVENANCE.md`.
+- The exact `optimum-cli export onnx` command, published verbatim, with opset, atol and fixed 640×640.
+- A PyTorch-versus-ONNX Runtime check in `validation-report.json`: **logits max abs diff 3.3×10⁻⁴, boxes max abs diff 2.5×10⁻⁵**, 5 detections against 5 on a named COCO reference image.
+- `SHA256SUMS` for the artefact.
+
+**The published SHA-256 was verified independently**: downloading `model.onnx` gives `b0ec2e5793f3a3cbd07440d098645a0e102cd450fb92f4f35e713f36e35d152e`, byte-for-byte the value in `validation-report.json`.
+
+The graph contract is **identical** to the one Q11's decode was written against — `pixel_values [1,3,640,640]` in, `logits [1,300,80]` and `pred_boxes [1,300,4]` out, undecoded, no NMS. Opset 18 rather than 16, and the axes are fixed rather than dynamic, which costs nothing because the input was always 640×640.
+
+Mitigations, in order:
+
+1. **Vendor the file.** Commit the `.onnx` into the image at build time, as `models/` already does for YuNet and EdgeFace. Never fetch at runtime. This is already the repo's rule and it makes the org's future irrelevant.
+2. **Record the SHA-256** in the export script alongside the pinned revision, and check it. Then a silent replacement upstream fails the build rather than shipping.
+3. **If the owner would rather not depend on a third party at all** — run the export ourselves. `PROVENANCE.md` publishes the exact command and the pinned source revision, so this is reproducible and costs one script of the shape `export-edgeface.py` already has. That is the strongest option and the only one where the paper trail is entirely ours. It is a build-tooling decision, not a licence one: the licence is Apache-2.0 either way, because it comes from link 3.
+
+### What to record
+
+This does **not** need an ADR of the shape [ADR-0003](../adr/0003-face-recognition-licence-consent-and-threshold.md) has, because there is no risk being accepted. EdgeFace needed one because CC BY-NC-SA is a licence meco is knowingly non-compliant with. Here the licence is permissive, stated by the publisher of the weights, and satisfied by shipping the `LICENSE` file — which is an obligation to discharge, not a risk to accept.
+
+What must be written down:
+
+- **The Apache-2.0 `NOTICE`/attribution obligation is real.** §4 requires recipients of a derivative work to get a copy of the licence. Ship `LICENSE` beside the `.onnx` in the image and name D-FINE in whatever attribution surface meco has.
+- **The rule that outlives this decision**: never an `_obj365` or `_obj2coco` checkpoint, for D-FINE or RT-DETR or anything else. That one belongs in `CLAUDE.md` or `DEPLOY.md`, because it is the trap that will be walked into again.
+
+---
+
 ## What could not be determined
 
 Listed because a gap that is not written down gets filled with a guess.
@@ -553,9 +691,9 @@ Listed because a gap that is not written down gets filled with a guess.
 5. **RTMPose-t's helmet confidence at scale.** Q5's finding rests on three photographs by one photographer in daylight. Not re-measured here. `fixtures/karts/` is where to widen it.
 6. **VLM accuracy on race numbers.** No published figure for any VLM on this task. The $16 is a real price for an unmeasured result.
 7. **Whether the 44-photograph sample resembles Swiss Hutless's own photography.** Wikimedia karting skews amateur and mid-2000s. A professional shooting one team at one circuit produces a tighter, more consistent distribution — which should help every number in Q1 and Q4, but that is a prediction, not a measurement.
-8. **Whether a largest-box rule beats a highest-score rule** for picking the kart in a pack. Q11's two wrong-kart failures both chose a distant kart over the foreground one. Not tested; it is one line.
-9. **Whether fine-tuning is worth it at all**, now that the pretrained baseline is 21 of 32 rather than an assumption. That is the owner's call and it now has a number under it.
-10. **The D-FINE ONNX licence chain.** Apache-2.0 is established for the upstream code and the base model. The artefact meco would ship declares nothing and links to a 404. Not a blocker; is a thing to write down before it ships.
+8. **Whether fine-tuning is worth it at all**, now that the pretrained baseline is **31 of 32** rather than an assumption. That is the owner's call and the number under it is now high enough that the answer is probably no.
+9. **Whether a per-image NonCommercial Flickr licence inside COCO flows through to a trained model.** Unresolved by COCO's own terms and by anything else found ([Q12](#q12--what-licence-is-the-model-in-production-under-and-where-is-that-written-down)). Industry-wide, identical for every COCO-pretrained detector, and so not a basis for choosing between them.
+10. **What made the 2025-08-20 `Fix weights` commit necessary.** The effect was measured — 21 of 32 to 29 — but the commit carries no description and the cause was not established.
 
 ---
 
@@ -564,7 +702,8 @@ Listed because a gap that is not written down gets filled with a guess.
 Verified 5 Sep 2026. Face detection and Face Print numbers were measured against `https://meco-teal.vercel.app` on that date. [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning)'s object-detection numbers were measured locally: `onnxruntime-node@1.29.0`, CPU execution provider, Apple M4 (10 cores), `sharp@0.35.3`, against `onnx/model.onnx` downloaded from the model card below.
 
 **Models**
-- D-FINE ONNX — <https://huggingface.co/onnx-community/dfine_n_coco-ONNX> · base model <https://huggingface.co/ustc-community/dfine-nano-coco> · upstream <https://github.com/Peterande/D-FINE> (LICENSE, `README.md`, `tools/deployment/export_onnx.py`, `src/zoo/dfine/postprocessor.py`)
+- D-FINE ONNX, recommended — <https://huggingface.co/AnnotateIt/dfine-nano-coco-onnx> (`LICENSE`, `PROVENANCE.md`, `validation-report.json`)
+- D-FINE ONNX, licence-less, superseded weights — <https://huggingface.co/onnx-community/dfine_n_coco-ONNX> · base model <https://huggingface.co/ustc-community/dfine-nano-coco> · upstream <https://github.com/Peterande/D-FINE> (LICENSE, `README.md`, `tools/deployment/export_onnx.py`, `src/zoo/dfine/postprocessor.py`)
 - RF-DETR — <https://huggingface.co/onnx-community/rfdetr_nano-ONNX> · <https://github.com/roboflow/rf-detr>
 - RTMPose — <https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/> · <https://github.com/open-mmlab/mmpose> (`projects/rtmpose/README.md`, LICENSE)
 - DEIMv2 (rejected, non-commercial) — <https://github.com/Intellindust-AI-Lab/DEIMv2/blob/main/LICENSE.md>
@@ -578,6 +717,14 @@ Verified 5 Sep 2026. Face detection and Face Print numbers were measured against
 - Jersey number recognition — <https://openaccess.thecvf.com/content/CVPR2024W/CVsports/papers/Koshkina_A_General_Framework_for_Jersey_Number_Recognition_in_Sports_Video_CVPRW_2024_paper.pdf>
 - SVHN, non-commercial — <http://ufldl.stanford.edu/housenumbers/>
 - Non-commercial jersey weights — <https://github.com/mkoshkina/jersey-number-pipeline> · <https://github.com/lukaszgrad/uncertainty-jnr>
+
+**Licences and terms**
+- COCO terms of use — <https://cocodataset.org/#termsofuse>
+- Objects365 terms — <https://www.objects365.org/download.html>
+- HF licence documentation — <https://huggingface.co/docs/hub/repositories-licenses> · terms — <https://huggingface.co/terms-of-service>
+- OSI Open Source AI Definition — <https://opensource.org/ai/open-source-ai-definition>
+- Linux Foundation OpenMDW — <https://huggingface.co/blog/linuxfoundation/openmdw>
+- BLOOM, code licence ≠ model licence — <https://huggingface.co/bigscience/bloom-7b1/raw/main/LICENSE>
 
 **Pricing**
 - Claude — <https://platform.claude.com/docs/en/about-claude/pricing> · <https://platform.claude.com/docs/en/build-with-claude/vision>
