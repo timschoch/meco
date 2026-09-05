@@ -66,7 +66,7 @@ export const MAX_OCCLUSION_ZONES: 16;
 
 `frameCrop` is the whole module. Subject composition, the ladder, the Golden Lines, the Eye Line, the Free Area and the fallback rungs all sit behind it. The prototype exported `faceSubjectBoxes` and `kartSubjectBox` so a test could reach them; a pure function whose inputs are already plain data does not need that, and the tests cross the same seam as every other caller.
 
-`projectIntoFrame` maps a source-fraction `Box` into output-frame fractions given a Framing. It is a small implementation with three callers — `redact` placing a blur ellipse, `compose` checking its overlay, `webui` drawing what happened — and its value is locality, not size: a division re-derived in three modules is three chances to round it differently.
+`projectIntoFrame` maps a source-fraction `Box` into output-frame fractions given a Framing. It is a small implementation with three callers — the gateway assembling the call record, `compose` checking its overlay, `webui` drawing what happened — and its value is locality, not size: a division re-derived in three modules is three chances to round it differently.
 
 `CropWindow` is deliberately not a contracts `Box`. A `Box` is fractions; this is pixels. A type that looked like a `Box` and was not one would be the `w`/`h` mistake of ADR-0002 in a new costume.
 
