@@ -2759,6 +2759,28 @@ check(
   `${String(unconfigured.status)} ${String(unconfigured.json.error)}`,
 );
 
+/**
+ * A Brand that does not exist is still refused with no face service configured.
+ *
+ * The Brand is checked inside `matchFaces`, which a Crop only reaches by way of
+ * the Annotation. Short-circuiting the call when there is no Annotation would
+ * skip that check — a nonsense Brand would then be answered with a Crop and no
+ * complaint on exactly the deployment least able to notice. Cheap to state and
+ * the only place it can be observed.
+ */
+const nonsenseBrand = await post("/v1/crop", {
+  source: LANDSCAPE,
+  brand: "nobody",
+  width: 1080,
+  height: 1080,
+  strategy: "attention",
+});
+check(
+  "a Crop for a Brand that does not exist is refused even with no face service",
+  nonsenseBrand.status === 400 && String(nonsenseBrand.json.error).includes("nobody"),
+  `${String(nonsenseBrand.status)} ${String(nonsenseBrand.json.error).slice(0, 70)}`,
+);
+
 facesService.closeAllConnections();
 await new Promise<void>((resolve) => facesService.close(() => { resolve(); }));
 

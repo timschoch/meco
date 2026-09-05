@@ -225,8 +225,9 @@ await writeFile(
  * numbers ever stop agreeing with the model, which is what stops a swapped
  * embedder from silently turning the rule off.
  *
- * The rule that reads them, and the measurement behind its threshold, are in
- * \`./not-a-face.js\`.
+ * The rule that reads them, and the measurement behind its threshold, live
+ * beside \`MATCH_THRESHOLD\` in \`./people.js\` — they are the same decision about
+ * the same numbers, so they are not in a module of their own.
  */
 
 /** One committed print of a thing that is not a face. */

@@ -52,7 +52,7 @@ import {
   cosineSimilarity,
   matchFacePrint,
   notAFace,
-  whyNotAnIdentity,
+  whyNotIdentifiable,
   type EnrolledPrint,
 } from "../src/people.js";
 
@@ -501,11 +501,50 @@ check(
   const { images: kartDetections } = JSON.parse(
     await readFile(`${KARTS}detected.json`, "utf8"),
   ) as { images: Record<string, Detection> };
+  const kartExpected = JSON.parse(await readFile(`${KARTS}expected.json`, "utf8")) as {
+    images: { file: string; faces: { label: string; is: "face" | "not-a-face" }[] }[];
+  };
+  const faceDetections = JSON.parse(await readFile(`${FIXTURES}detected.json`, "utf8")) as {
+    images: Record<string, Detection>;
+  };
+  const faceMarks = JSON.parse(await readFile(`${FIXTURES}expected.json`, "utf8")) as {
+    images: { file: string; faces: { label: string; box: { x: number } }[] }[];
+  };
+
+  /**
+   * How big each fixture face really is, in the frame `MIN_FACE_PX` judges.
+   *
+   * `face-prints.json` names a face by its label and `detected.json` records the
+   * boxes, and neither carries the other's key. They are paired the way
+   * `packages/faces/scripts/fixture-faces.ts` pairs them and the way
+   * `scripts/http-probe.ts` does: both lists sorted left to right and zipped. No
+   * two fixture faces are within the detector's tolerance of each other in x, so
+   * the two orders cannot disagree.
+   *
+   * Measured rather than assumed, because the table below prints this number and
+   * one of its checks cuts on it — a placeholder there would be a column that
+   * looks like evidence and is not.
+   */
+  const facePixels = new Map<string, number>();
+  for (const marked of faceMarks.images) {
+    const detection = faceDetections.images[marked.file];
+    if (!detection || detection.faces.length !== marked.faces.length) continue;
+    const labels = [...marked.faces].sort((a, b) => a.box.x - b.box.x);
+    const found = [...detection.faces].sort((a, b) => a.box.x - b.box.x);
+    found.forEach((face, i) => {
+      facePixels.set(
+        `${marked.file}|${labels[i]!.label}`,
+        Math.round(
+          Math.min(face.box.width * detection.width, face.box.height * detection.height),
+        ),
+      );
+    });
+  }
 
   /**
    * The real detection behind one committed kart print.
    *
-   * Reconstructed rather than approximated, because `whyNotAnIdentity` is asked
+   * Reconstructed rather than approximated, because `whyNotIdentifiable` is asked
    * the same question the service asks it — the actual box, in the actual frame.
    * A synthesised face of the right size would test the rule against a shape the
    * detector never produces.
@@ -546,10 +585,7 @@ check(
       name: `${f.file.replace(".jpg", "")} — ${f.label}`,
       is: "face" as const,
       reference: false,
-      // Every fixture face is far above the size rule; `pnpm test:detect` holds
-      // the boxes those numbers come from. Recorded as the rule's own floor so
-      // this table never claims a measurement it did not make.
-      pixels: MIN_FACE_PX,
+      pixels: facePixels.get(`${f.file}|${f.label}`) ?? 0,
       print: f.print,
       detection: null,
     })),
@@ -586,7 +622,7 @@ check(
     .sort((a, b) => (b.cosine || 0) - (a.cosine || 0));
   for (const e of measured) {
     const rule = e.detection
-      ? whyNotAnIdentity(e.detection.face, e.print, e.detection.width, e.detection.height)
+      ? whyNotIdentifiable(e.detection.face, e.print, e.detection.width, e.detection.height)
       : null;
     console.log(
       ` ${Number.isNaN(e.cosine) ? "  ref " : e.cosine.toFixed(4)}  ` +
@@ -594,7 +630,32 @@ check(
         `${e.is === "face" ? " " : "*"}${e.name}`,
     );
   }
-  console.log("\n* = a human said there is no face there\n");
+  console.log("\n* = a human said there is no face there");
+
+  /**
+   * Detections the table cannot show, named rather than quietly dropped.
+   *
+   * A count that silently excludes what it could not measure is the shape of an
+   * honest-looking wrong answer. `paddock-mixed#1` is a real face a human
+   * classified, and it has no Face Print at all: the ArcFace warp cannot cut a
+   * 112 px square from those landmarks, so `/embed` refuses it. It is not
+   * evidence for or against the threshold and it is not a face meco can name —
+   * and both of those are worth saying out loud.
+   */
+  const withoutAPrint = kartExpected.images.flatMap((image) =>
+    image.faces.flatMap((marked, i) =>
+      karts.some((p) => p.file === image.file && p.index === i)
+        ? []
+        : [`${image.file.replace(".jpg", "")}#${String(i)} — ${marked.label}`],
+    ),
+  );
+  if (withoutAPrint.length > 0) {
+    console.log(
+      `\nnot in the table, because the warp could not cut a square from them:\n` +
+        withoutAPrint.map((n) => `  ${n}`).join("\n"),
+    );
+  }
+  console.log();
 
   // The two edges the threshold sits between. Only detections that clear the
   // size rule count: below it meco does not claim to recognise anyone, so a
@@ -619,7 +680,7 @@ check(
   // fails this rather than passing a table about code nobody runs.
   const accepted = notFaces.filter((e) => {
     const d = e.detection!;
-    return whyNotAnIdentity(d.face, e.print, d.width, d.height) === null;
+    return whyNotIdentifiable(d.face, e.print, d.width, d.height) === null;
   });
   check(
     accepted.length === 0,
@@ -632,7 +693,7 @@ check(
   const refusedFaces = realFaces.filter((e) => {
     if (!e.detection) return notAFace(e.print) !== null;
     const d = e.detection;
-    return whyNotAnIdentity(d.face, e.print, d.width, d.height) !== null;
+    return whyNotIdentifiable(d.face, e.print, d.width, d.height) !== null;
   });
   check(
     refusedFaces.length === 0,
@@ -640,6 +701,23 @@ check(
     refusedFaces.length === 0
       ? `${String(realFaces.length)} accepted, closest ${worstFace.toFixed(4)}`
       : refusedFaces.map((e) => `${e.name} ${e.cosine.toFixed(4)}`).join(", "),
+  );
+
+  /**
+   * Where the separation is clean, and where it is not.
+   *
+   * At 57 px and above the two populations are as far apart as
+   * `MATCH_THRESHOLD`'s own. Everything tight about this threshold lives in the
+   * 40–57 px band, and printing both numbers is what stops the ADR quoting the
+   * comfortable one as if it covered the whole set.
+   */
+  const clearlyBigEnough = realFaces.filter((e) => e.pixels >= 57);
+  const worstBigFace = Math.max(...clearlyBigEnough.map((e) => e.cosine));
+  check(
+    worstBigFace < 0.3 && bestNotAFace - worstBigFace > 0.3,
+    "at 57 px and up the separation is as wide as the identity threshold's",
+    `${String(clearlyBigEnough.length)} faces, closest ${worstBigFace.toFixed(4)}, ` +
+      `${(bestNotAFace - worstBigFace).toFixed(4)} clear of the furthest non-face`,
   );
 
   check(
@@ -677,7 +755,7 @@ check(
 
   const notRefusedBySize = tooSmall.filter((e) => {
     const d = e.detection!;
-    const why = whyNotAnIdentity(d.face, e.print, d.width, d.height);
+    const why = whyNotIdentifiable(d.face, e.print, d.width, d.height);
     return why === null || !why.includes("px");
   });
   check(
@@ -736,6 +814,109 @@ check(
     "and matchFaces drops that Reference Photo before anything is compared against it",
     "so the Brand that enrolled a helmet before this rule existed is safe too",
   );
+
+  /**
+   * The check issue #34 actually asked for, measured rather than dismissed.
+   *
+   * The ticket proposed a geometry sanity check on YuNet's five points — "a real
+   * face has eyes above a nose above a mouth, roughly symmetric, in plausible
+   * proportion. On the back of a helmet those points are arbitrary." They are
+   * not arbitrary, and that is the whole reason this file calibrates a print
+   * threshold instead. The verdict is load-bearing, so it is recomputed here
+   * from the committed landmarks rather than left as a sentence in a comment
+   * that nothing would notice going stale.
+   *
+   * Two of the ticket's own axes, in a frame normalised by the distance between
+   * the eyes so that size and roll fall out: how far off-centre the nose sits
+   * between the two eyes, and how far the mouth drops below them. The claim is
+   * not that the helmet looks normal — it is the stronger and more damning one
+   * that the helmet is **interior** to the real faces on both axes, so a cutoff
+   * in either direction reaches a real face before it reaches the helmet.
+   */
+  {
+    interface Geometry {
+      name: string;
+      is: "face" | "not-a-face";
+      /** |dist(nose, right eye) − dist(nose, left eye)|, in eye-widths. */
+      asymmetry: number;
+      /** How far the mouth's midpoint sits below the eye line, in eye-widths. */
+      mouthDrop: number;
+    }
+
+    const geometryOf = (name: string, is: Geometry["is"], face: DetectedFace, w: number, h: number): Geometry => {
+      const at = (p: { x: number; y: number }) => ({ x: p.x * w, y: p.y * h });
+      const { rEye, lEye, nose, rMouth, lMouth } = face.landmarks;
+      const [r, l, n, rm, lm] = [at(rEye), at(lEye), at(nose), at(rMouth), at(lMouth)];
+      const gap = Math.hypot(l.x - r.x, l.y - r.y);
+      const away = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+        Math.hypot(a.x - b.x, a.y - b.y);
+      // The eye line as an axis, so "below" means below the face rather than
+      // below the photograph — a head tilted 30 degrees is still a head.
+      const down = { x: -(l.y - r.y) / gap, y: (l.x - r.x) / gap };
+      const eyes = { x: (r.x + l.x) / 2, y: (r.y + l.y) / 2 };
+      const mouth = { x: (rm.x + lm.x) / 2, y: (rm.y + lm.y) / 2 };
+      return {
+        name,
+        is,
+        asymmetry: Math.abs(away(n, r) - away(n, l)) / gap,
+        mouthDrop: ((mouth.x - eyes.x) * down.x + (mouth.y - eyes.y) * down.y) / gap,
+      };
+    };
+
+    const geometry: Geometry[] = [];
+    for (const image of kartExpected.images) {
+      const detection = kartDetections[image.file];
+      if (!detection) continue;
+      image.faces.forEach((marked, i) => {
+        const face = detection.faces[i];
+        if (face) {
+          geometry.push(
+            geometryOf(
+              `${image.file.replace(".jpg", "")}#${String(i)}`,
+              marked.is,
+              face,
+              detection.width,
+              detection.height,
+            ),
+          );
+        }
+      });
+    }
+    for (const [file, detection] of Object.entries(faceDetections.images)) {
+      detection.faces.forEach((face, i) => {
+        geometry.push(
+          geometryOf(`${file.replace(".jpg", "")}#${String(i)}`, "face", face, detection.width, detection.height),
+        );
+      });
+    }
+
+    const helmet = geometry.find((g) => g.name === "on-track-rear-helmet#0");
+    const realFaces = geometry.filter((g) => g.is === "face");
+    if (!helmet || realFaces.length < 5) {
+      check(false, "the landmark check has the fixtures to be measured on", "missing detections");
+    } else {
+      const interior = (axis: keyof Pick<Geometry, "asymmetry" | "mouthDrop">) => {
+        const values = realFaces.map((g) => g[axis]);
+        const above = realFaces.filter((g) => g[axis] > helmet[axis]);
+        const below = realFaces.filter((g) => g[axis] < helmet[axis]);
+        return {
+          ok: above.length > 0 && below.length > 0,
+          detail:
+            `helmet ${helmet[axis].toFixed(3)}, real faces ${Math.min(...values).toFixed(3)} to ` +
+            `${Math.max(...values).toFixed(3)} — ${String(above.length)} above it, ` +
+            `${String(below.length)} below`,
+        };
+      };
+      for (const axis of ["asymmetry", "mouthDrop"] as const) {
+        const verdict = interior(axis);
+        check(
+          verdict.ok,
+          `landmark ${axis} cannot separate the helmet: it is interior to the real faces`,
+          verdict.detail,
+        );
+      }
+    }
+  }
 
   /**
    * The identity the kart fixtures do have.

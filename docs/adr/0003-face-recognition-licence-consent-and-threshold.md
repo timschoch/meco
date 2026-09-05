@@ -94,8 +94,9 @@ A **Not-a-Face Print** is a committed Face Print of something that is not an ide
 
 | | |
 |---|---|
-| real face, closest any gets to the Not-a-Face Print | **0.5601** — `paddock-mixed`, a driver with the visor up, 49 px |
-| real faces of 57 px or more, closest any gets | 0.2329 |
+| 11 real faces of 57 px or more, closest any gets | 0.0971 |
+| 2 real faces of 40–57 px | 0.2329 at 43 px, **0.5601** at 49 px |
+| real face, closest any gets | **0.5601** — `paddock-mixed`, a driver with the visor up, 49 px |
 | `on-track-visor-open`, **held out of the reference set** | **0.6935** |
 | `paddock-mixed`'s man seen from behind, also held out | 0.7457 |
 | worst helmet-to-helmet pair, 36 pairs, from the research | **0.639** |
@@ -109,18 +110,31 @@ Both rejections are out of sample. The reference is never compared with itself.
 
 **0.04 either side, against 0.22 for `MATCH_THRESHOLD`.** That is five times tighter and it is not hidden behind a rounder-sounding number. It is accepted because the two mistakes are not the same size: a face wrongly refused is blurred and unnamed, which is cautious; a non-face wrongly accepted is a stranger's name on a published photograph with their face left sharp, which is the bug reported. `src/crop.ts` already states the principle — *"who may be shown is not [a composition choice]"*.
 
-The tightness is real and it is a property of small faces. Above 57 px the two populations are 0.41 apart, as clean as Decision 3's. Below that a small face and a helmet genuinely converge, which is the same fact `MIN_FACE_PX` was written for.
+The tightness is real and it is a property of small faces. Above 57 px the two populations are 0.60 apart, as clean as Decision 3's. Below that a small face and a helmet genuinely converge, which is the same fact `MIN_FACE_PX` was written for — and it is why `MIN_FACE_PX` now runs when matching. Without it the band a threshold has to fit inside is 0.6920 to 0.6935, **0.0015 wide**, and nothing can be calibrated in it.
 
 **Four other signals were measured and rejected**, all on the committed fixtures, and they are recorded because each is the obvious next suggestion:
 
 | Signal | Helmet | Real faces | Verdict |
 |---|---|---|---|
-| Landmark geometry — eyes above nose above mouth, symmetry, proportion | inside the real-face envelope; nose asymmetry 0.356 | 0.442 and 0.332 on two paddock faces | **Dead.** YuNet's landmark head emits a face-shaped configuration whatever it sees. Any cut rejects real faces first |
+| Landmark geometry — eyes above nose above mouth, symmetry, proportion | nose asymmetry 0.356, mouth drop 1.064 | 18 real faces span 0.001–0.442 and 0.828–1.527 | **Dead.** The helmet is *interior* to the real faces on both axes — two are more asymmetric and seven have a deeper mouth drop — so a cut in either direction reaches a real face first. `pnpm test:match` recomputes this from the committed landmarks |
 | Detection score | 0.649, 0.808 | 0.661 – 0.947 | Dead, and the ticket said so |
 | Raw embedding magnitude, the usual quality proxy | 0.27, 0.30 | 0.27 – 0.34 | Dead |
 | Flip consistency of the print | 0.9987, the highest of all 21 | 0.9858 – 0.9973 | Dead, and backwards |
 
 The first of these is what issue #34 asked for. It does not work, and the measurement is in the doc comment on `NOT_A_FACE_THRESHOLD`.
+
+### The recall this costs, stated plainly
+
+The issue asked that the rule "accept all 6 real faces and the 9 paddock faces". It accepts the 6, and it does **not** accept all 9. Of the nine detections in `paddock-mixed.jpg`, three can still carry a name:
+
+| | |
+|---|---|
+| `#0` 57 px, `#2` 43 px, `#4` 49 px | matchable, unchanged |
+| `#3` `#5` `#6` `#8` — all real faces, all 36 px | refused by `MIN_FACE_PX`, which is new at match time |
+| `#7` — a man seen from behind | reclassified as not a face in `fixtures/karts/expected.json`, and refused by the print |
+| `#1` — a real face | has no Face Print at all: the ArcFace warp cannot cut a 112 px square from its landmarks, so `/embed` refuses it. Unchanged by this ADR, and pre-existing |
+
+So five of nine hand-classified paddock faces became unmatchable, four of them purely on size. That is a real recall regression against `main` and it is the price of the band above. Every one of them is still detected, still a Subject Box and still blurred, so the loss is of naming and not of protection — but it is a loss, and a reader should not have to derive it from a table.
 
 ### What this does not fix
 
