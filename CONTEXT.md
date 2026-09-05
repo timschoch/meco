@@ -274,3 +274,31 @@ _Avoid_: max size, downscale, thumbnail, resize, working size
 **Warm**:
 A Model whose session exists on the instance answering, so a request pays inference and not the load. True per instance, never per deployment: a scale-to-zero fleet has cold and warm instances at once.
 _Avoid_: loaded, ready, hot, cached
+
+## store
+
+Bytes filed under a name, handed back on request. The store knows what a key is and which of the two stores it belongs to, and nothing else: not what the bytes depict, not who may see them, not whether anything still points at them.
+
+**Stored Object**:
+The bytes at one Store Key, with their size and content type. Wider than a stored output: every Render, Crop, Source Image and Reference Photo is a Stored Object, but only the outputs are in the Gallery.
+_Avoid_: file, blob, asset, entry
+
+**Store Key**:
+The name a Stored Object is filed under: a Namespace, an optional caller-chosen middle, and the Content Hash of the bytes as the last segment. Immutable — the same key always names the same bytes, so a write is never an overwrite and a retry costs nothing. The only thing that crosses a seam to name a Stored Object: a URL is derived from a key, never stored beside it.
+_Avoid_: path, id, filename, url
+
+**Namespace**:
+The first segment of a Store Key, saying what kind of thing is filed under it: `sources`, `renders`, `crops`, `people`. It is also what decides public from private, so no call site can choose the wrong store by forgetting.
+_Avoid_: bucket, folder, directory, prefix (a prefix is any leading part of a key)
+
+**Public Store**:
+The store whose objects are served to anyone who has their URL, at an address that does not expire. Holds what a caller asked meco to make and expects to publish: Renders and Crops.
+_Avoid_: bucket, CDN, public bucket
+
+**Private Store**:
+The store whose objects no URL hands over on its own. Holds the photographs meco was given rather than asked to publish — Source Images, and every Reference Photo. Reads happen inside the deployment, or through a Signed URL the gateway minted; there is no third way, and a missing Private Store is an error rather than a quiet fall back to the Public Store.
+_Avoid_: secure bucket, vault, protected store
+
+**Signed URL**:
+A URL that hands over one Private Store object to whoever holds it, until it expires minutes later. Minted only by the gateway, only for a caller it has already authorised, and short-lived because the reason it was minted does not outlive the request.
+_Avoid_: presigned URL, temporary link, token URL, share link
