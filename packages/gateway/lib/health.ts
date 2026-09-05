@@ -1,7 +1,5 @@
 import type { ModuleName } from "@meco/contracts";
-import { type StoreHealth, reachStores } from "@meco/store/health";
-
-export { reachStores, type StoreHealth };
+import type { StoreHealth } from "@meco/store/health";
 
 /** What `models` looks like from here, over the Vercel service binding. */
 export type ModelsReach = {

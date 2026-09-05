@@ -8,8 +8,8 @@ import {
   head as blobHead,
   put as blobPut,
 } from "@vercel/blob";
-import { type Access, credentialFor } from "./credentials";
-import { assertKey, isPrivate, storeKey } from "./keys";
+import { credentialFor } from "./credentials";
+import { type Access, accessFor, assertKey, storeKey } from "./keys";
 
 /** The bytes at one Store Key, with what is known about them. */
 export interface StoredObject {
@@ -41,7 +41,12 @@ export interface Store {
 }
 
 export interface BlobStoreConfig {
-  /** Where the store ids and credentials are read from. */
+  /**
+   * Where the store ids and credentials are read from. Overriding it is for
+   * tests that never reach a backend: `@vercel/blob` reads `process.env` for
+   * anything the call does not pass, so a substituted env and the credential
+   * the SDK actually uses can disagree.
+   */
   readonly env?: NodeJS.ProcessEnv;
   /** Bounds every call the returned store makes. */
   readonly abortSignal?: AbortSignal;
@@ -59,8 +64,7 @@ export function blobStore(config: BlobStoreConfig = {}): Store {
   return {
     async put(prefix, bytes, contentType) {
       const { key, hash } = storeKey(prefix, bytes, contentType);
-      const access = isPrivate(key) ? "private" : "public";
-      const common = options(access);
+      const common = options(accessFor(key));
 
       const existing = await head(key, common);
       if (existing !== null) {
@@ -96,12 +100,14 @@ export function blobStore(config: BlobStoreConfig = {}): Store {
 
     async get(key) {
       assertKey(key);
-      const access = isPrivate(key) ? "private" : "public";
       // `useCache: false` because the only reads through this interface happen
       // inside the deployment: public bytes are served to browsers by the CDN
       // and never pass through a container. A cached miss right after a write
       // would be a lie the backend never told.
-      const found = await blobGet(key, { ...options(access), useCache: false });
+      const found = await blobGet(key, {
+        ...options(accessFor(key)),
+        useCache: false,
+      });
       if (found === null || found.statusCode !== 200) return null;
       return new Uint8Array(await new Response(found.stream).arrayBuffer());
     },

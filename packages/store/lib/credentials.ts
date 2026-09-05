@@ -3,12 +3,13 @@
  * per call, because a missing Private Store is an error and never a quiet fall
  * back to the Public Store.
  */
+import type { Access } from "./keys";
 
-/** Vercel Blob sets access per store, so this names a store as much as a mode. */
-export type Access = "public" | "private";
-
-/** Which rung of the credential ladder carried the call. */
-export type Rung = "oidc" | "token";
+/**
+ * Which credential carried a call. Not a "Rung": `CONTEXT.md` already gives
+ * that word to `frame`'s Fallback Rung, and a term is not redefined.
+ */
+export type CredentialSource = "oidc" | "token";
 
 /** The options `@vercel/blob` takes to address and authorise one store. */
 export type BlobAuth =
@@ -16,7 +17,7 @@ export type BlobAuth =
   | { readonly token: string };
 
 export type Credential = {
-  readonly rung: Rung;
+  readonly source: CredentialSource;
   readonly storeId: string;
   readonly auth: BlobAuth;
 };
@@ -51,10 +52,13 @@ export function storeIdFor(
 }
 
 /**
- * Which rung would carry a call to this store, without making one. `null` when
- * the store is not configured or no credential is present.
+ * Which credential would carry a call to this store, without making one.
+ * `null` when the store is not configured or no credential is present.
  */
-export function rungFor(env: NodeJS.ProcessEnv, access: Access): Rung | null {
+export function credentialSourceFor(
+  env: NodeJS.ProcessEnv,
+  access: Access
+): CredentialSource | null {
   if (storeIdFor(env, access) === null) return null;
   if (read(env, "VERCEL_OIDC_TOKEN") !== undefined) return "oidc";
   return read(env, TOKEN_VAR[access]) !== undefined ? "token" : null;
@@ -62,8 +66,8 @@ export function rungFor(env: NodeJS.ProcessEnv, access: Access): Rung | null {
 
 /**
  * `VERCEL_OIDC_TOKEN` first because it rotates itself; that store's injected
- * read-write token second. There is no third rung: a store meco cannot address
- * is an error, so that a private object can never end up in the Public Store.
+ * read-write token second. There is no third: a store meco cannot address is an
+ * error, so that a private object can never end up in the Public Store.
  */
 export function credentialFor(
   env: NodeJS.ProcessEnv,
@@ -78,7 +82,7 @@ export function credentialFor(
 
   const oidcToken = read(env, "VERCEL_OIDC_TOKEN");
   if (oidcToken !== undefined) {
-    return { rung: "oidc", storeId, auth: { oidcToken, storeId } };
+    return { source: "oidc", storeId, auth: { oidcToken, storeId } };
   }
 
   const token = read(env, TOKEN_VAR[access]);
@@ -87,5 +91,5 @@ export function credentialFor(
       `@meco/store: neither VERCEL_OIDC_TOKEN nor ${TOKEN_VAR[access]} is set, so nothing can reach the ${STORE_NAME[access]}.`
     );
   }
-  return { rung: "token", storeId, auth: { token } };
+  return { source: "token", storeId, auth: { token } };
 }

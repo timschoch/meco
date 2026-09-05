@@ -14,7 +14,12 @@ import { describe, expect, it } from "vitest";
 import { blobStore } from "../index";
 import { reachStores } from "../health";
 
-/** The same 1×1 PNG `/health` probes with, so both share one stored object. */
+/**
+ * The bytes and the expected hash are the test's own, computed here rather than
+ * imported, so the assertion cannot agree with the code by construction. They
+ * are deliberately the same bytes `/health` probes with, so the live suite adds
+ * no second object to either store.
+ */
 const PROBE = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64"

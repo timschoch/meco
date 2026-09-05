@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { type Health, reachModels, reachStores, version } from "./health";
+import { reachStores } from "@meco/store/health";
+import { type Health, reachModels, version } from "./health";
 
 export function createApp(): Hono {
   const app = new Hono();

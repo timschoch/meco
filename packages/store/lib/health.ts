@@ -4,7 +4,12 @@
  * an environment variable happens to be set.
  */
 import { blobStore } from "./blob";
-import { type Access, type Rung, rungFor, storeIdFor } from "./credentials";
+import {
+  type CredentialSource,
+  credentialSourceFor,
+  storeIdFor,
+} from "./credentials";
+import type { Access } from "./keys";
 
 /** What one of the two stores looks like from inside the deployment. */
 export type StoreReach = {
@@ -12,8 +17,8 @@ export type StoreReach = {
   readonly configured: boolean;
   /** Non-secret: it is the first label of every public URL the store hands out. */
   readonly storeId: string | null;
-  /** Which rung of the credential ladder carried the round trip. */
-  readonly credential: Rung | null;
+  /** Which credential carried the round trip. */
+  readonly credential: CredentialSource | null;
   /** Bytes were written and read back identical. */
   readonly roundTrip: boolean;
   /** Wall time of the round trip, milliseconds. */
@@ -42,11 +47,15 @@ const PROBE_BYTES = Buffer.from(
 
 const PROBE_CONTENT_TYPE = "image/png";
 
-/** A probe must not be able to hold `/health` open. */
-const PROBE_TIMEOUT_MS = 5000;
+/**
+ * A probe must not be able to hold `/health` open. 2 s, the same bound the
+ * `models` probe uses, against a round trip measured at 242 ms warm and 457 ms
+ * cold on the preview deployment.
+ */
+const PROBE_TIMEOUT_MS = 2000;
 
 /** The Namespace each store is probed through, so the key picks the store. */
-const PROBE_PREFIX = {
+const PROBE_NAMESPACE = {
   private: "sources",
   public: "renders",
 } as const satisfies Record<Access, string>;
@@ -66,7 +75,7 @@ async function probe(
   access: Access
 ): Promise<StoreReach> {
   const storeId = storeIdFor(env, access);
-  const credential = rungFor(env, access);
+  const credential = credentialSourceFor(env, access);
   if (storeId === null) {
     return {
       configured: false,
@@ -85,7 +94,7 @@ async function probe(
       abortSignal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     const { key } = await store.put(
-      PROBE_PREFIX[access],
+      PROBE_NAMESPACE[access],
       PROBE_BYTES,
       PROBE_CONTENT_TYPE
     );
@@ -97,9 +106,7 @@ async function probe(
       credential,
       roundTrip,
       ms: elapsed(started),
-      reason: roundTrip
-        ? null
-        : "the bytes read back are not the bytes written",
+      reason: reasonFor(readBack),
     };
   } catch (error) {
     return {
@@ -108,7 +115,7 @@ async function probe(
       credential,
       roundTrip: false,
       ms: elapsed(started),
-      reason: describe(error),
+      reason: publicMessage(error),
     };
   }
 }
@@ -121,11 +128,18 @@ function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   return a.byteLength === b.byteLength && a.every((byte, i) => byte === b[i]);
 }
 
+function reasonFor(readBack: Uint8Array | null): string | null {
+  if (readBack === null) return "the key just written reads back as missing";
+  return equalBytes(readBack, PROBE_BYTES)
+    ? null
+    : "the bytes read back are not the bytes written";
+}
+
 /**
  * Capped, because this string is served on a public endpoint. meco's own
  * messages name variables and never their values; the SDK's are fixed strings.
  */
-function describe(error: unknown): string {
+function publicMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.slice(0, 200);
 }

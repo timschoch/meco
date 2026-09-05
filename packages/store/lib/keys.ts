@@ -18,6 +18,12 @@ export type Namespace = (typeof NAMESPACES)[number];
 const PRIVATE_NAMESPACES: readonly Namespace[] = ["sources", "people"];
 
 /**
+ * Which of the two stores a key belongs to. Vercel Blob sets access per store,
+ * so this names a store as much as it names a mode.
+ */
+export type Access = "public" | "private";
+
+/**
  * 32 MiB. Four times the largest ordinary camera original meco has measured
  * (#30: 5 424 279 bytes for a 12 MP crew portrait) and far below Blob's
  * ceiling. Over it is refused with the real size, never truncated.
@@ -46,6 +52,11 @@ const EXTENSIONS = new Map<string, string>([
 export function isPrivate(key: string): boolean {
   const namespace = key.split("/", 1)[0]?.toLowerCase();
   return PRIVATE_NAMESPACES.some((n) => n === namespace);
+}
+
+/** The same decision as `isPrivate`, as the word the backend and the report use. */
+export function accessFor(key: string): Access {
+  return isPrivate(key) ? "private" : "public";
 }
 
 /**
