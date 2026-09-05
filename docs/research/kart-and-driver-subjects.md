@@ -680,6 +680,84 @@ What must be written down:
 
 ---
 
+## Q13 — Is there one photograph that proves tag, blur and kart at once?
+
+*Added 5 Sep 2026. The owner's demonstration wants a single image where a known Person is named, every stranger is blurred, and the kart and its driver are framed. **No CC0 or public-domain photograph does all three, and the reason is structural rather than a failure to look hard enough.** The closest honest answer is two photographs, and it is below.*
+
+### What was searched
+
+60 photographs, **CC0 and public domain only** — the same narrower-than-Commons bar `fixtures/karts/LICENCE.md` sets, because a fixture is a thing other code derives from. Twenty karting categories, four full-text searches, and the complete upload history of three photographers whose work looked promising.
+
+Three specific leads were chased to the end and all three failed:
+
+- **A third photograph of the podium driver.** `podium-trophy.jpg` and `-2.jpg` are the same person at two events and match at 0.783, so a third with a kart in it would have answered the whole question. Commons holds exactly two photographs of him.
+- **The 1961 press pair** — two frames of one session, same two men, a kart in both, CC0. They do not match: best cross-frame cosine **0.385**, under `MATCH_THRESHOLD`. Monochrome press photography of two men in near-identical poses is not enough for EdgeFace.
+- **The three photographs of one named driver** found through his photographer's uploads. All three are on track, helmeted, **zero faces detected** in two of them.
+
+### Why no single photograph does it
+
+The two requirements pull the camera in opposite directions, and it is measurable. Every row is different people in **one** photograph, so every score should be low:
+
+| Photograph | Faces | Median face width | Worst cross-person cosine | Kart in frame |
+|---|---|---|---|---|
+| Team photo, 13 people | 13 | **86 px** | 0.391 | **no** |
+| Podium, 3 drivers | 3 | 69 px | 0.314 | **no** |
+| 1961 press, kart and men | 5 | 61 px | 0.186 | yes (0.44) |
+| `paddock-mixed.jpg` | 8 | 54 px | **0.668** | yes (0.50) |
+| `street-karting-crowd.jpg` | 12 | 31 px | **0.712** | yes (0.85) |
+
+**A frame wide enough to contain a kart and its driver puts everyone else far enough away that their faces land in the band where EdgeFace stops discriminating.** A frame tight enough for reliable faces contains no kart. The two photographs with the strongest kart detections are the two with the worst face confusion, and that ordering is not a coincidence — it is the same lens.
+
+This is the case [ADR-0003](../adr/0003-face-recognition-licence-consent-and-threshold.md) said its fixture set could not measure: *"no two people in the fixtures look alike and so nothing there is ever decided by the runner-up."* These photographs contain it.
+
+### The merged rules hold — checked on a photograph they were never calibrated on
+
+`street-karting-crowd.jpg` was found after [#38](https://github.com/timschoch/meco/pull/38) merged, so it is genuinely out of sample. Applying **both** of that fix's rules — `MIN_FACE_PX = 40` on the shorter side, and `NOT_A_FACE_THRESHOLD = 0.60` — to every embeddable face:
+
+| Photograph | Embeddable | Enrollable after both rules | Cross-person pairs still over `MATCH_THRESHOLD` |
+|---|---|---|---|
+| `paddock-mixed.jpg`, as committed at 1400 px | 8 | 3 | **0 of 3** |
+| the same photograph at the production 1600 px bound | 8 | 5 | **0 of 10** |
+| `street-karting-crowd.jpg`, 1600 px | 12 | 2 | **0 of 1** |
+
+**Zero false matches at every size.** The fix works, and it is worth recording *which half* does the work, because it is not the obvious one:
+
+At the 1600 px bound — the size `src/faces.ts` actually feeds the embedder — **`MIN_FACE_PX` passes all eight** of `paddock-mixed`'s faces, and two cross-person pairs sit at **0.6489** and **0.5126**, both over threshold. What removes them is the Not-a-Face rule rejecting the two faces involved at 0.6563 and 0.6778. The size floor is not the guard here; the non-face check is, on inputs that are unambiguously faces. That is a stronger result for #38 than its own calibration claimed, and it is also a warning: the two rules are not independent, and loosening `NOT_A_FACE_THRESHOLD` would expose false matches that `MIN_FACE_PX` does not catch.
+
+Note the resolution interaction while it is in view. `paddock-mixed.jpg` is safe as committed partly because 1400 px puts four of its faces under the floor. The same photograph handed to `/v1/crop` at its Commons original is bounded to 1600 px, where **all eight clear the floor**. A fixture that is smaller than production is a fixture that tests less than production.
+
+### The recommendation: two photographs, and what each one is honestly for
+
+**Photograph A — `street-karting-crowd.jpg`** (new, committed here). Public domain, 1600 × 1200, kept at native size on purpose because that is already the production bound.
+
+- **Kart and driver selected**: 15 `motorbike` boxes, the two foreground karts at **0.85** and **0.74**, each with a driver in it.
+- **Everyone blurred**: **12 faces** at 0.62–0.88. With no Person enrolled, every one is unknown and every one blurs.
+- **Not for tagging.** Ten of the twelve are refused by `MIN_FACE_PX` or the Not-a-Face rule, which is the right answer for faces of 22–39 px.
+
+**Photograph B — `podium-trophy.jpg` → `podium-trophy-2.jpg`** (already committed). The same driver at two events, **0.783**, faces around 100 px.
+
+- **Tagged**: enrol from the first, Match in the second, `resolvedBy: "person"`.
+- **Not for blur or kart**: one face each, no kart in either.
+
+Run in that order the demonstration is honest and each claim is carried by the image that actually supports it. What it cannot claim is the three happening at once on one frame, and the table above is why that is a property of karting photography rather than of meco.
+
+### If one image is genuinely required
+
+`paddock-mixed.jpg` is the only fixture where a face, a stranger and a kart share a frame — 9 faces, `motorbike` at 0.50, a driver seated in the kart. A single-image demonstration is possible there **only** by enrolling one of its own faces, which proves that matching is self-consistent and nothing else. That is not a tag; state it as a self-match or leave it out.
+
+### Two things found on the way that are not about fixtures
+
+**`POST /faces/embed` fails the whole batch on one undersized warp.** `paddock-mixed.jpg` returns nine faces; asking for all nine gives `{"error":"The warped face came back 116x88, smaller than the 112px template."}` and **zero prints**. Embedding one face at a time returns eight. A caller enrolling from a group photograph gets nothing rather than the eight faces that were fine, and the error names a size without naming which face. Worth an issue: either embed what can be embedded and report the rest, or say which index failed.
+
+**A helmet in a photograph is a detected "face" with no identity in it, and that is now visible in a fixture.** The one detection in the 2006 photograph checked here is the back of a crash helmet — 0.72 — which is the same shape as issue #34 and is caught by the merged rule.
+
+### What could not be determined
+
+- **Whether a Swiss Hutless photographer's own paddock work would behave like these.** Every photograph here is amateur or press. A team photographer standing three metres from their own driver produces exactly the frame this section says does not exist in Commons: kart, driver, crew faces, all large. **The structural claim is about what is publicly licensed, not about what is photographable** — and the right next step is to ask the brand for six real photographs rather than to search Commons again.
+- **Whether the two enrollable faces in `street-karting-crowd.jpg` are the same person as anyone in another CC0 photograph.** Its photographer has one upload in total.
+
+---
+
 ## What could not be determined
 
 Listed because a gap that is not written down gets filled with a guess.
