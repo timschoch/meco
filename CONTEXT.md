@@ -93,5 +93,13 @@ The 512 floats meco-faces returns for one face, on the unit sphere, from which t
 _Avoid_: embedding, descriptor, template, vector, encoding
 
 **Match**:
-A detected face meco is willing to name: its best Face Print similarity within one Brand clears an absolute threshold and beats the second-best Person by a margin. Open-set — "nobody" is a valid answer and the common one, so a face that fails either test is unknown rather than assigned to whoever was closest. Never a property of a face on its own: the same face is a Match for the Brand that enrolled that Person and unknown to every other.
+A detected face meco is willing to name: its best Face Print similarity within one Brand clears an absolute threshold and beats the second-best Person by a margin. Open-set — "nobody" is a valid answer and the common one, so a face that fails either test is unknown rather than assigned to whoever was closest. Never a property of a face on its own: the same face is a Match for the Brand that enrolled that Person and unknown to every other. Only an Identifiable Face can be one.
 _Avoid_: recognition hit, identification, confidence, hit
+
+**Not-a-Face Print**:
+A Face Print meco keeps of something that is not a face — the back of a crash helmet. The face model maps such things close to one another, so any print near one of them carries no identity whoever is behind it. Committed in code and measured, never a record in the store and never about a person.
+_Avoid_: negative sample, decoy, blocklist, impostor
+
+**Identifiable Face**:
+A detected face meco is willing to compare against a Person at all: large enough to print, and with a Face Print unlike every Not-a-Face Print. A face that is not one is still detected, still a Subject Box and still hidden by Face Blur — it simply can never be a Match. The property is of the face and the model, not of any Brand.
+_Avoid_: valid face, real face, good face, quality

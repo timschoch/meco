@@ -242,6 +242,7 @@ const reportMatches = (matches: readonly (Match | null)[]) =>
 async function matchIfBrand(
   input: { brand?: string; persons?: string[] },
   source: Buffer,
+  size: { width: number; height: number },
   faces: readonly DetectedFace[],
   storage: Storage,
 ) {
@@ -250,6 +251,11 @@ async function matchIfBrand(
     {
       brand: input.brand,
       source,
+      // The Annotation's size, not the Source Image's own metadata: they are the
+      // same number, and taking it from the Annotation means matching is judging
+      // the frame the faces were found in rather than one it measured itself.
+      width: size.width,
+      height: size.height,
       faces,
       ...(input.persons ? { persons: input.persons } : {}),
     },
@@ -269,7 +275,12 @@ export async function crop(input: CropInput, storage: Storage) {
 
   // Matching needs the Brand, so a Crop without one frames on faces and blurs
   // every one of them — which is what a Crop did before Persons existed.
-  const named = await matchIfBrand(input, source, faces, storage);
+  // No Annotation means no faces and no size to judge them in, which is the same
+  // answer matching would have reached from an empty list — reached here instead
+  // so that nothing downstream has to be handed a made-up size.
+  const named = annotated
+    ? await matchIfBrand(input, source, annotated.annotation.source, faces, storage)
+    : { matches: [], warnings: [] };
   const warnings = [...(annotated?.warnings ?? []), ...named.warnings];
 
   const result = await cropImage({
@@ -351,6 +362,7 @@ export async function findSubjects(input: SubjectsInput, storage: Storage) {
   const named = await matchIfBrand(
     input,
     source,
+    annotated.annotation.source,
     regions.map((r) => r.face),
     storage,
   );

@@ -23,6 +23,37 @@ import type { Storage } from "./storage.js";
 import { describeTemplates } from "./templates/registry.js";
 import { UI_HTML } from "./ui.js";
 
+/**
+ * The request body as JSON, or a refusal that says the body was not JSON.
+ *
+ * `c.req.json()` throws on a body that is not JSON — a multipart upload posted to
+ * a JSON route, an empty body, a form. The routes below used to call it *outside*
+ * their own `try`, so that throw escaped the handler and the platform answered
+ * **500 Internal Server Error** for what is plainly a caller mistake. Issue #34
+ * found it on `/v1/crop` and `/v1/subjects` by posting a photograph as multipart;
+ * `/v1/render`, `/v1/carousel` and `/v1/people` had the same shape and are fixed
+ * with them, because leaving a known 500 in three routes to keep a diff small is
+ * not a trade worth making.
+ *
+ * An `ApiError`, so it lands in `errorResponse` beside every other 400 rather
+ * than needing a second way of answering.
+ *
+ * The content type is not consulted. A caller who sends JSON under the wrong
+ * header, or none, is served; a caller who sends something else is refused for
+ * what the body is rather than for what it claimed to be.
+ */
+async function readJson(c: Context): Promise<unknown> {
+  try {
+    return await c.req.json();
+  } catch {
+    throw new api.ApiError(
+      "This endpoint takes a JSON body, and this request body is not JSON. Send a JSON " +
+        "object with `content-type: application/json`. A file upload belongs on " +
+        "POST /v1/people/:id/photos, which is the one route that takes multipart.",
+    );
+  }
+}
+
 export function createApp(storage: Storage): Hono {
   const app = new Hono();
 
@@ -116,11 +147,11 @@ export function createApp(storage: Storage): Hono {
   // ----------------------------------------------------------------- render
 
   app.post("/v1/render", async (c) => {
-    const parsed = api.renderBody.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
-    }
     try {
+      const parsed = api.renderBody.safeParse(await readJson(c));
+      if (!parsed.success) {
+        return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
+      }
       return c.json(await api.render(parsed.data, storage));
     } catch (err) {
       return errorResponse(c, err);
@@ -130,11 +161,11 @@ export function createApp(storage: Storage): Hono {
   // --------------------------------------------------------------- carousel
 
   app.post("/v1/carousel", async (c) => {
-    const parsed = api.carouselBody.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
-    }
     try {
+      const parsed = api.carouselBody.safeParse(await readJson(c));
+      if (!parsed.success) {
+        return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
+      }
       return c.json(await api.carousel(parsed.data, storage));
     } catch (err) {
       return errorResponse(c, err);
@@ -144,11 +175,11 @@ export function createApp(storage: Storage): Hono {
   // ------------------------------------------------------------------- crop
 
   app.post("/v1/crop", async (c) => {
-    const parsed = api.cropBody.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
-    }
     try {
+      const parsed = api.cropBody.safeParse(await readJson(c));
+      if (!parsed.success) {
+        return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
+      }
       return c.json(await api.crop(parsed.data, storage));
     } catch (err) {
       return errorResponse(c, err);
@@ -160,11 +191,11 @@ export function createApp(storage: Storage): Hono {
   // The Annotation for a Source Image, without cropping it — what the console
   // draws its "Preview subjects" overlay from.
   app.post("/v1/subjects", async (c) => {
-    const parsed = api.subjectsBody.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
-    }
     try {
+      const parsed = api.subjectsBody.safeParse(await readJson(c));
+      if (!parsed.success) {
+        return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
+      }
       return c.json(await api.findSubjects(parsed.data, storage));
     } catch (err) {
       return errorResponse(c, err);
@@ -198,11 +229,11 @@ export function createApp(storage: Storage): Hono {
   });
 
   app.post("/v1/people", async (c) => {
-    const parsed = people.addPersonBody.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
-    }
     try {
+      const parsed = people.addPersonBody.safeParse(await readJson(c));
+      if (!parsed.success) {
+        return c.json({ error: "Invalid request", details: z.treeifyError(parsed.error) }, 400);
+      }
       return c.json(describePerson(await people.createPerson(parsed.data, storage)));
     } catch (err) {
       return errorResponse(c, err);
@@ -431,7 +462,7 @@ async function readEnrolmentRequest(c: Context): Promise<EnrolmentRequest> {
   const type = c.req.header("content-type") ?? "";
 
   if (!type.startsWith("multipart/form-data")) {
-    const parsed = people.addReferencePhotoBody.safeParse(await c.req.json());
+    const parsed = people.addReferencePhotoBody.safeParse(await readJson(c));
     if (!parsed.success) {
       throw new api.ApiError("Invalid request", z.treeifyError(parsed.error));
     }

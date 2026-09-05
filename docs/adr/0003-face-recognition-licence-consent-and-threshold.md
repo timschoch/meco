@@ -71,6 +71,63 @@ The 66 trials are every fixture face against every gallery, including a gallery 
 - At least one pair of People who resemble each other, or the margin stays a guess.
 - Re-run `pnpm test:match`, move the constants in `src/people.ts`, and edit the table above. Both constants are exported and documented at their definition, so there is one place to change.
 
+## Amendment, 5 Sep 2026 — the threshold holds only for inputs that are faces
+
+Decision 3 is calibrated on `fixtures/faces/`, every photograph of which is an uncovered human face. It says nothing about what happens when the thing handed to the matcher is not a face, and issue #34 found out in production: a Person was enrolled from the **back of a crash helmet**, and a different human wearing a helmet matched them at **0.7092**. The Crop pinned on a stranger and `blurUnknownFaces` blurred nothing at all — the privacy option failing open, silently, on the brand that needs it.
+
+**The threshold is not the lever and was not moved.** [`../research/kart-and-driver-subjects.md`](../research/kart-and-driver-subjects.md) measured nine helmets over 36 pairs at a median cosine of **0.907** and a minimum of **0.639**, against a genuine same-person pair at 0.783. No cut separates those two populations, and raising 0.50 far enough to exclude helmets would start refusing real people. Decision 3 stands exactly as written, with one sentence added to it: **it is a rule about two faces, and it is only meaningful for inputs that are faces.**
+
+### What enforces that
+
+Two conditions, both in `src/people.ts`, asked at enrolment and again at match time. A face that fails either can never be a Match; it is still detected, still a Subject Box, and still hidden by Face Blur.
+
+1. **`MIN_FACE_PX`, now applied when matching and not only when enrolling.** Its reasoning always covered both — below 40 px EdgeFace is handed an upsampled blur and returns a print of the interpolation.
+2. **`NOT_A_FACE_THRESHOLD = 0.60` against the committed Not-a-Face Prints** in `src/not-a-face-prints.ts`. A Face Print at or above 0.60 to one of them carries no identity.
+
+`matchFaces` applies the same two conditions to the **enrolled prints** as well as to the detection, and both halves are needed. A helmet detection against a real Person is already safe — the research measured helmet against face at 0.433 at worst over 108 pairs. The dangerous direction is the other one: `paddock-mixed`'s driver is a real face and scores **0.5601** against the committed helmet print, over the 0.50 threshold. No check on the detection can catch that, because the detection *is* a face. Only dropping the Reference Photo can, which is also what protects every Brand that enrolled before this rule existed.
+
+### Where 0.60 comes from
+
+A **Not-a-Face Print** is a committed Face Print of something that is not an identifiable face. One is shipped: `on-track-rear-helmet.jpg#0`, the back of a crash helmet. It holds no human face at all, which is why it and not `paddock-mixed`'s man seen from behind is the artefact in the repository.
+
+`pnpm test:match` measures it over 21 hand-classified detections, ground truth in `fixtures/karts/expected.json`. Counting only detections that clear `MIN_FACE_PX`:
+
+| | |
+|---|---|
+| real face, closest any gets to the Not-a-Face Print | **0.5601** — `paddock-mixed`, a driver with the visor up, 49 px |
+| real faces of 57 px or more, closest any gets | 0.2329 |
+| `on-track-visor-open`, **held out of the reference set** | **0.6935** |
+| `paddock-mixed`'s man seen from behind, also held out | 0.7457 |
+| worst helmet-to-helmet pair, 36 pairs, from the research | **0.639** |
+| shipped threshold | **0.60** |
+| clearance above the closest real face | 0.0399 |
+| clearance below the worst helmet pair | 0.039 |
+
+Both rejections are out of sample. The reference is never compared with itself.
+
+### What this ADR is choosing, and admitting
+
+**0.04 either side, against 0.22 for `MATCH_THRESHOLD`.** That is five times tighter and it is not hidden behind a rounder-sounding number. It is accepted because the two mistakes are not the same size: a face wrongly refused is blurred and unnamed, which is cautious; a non-face wrongly accepted is a stranger's name on a published photograph with their face left sharp, which is the bug reported. `src/crop.ts` already states the principle — *"who may be shown is not [a composition choice]"*.
+
+The tightness is real and it is a property of small faces. Above 57 px the two populations are 0.41 apart, as clean as Decision 3's. Below that a small face and a helmet genuinely converge, which is the same fact `MIN_FACE_PX` was written for.
+
+**Four other signals were measured and rejected**, all on the committed fixtures, and they are recorded because each is the obvious next suggestion:
+
+| Signal | Helmet | Real faces | Verdict |
+|---|---|---|---|
+| Landmark geometry — eyes above nose above mouth, symmetry, proportion | inside the real-face envelope; nose asymmetry 0.356 | 0.442 and 0.332 on two paddock faces | **Dead.** YuNet's landmark head emits a face-shaped configuration whatever it sees. Any cut rejects real faces first |
+| Detection score | 0.649, 0.808 | 0.661 – 0.947 | Dead, and the ticket said so |
+| Raw embedding magnitude, the usual quality proxy | 0.27, 0.30 | 0.27 – 0.34 | Dead |
+| Flip consistency of the print | 0.9987, the highest of all 21 | 0.9858 – 0.9973 | Dead, and backwards |
+
+The first of these is what issue #34 asked for. It does not work, and the measurement is in the doc comment on `NOT_A_FACE_THRESHOLD`.
+
+### What this does not fix
+
+- **A helmet is still detected and still frames a Crop.** `pinTo` and the producer priorities are untouched; the research document's Q4 proposal — a per-Brand `pinTo` default — is separate work.
+- **One reference print is thin coverage.** It catches every helmet the fixtures and the research contain, because 0.639 is the floor over 36 pairs. It is not a general non-face detector, and the set should grow as other non-faces are found. `fixtures/karts/expected.json` is where a new one is classified; `pnpm --filter meco-faces dump:karts` regenerates the artefacts.
+- **The prints are model-specific and meco cannot check them.** Swapping the embedder would move every print at once and meco would silently stop refusing helmets. `pnpm test:embed` re-embeds the fixtures and fails if the committed numbers have drifted, which is the only place that check can live (ADR-0002).
+
 ## Consequences
 
 - **A stored Face Print carries no model tag.** `/embed` does not say which network produced it, and meco does not invent one — a tag meco wrote would be a claim about the service's internals that meco cannot check. The consequence is operational and unavoidable: **if the recognition model ever changes, every stored Face Print must be recomputed**, because a print from one network is meaningless against a print from another. There is no migration that reads the old prints; the Reference Photos are still in the store, so re-enrolment is a re-embed of what is already there, and it is the only path. This is also the real cost of Decision 1's "the replacement is a file".
