@@ -92,10 +92,11 @@ const NMS_THRESHOLD = 0.6;
 /**
  * How many objects one answer may carry.
  *
- * There is a real crowd case behind this: the research's worst photograph
- * returns 23 spectators. They are all honest detections and meco files them in
- * an Annotation, but an answer is not a place to put an unbounded list, and
- * nothing downstream reads past the largest few.
+ * There is a real crowd case behind this: a paddock photograph in the fixtures
+ * returns 41. They are all honest detections and this service has no business
+ * deciding which of them matter — meco keeps the two classes its kart producer
+ * reads and drops the rest — but an answer is still not a place to put an
+ * unbounded list.
  */
 const TOP_K = 50;
 

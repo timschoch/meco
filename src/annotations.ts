@@ -37,6 +37,7 @@ import { createHash } from "node:crypto";
 
 import sharp from "sharp";
 
+import { KART_CLASSES, isKartClass } from "./crop.js";
 import {
   detectFaces,
   detectObjects,
@@ -125,29 +126,20 @@ const FACE_PRODUCER = "yunet";
 const OBJECT_PRODUCER = "dfine-n-coco";
 
 /**
- * Every detector a complete Annotation has been through.
+ * Every detector a complete Annotation has been through, and what it kept.
  *
- * A stored Annotation missing any of these is re-detected rather than trusted.
- * Adding a detector to this list is therefore also the migration: it costs one
+ * A stored Annotation missing any of these is re-detected rather than trusted,
+ * so adding a detector to this list is also the migration: it costs one
  * detection per photograph, once.
- */
-const PRODUCERS = [FACE_PRODUCER, OBJECT_PRODUCER] as const;
-
-/**
- * The COCO classes meco keeps out of an object detection.
  *
- * Not a filter for tidiness: it is the vocabulary the kart producer reads, and
- * it is deliberately short. `motorbike` is the class that finds a kart, because
- * COCO has none and resolves one to the nearest thing it knows; `person` is the
- * driver on top of it. The research measured `bicycle` as changing nothing and
- * `car`, `boat` and `train` as firing on the kart *and* on trackside vehicles —
- * so widening this list is a decision to measure, not a default to loosen.
- *
- * Read by `toObjectRegion` when the Annotation is written and by
- * `kartSubjectBox` when a Crop is framed. One list, because two would drift and
- * the drift would look like a detector regression.
+ * The object detector names its classes as well as itself, and that is not
+ * decoration. Only `KART_CLASSES` is filed, so an Annotation is a complete
+ * record of the object detector *given that list* — widen the list and every
+ * stored Annotation is silently missing the new classes, with nothing to say so.
+ * Folding the list into the name means widening it invalidates the cache by
+ * construction rather than by somebody remembering to.
  */
-export const KART_CLASSES = ["motorbike", "person"] as const;
+const PRODUCERS = [FACE_PRODUCER, `${OBJECT_PRODUCER}/${KART_CLASSES.join("+")}`] as const;
 
 const HUMAN: Concept = { name: "human", uri: `${CV_REGION_TYPE}human` };
 
@@ -282,6 +274,25 @@ export function faceRegions(annotation: Annotation): { region: ImageRegion; face
   return found;
 }
 
+/**
+ * The size of a Source Image as a viewer sees it, read here rather than asked for.
+ *
+ * Only reached when both detectors failed, and only so that an Annotation with
+ * no regions in it still describes the right photograph. `.metadata()` reports
+ * the *stored* pixels, and orientations 5..8 are the quarter-turn EXIF cases
+ * where those are transposed against what anybody looking at the photograph
+ * sees — so a portrait off a phone would be recorded as a landscape, and the
+ * warning beside it would be about a picture nobody has.
+ */
+async function straightSize(source: Buffer): Promise<{ width: number; height: number }> {
+  const meta = await sharp(source).metadata();
+  const turned = (meta.orientation ?? 1) >= 5;
+  return {
+    width: (turned ? meta.height : meta.width) ?? 0,
+    height: (turned ? meta.width : meta.height) ?? 0,
+  };
+}
+
 export interface Annotated {
   annotation: Annotation;
   /** True when the store already had it, so meco-faces was not called. */
@@ -349,24 +360,26 @@ export async function annotate(source: Buffer, storage: Storage): Promise<Annota
   if (spotted.error) warnings.push(`No objects were looked for: ${spotted.error.message}`);
 
   // Whichever detector answered knows the size; when neither did, the picture
-  // itself does. Both services measure the photograph rather than the bounded
-  // copy they were sent, so the three agree.
-  const meta = detected.detection ?? spotted.detection ?? (await sharp(source).metadata());
+  // itself does. Both services report the photograph as a viewer sees it —
+  // after EXIF orientation, and of the original rather than the bounded copy
+  // they were sent — so the fallback has to straighten it too. Orientation 5..8
+  // are the quarter-turn cases, where the stored pixels are transposed against
+  // what anybody looking at the photograph sees.
+  const measured = detected.detection ?? spotted.detection;
+  const size = measured ?? (await straightSize(source));
 
   const ran = [
-    ...(detected.detection ? [FACE_PRODUCER] : []),
-    ...(spotted.detection ? [OBJECT_PRODUCER] : []),
+    ...(detected.detection ? [PRODUCERS[0]] : []),
+    ...(spotted.detection ? [PRODUCERS[1]] : []),
   ];
 
   const annotation: Annotation = {
-    source: { hash, width: meta.width ?? 0, height: meta.height ?? 0 },
+    source: { hash, width: size.width, height: size.height },
     annotatedAt: new Date().toISOString(),
     "meco:producers": ran,
     ImageRegion: [
       ...(detected.detection?.faces ?? []).map(toRegion),
-      ...(spotted.detection?.objects ?? [])
-        .filter((o) => (KART_CLASSES as readonly string[]).includes(o.label))
-        .map(toObjectRegion),
+      ...(spotted.detection?.objects ?? []).filter((o) => isKartClass(o.label)).map(toObjectRegion),
     ],
   };
 

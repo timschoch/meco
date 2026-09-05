@@ -221,38 +221,44 @@ const detection = z.object({
   ),
 });
 
-/** The configured base URL with any trailing slash removed, or null. */
-export function facesBaseUrl(): string | null {
-  const raw = process.env[FACES_URL]?.trim();
-  return raw ? raw.replace(/\/+$/, "") : null;
-}
-
 /**
- * Every face in one Source Image.
+ * POST a Source Image to one of meco-faces' routes and parse what comes back.
  *
- * Throws on anything that went wrong — a service that is down, a timeout, an
- * answer that is not a detection. The caller decides what a Crop does about it;
- * here it is simply a failure with a message worth reading.
+ * Three routes send the same photograph over the same rewrite and fail in the
+ * same three ways, so they share this rather than each carrying their own copy
+ * of the bound, the token header, the timeout and the three error messages. Two
+ * copies would come to disagree about what a timeout says or whether the bound
+ * applies — and the bound is issue #30, where an unbounded path made the whole
+ * face feature unreachable for any photograph off a phone.
+ *
+ * Throws on anything that went wrong, with a message worth reading. What a
+ * caller does about it is theirs to decide: a Crop has another producer to fall
+ * back to and enrolling a Person does not.
  */
-export async function detectFaces(image: Buffer): Promise<Detection> {
+async function askFaces<T>(
+  route: string,
+  bytes: Buffer,
+  shape: z.ZodType<T>,
+  expected: string,
+  query = "",
+): Promise<T> {
   const base = facesBaseUrl();
   if (!base) {
     throw new Error(`${FACES_URL} is not set — meco cannot reach meco-faces.`);
   }
 
-  const source = await boundedSource(image);
   const token = process.env.MECO_TOKEN;
   let res: Response;
   try {
-    res = await fetch(`${base}/detect`, {
+    res = await fetch(`${base}${route}${query}`, {
       method: "POST",
       headers: {
-        // The body is the photograph itself. `/detect` reads the bytes and
+        // The body is the photograph itself. Every route reads the bytes and
         // sniffs the format, so the type is only ever "not JSON".
         "content-type": "application/octet-stream",
         ...(token ? { "x-auth-token": token } : {}),
       },
-      body: new Uint8Array(source.bytes),
+      body: new Uint8Array(bytes),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (err) {
@@ -268,15 +274,34 @@ export async function detectFaces(image: Buffer): Promise<Detection> {
     );
   }
 
-  const parsed = detection.safeParse(await res.json());
+  const parsed = shape.safeParse(await res.json());
   if (!parsed.success) {
-    throw new Error(`meco-faces at ${base} answered something that is not a detection.`);
+    throw new Error(`meco-faces at ${base} answered something that is not ${expected}.`);
   }
+  return parsed.data;
+}
+
+/** The configured base URL with any trailing slash removed, or null. */
+export function facesBaseUrl(): string | null {
+  const raw = process.env[FACES_URL]?.trim();
+  return raw ? raw.replace(/\/+$/, "") : null;
+}
+
+/**
+ * Every face in one Source Image.
+ *
+ * Throws on anything that went wrong — a service that is down, a timeout, an
+ * answer that is not a detection. The caller decides what a Crop does about it;
+ * here it is simply a failure with a message worth reading.
+ */
+export async function detectFaces(image: Buffer): Promise<Detection> {
+  const source = await boundedSource(image);
+  const answer = await askFaces("/detect", source.bytes, detection, "a detection");
   // The faces are fractions and so survive the bound untouched. The size does
   // not: meco-faces measured the copy it was sent, and every caller of this —
   // the Annotation, the "is this face big enough to enrol" rule — is asking
   // about the photograph.
-  return { ...parsed.data, width: source.sourceWidth, height: source.sourceHeight };
+  return { ...answer, width: source.sourceWidth, height: source.sourceHeight };
 }
 
 // -------------------------------------------------------------------- objects
@@ -341,41 +366,11 @@ const objectDetection = z.object({
  * what a Crop does about it; here it is a failure with a message worth reading.
  */
 export async function detectObjects(image: Buffer): Promise<ObjectDetection> {
-  const base = facesBaseUrl();
-  if (!base) {
-    throw new Error(`${FACES_URL} is not set — meco cannot reach meco-faces.`);
-  }
-
   const source = await boundedSource(image);
-  const token = process.env.MECO_TOKEN;
-  let res: Response;
-  try {
-    res = await fetch(`${base}/objects`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/octet-stream",
-        ...(token ? { "x-auth-token": token } : {}),
-      },
-      body: new Uint8Array(source.bytes),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-  } catch (err) {
-    throw new Error(`meco-faces at ${base} did not answer: ${(err as Error).message}`);
-  }
-
-  if (!res.ok) {
-    throw new Error(
-      `meco-faces at ${base} answered ${String(res.status)}: ${(await res.text()).slice(0, 200)}`,
-    );
-  }
-
-  const parsed = objectDetection.safeParse(await res.json());
-  if (!parsed.success) {
-    throw new Error(`meco-faces at ${base} answered something that is not an object detection.`);
-  }
+  const answer = await askFaces("/objects", source.bytes, objectDetection, "an object detection");
   // The boxes are fractions and survive the bound untouched; the size does not,
   // for the reason `detectFaces` gives.
-  return { ...parsed.data, width: source.sourceWidth, height: source.sourceHeight };
+  return { ...answer, width: source.sourceWidth, height: source.sourceHeight };
 }
 
 // ---------------------------------------------------------------- face prints
@@ -461,11 +456,6 @@ export async function embedFaces(
   image: Buffer,
   faces: FaceToEmbed[],
 ): Promise<EmbeddedFaces> {
-  const base = facesBaseUrl();
-  if (!base) {
-    throw new Error(`${FACES_URL} is not set — meco cannot reach meco-faces.`);
-  }
-
   // Bounded for the same reason `/detect` is: it is the same photograph over the
   // same platform rewrite. The landmarks are fractions, so they still point at
   // the same faces of the smaller copy. A Crop pays the resize twice, once here
@@ -479,39 +469,18 @@ export async function embedFaces(
     JSON.stringify(faces.map((f) => ({ landmarks: f.landmarks }))),
   );
 
-  const token = process.env.MECO_TOKEN;
-  let res: Response;
-  try {
-    res = await fetch(`${base}/embed?faces=${query}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/octet-stream",
-        ...(token ? { "x-auth-token": token } : {}),
-      },
-      body: new Uint8Array(bytes),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-  } catch (err) {
-    throw new Error(`meco-faces at ${base} did not answer: ${(err as Error).message}`);
-  }
-
-  if (!res.ok) {
+  const answer = await askFaces(
+    "/embed",
+    bytes,
+    prints,
+    "a list of Face Prints",
+    `?faces=${query}`,
+  );
+  if (answer.prints.length !== faces.length) {
     throw new Error(
-      `meco-faces at ${base} answered ${String(res.status)}: ${(await res.text()).slice(0, 200)}`,
-    );
-  }
-
-  const parsed = prints.safeParse(await res.json());
-  if (!parsed.success) {
-    throw new Error(
-      `meco-faces at ${base} answered something that is not a list of Face Prints.`,
-    );
-  }
-  if (parsed.data.prints.length !== faces.length) {
-    throw new Error(
-      `meco-faces returned ${String(parsed.data.prints.length)} Face Prints for ` +
+      `meco-faces returned ${String(answer.prints.length)} Face Prints for ` +
         `${String(faces.length)} faces.`,
     );
   }
-  return { prints: parsed.data.prints, uncompared: parsed.data.skipped };
+  return { prints: answer.prints, uncompared: answer.skipped };
 }

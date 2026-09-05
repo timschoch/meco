@@ -481,7 +481,7 @@ stretching moves every box.
 ### Re-verify the object model against its source
 
 ```
-pnpm --filter meco-faces exec tsx scripts/verify-dfine.ts
+pnpm --filter meco-faces verify:dfine
 ```
 
 Not in the gate, because it reaches the network. It re-downloads nothing but the

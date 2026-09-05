@@ -31,8 +31,8 @@ pnpm typecheck && pnpm typecheck:faces && pnpm build && pnpm build:faces \
 
 `pnpm test:storage` runs against the live Blob store: it needs `.env.local`
 and takes ~10 minutes. It is not part of the gate. Neither is
-`pnpm --filter meco-faces exec tsx scripts/verify-dfine.ts`, which re-checks the
-committed object model against its source over the network — see `DEPLOY.md`.
+`pnpm --filter meco-faces verify:dfine`, which re-checks the committed object
+model against its source over the network — see `DEPLOY.md`.
 
 **Prove a test can fail.** Mutate the code it covers and confirm the suite
 catches it. Three tickets in the Subject-aware Crop feature did this; two found

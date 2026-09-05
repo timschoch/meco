@@ -20,7 +20,6 @@ import {
   type SubjectArea,
   type SubjectBox,
 } from "./crop-solver.js";
-import { KART_CLASSES } from "./annotations.js";
 import { blurFaces, facesInFrame, unknownFaces } from "./face-blur.js";
 import type { DetectedFace, DetectedObject, FaceBox } from "./faces.js";
 import type { Match } from "./people.js";
@@ -99,8 +98,8 @@ const ANCHOR_AT: Record<CropAnchor, FractionPoint> = {
  */
 const PRIORITY: Record<CropProducer, number> = {
   person: 50,
-  face: 40,
   kart: 45,
+  face: 40,
   saliency: 30,
   anchor: 20,
   centre: 10,
@@ -361,6 +360,27 @@ export function faceSubjectBoxes(
  */
 const KART_OVERLAP = 0.25;
 
+/**
+ * The COCO classes this producer reads. Nothing else is a kart or a driver.
+ *
+ * Deliberately short. `motorbike` is the class that finds a kart, because COCO
+ * has none and resolves one to the nearest thing it knows; `person` is the
+ * driver on top of it. The research measured `bicycle` as changing nothing and
+ * `car`, `boat` and `train` as firing on the kart *and* on trackside vehicles —
+ * so widening this list is a decision to measure, not a default to loosen.
+ *
+ * It lives here, with the producer it defines, and `./annotations.js` reads it
+ * to decide what to file. That direction is the right way round: what a kart is
+ * belongs to the thing that frames one, not to the thing that stores records.
+ * One list, because two would drift and the drift would look like a detector
+ * regression rather than a rename.
+ */
+export const KART_CLASSES = ["motorbike", "person"] as const;
+
+/** Whether a detected object is one this producer can use. */
+export const isKartClass = (label: string): boolean =>
+  (KART_CLASSES as readonly string[]).includes(label);
+
 /** Share of the *smaller* box that two boxes have in common. */
 function overlapOfSmaller(a: FaceBox, b: FaceBox): number {
   const left = Math.max(a.x, b.x);
@@ -407,8 +427,26 @@ function union(boxes: readonly FaceBox[]): FaceBox {
  *    the same kart, and unioning them is what puts the whole of it in the frame
  *    rather than whichever fragment happened to be larger.
  * 3. **With no `motorbike`, seed on the largest `person` instead** and union it
- *    with whoever overlaps *them*. A photograph can hold a driver and no kart
- *    the detector will name, and a Crop still has to come out.
+ *    with whoever overlaps *them*. Not a footnote: it is part of the rule that
+ *    was measured. Q11 reports 3 photographs of 32 yielding nothing at all
+ *    against `motorbike` firing on 21, so 8 of its 29 boxes came from this
+ *    branch; on the fixed weights `motorbike` reaches 29 and it is down to about
+ *    2 of 31. Dropping it would change the measured result, so it stays.
+ *
+ * **This producer will frame a person who is not a driver, and call it a kart.**
+ * The fallback has no idea what a photograph is of. On any picture with no
+ * detectable face and no kart — a figure seen from behind, a distant walker —
+ * it takes the largest `person` and `resolvedBy` answers `kart`. The *framing*
+ * is right and is better than the saliency point it displaces; the word is
+ * wrong, and it is wrong in the same shape as the bug this feature exists to
+ * fix, where a helmet was called a face.
+ *
+ * It is left standing rather than patched because every patch is a guess. A
+ * minimum-area floor on this branch alone would cut exactly Q11's spectator and
+ * marshal failures — "the four under 2 %" — and it is one line, but no number
+ * for it has been measured and the fixtures cannot supply one: on all six a
+ * `motorbike` fires, or a face outranks this producer first. Measure a floor
+ * against the 32 before adding it.
  *
  * **The largest and not the highest-scoring**, which is the one place this rule
  * has changed its mind. Q11 seeded on the score and recorded two photographs
@@ -432,7 +470,7 @@ function union(boxes: readonly FaceBox[]): FaceBox {
  * no image in the way.
  */
 export function kartSubjectBox(objects: readonly DetectedObject[]): SubjectBox | null {
-  const usable = objects.filter((o) => (KART_CLASSES as readonly string[]).includes(o.label));
+  const usable = objects.filter((o) => isKartClass(o.label));
   if (usable.length === 0) return null;
 
   const area = (o: DetectedObject) => o.box.width * o.box.height;

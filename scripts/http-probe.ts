@@ -416,6 +416,8 @@ const cannedObjects = new Map<string, ObjectDetection>();
 const objectCalls: string[] = [];
 /** Set while proving what a Crop does when only the object detector is down. */
 let objectsDown = false;
+/** Set while proving what a Crop does when it answers 200 with rubbish. */
+let objectsGarbled = false;
 
 /**
  * Vercel's request-body cap, enforced here because that is where it really is.
@@ -626,6 +628,14 @@ const facesService = createServer((req, res) => {
         if (objectsDown) {
           res.writeHead(503, { "content-type": "application/json" });
           res.end(JSON.stringify({ error: "the object model would not load" }));
+          return;
+        }
+        if (objectsGarbled) {
+          // A 200 carrying something that is not a detection. This is what a
+          // platform error page and a stale deployment both look like from
+          // here, and neither announces itself with a status code.
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ detail: "upstream is warming up" }));
           return;
         }
         const seen = cannedObjects.get(sha(body));
@@ -3195,11 +3205,12 @@ console.log("\nkarts");
     String(overKart.json.resolvedBy),
   );
 
-  // A photograph with no kart in it has to behave exactly as it did before this
-  // rung existed. Its own picture rather than `LANDSCAPE`, because a Crop here
-  // files an Annotation and the section that turns the face service off later
-  // needs a photograph nobody has annotated yet — and `photo` is deterministic,
-  // so a second call at the same size would be the same bytes and the same hash.
+  // A photograph with nothing in it at all has to behave exactly as it did
+  // before this rung existed. Its own picture rather than `LANDSCAPE`, because a
+  // Crop here files an Annotation and the section that turns the face service
+  // off later needs a photograph nobody has annotated yet — and `photo` is
+  // deterministic, so a second call at the same size would be the same bytes and
+  // the same hash.
   const EMPTY = await photo(1500, 900);
   const noKart = await post("/v1/crop", {
     source: EMPTY,
@@ -3209,9 +3220,38 @@ console.log("\nkarts");
   });
   cropKeys.add(String(noKart.json.key));
   check(
-    "a photograph with no kart falls through the ladder unchanged",
+    "a photograph with nothing detected falls through the ladder unchanged",
     noKart.json.resolvedBy === "anchor" && noKart.json.warnings === undefined,
     `${String(noKart.json.resolvedBy)} ${JSON.stringify(noKart.json.warnings)}`,
+  );
+
+  /**
+   * A photograph with a person in it and no kart, which is the producer's known
+   * limit rather than a case it handles well.
+   *
+   * The fallback has no idea what a picture is of: with no face detected and no
+   * `motorbike`, it takes the largest `person` and `resolvedBy` answers `kart`.
+   * The frame is right — a person box beats the saliency point it displaces —
+   * and the word is wrong. It is asserted here rather than left to be
+   * discovered, because a producer that quietly renames its subject is exactly
+   * the bug this whole feature exists to fix, and a check that states the wart
+   * is what makes it a decision somebody can reverse.
+   *
+   * `src/crop.ts` records why no floor was added: the fixtures cannot calibrate
+   * one, because on all six a kart fires or a face outranks this producer.
+   */
+  const WALKER = await photo(1500, 901);
+  cannedObjects.set(sha(Buffer.from(WALKER.split(",")[1]!, "base64")), {
+    width: 1500,
+    height: 901,
+    objects: [{ label: "person", score: 0.62, box: { x: 0.4, y: 0.2, width: 0.2, height: 0.6 } }],
+  });
+  const personOnly = await post("/v1/crop", { source: WALKER, width: 1080, height: 1350 });
+  cropKeys.add(String(personOnly.json.key));
+  check(
+    "a person with no kart is framed by the kart producer, and named kart",
+    personOnly.json.resolvedBy === "kart",
+    `${String(personOnly.json.resolvedBy)} — the known limit, see kartSubjectBox`,
   );
 
   // The objects are filed in the Annotation beside the faces, so a preview can
@@ -3347,6 +3387,67 @@ console.log("\nkarts");
     "an Annotation written before the object detector is looked at again",
     migrated.json.resolvedBy === "kart",
     `${String(migrated.json.resolvedBy)} — a cache that trusted the old record would say saliency`,
+  );
+
+  /**
+   * And one written by a version that ran the detector over a shorter class list.
+   *
+   * The marker records what was kept, not only who ran, because only
+   * `KART_CLASSES` is filed: widen that list and every stored Annotation is
+   * missing the new classes with nothing to say so. A marker naming the detector
+   * alone would agree there was nothing left to look for. This writes exactly
+   * that marker and requires the Crop to look again.
+   */
+  await storage.putAt(
+    `annotations/${LEGACY.hash}.json`,
+    Buffer.from(
+      JSON.stringify({
+        source: { hash: LEGACY.hash, width: 1400, height: 933 },
+        annotatedAt: new Date().toISOString(),
+        "meco:producers": ["yunet", "dfine-n-coco"],
+        ImageRegion: [],
+      }),
+    ),
+    "application/json",
+  );
+  const rewidened = await post("/v1/crop", {
+    source: LEGACY.url,
+    pinTo: "kart",
+    width: 540,
+    height: 675,
+  });
+  cropKeys.add(String(rewidened.json.key));
+  check(
+    "and one written against a shorter class list than today's",
+    rewidened.json.resolvedBy === "kart",
+    `${String(rewidened.json.resolvedBy)} — the marker names the classes, not only the detector`,
+  );
+
+  /**
+   * A 200 that is not a detection is a failure, not an empty answer.
+   *
+   * meco-faces is our own service, but it is across a network and behind a
+   * platform rewrite: a proxy error page or a stale deployment arrives as an
+   * object with no `objects` on it. Trusting the shape would turn that into "we
+   * looked and there was no kart", which is a Crop framed on the wrong thing
+   * with nothing in the answer to say so.
+   */
+  await storage.delete(`annotations/${NO_KART_YET.hash}.json`);
+  objectsGarbled = true;
+  const rubbish = await post("/v1/crop", {
+    source: NO_KART_YET.url,
+    pinTo: "kart",
+    width: 540,
+    height: 675,
+  });
+  objectsGarbled = false;
+  cropKeys.add(String(rubbish.json.key));
+  const rubbishWarnings = (rubbish.json.warnings ?? []) as string[];
+  check(
+    "a 200 that is not an object detection is refused, not believed",
+    rubbish.json.resolvedBy === "saliency" &&
+      rubbishWarnings.some((w) => w.includes("is not an object detection")),
+    `${String(rubbish.json.resolvedBy)} ${JSON.stringify(rubbishWarnings)}`,
   );
 
   const unknownPin = await post("/v1/crop", {
