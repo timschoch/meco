@@ -350,7 +350,13 @@ try {
 }
 check(
   "a Source Image too small to blow a face up that far is refused",
-  faceTooSmall.includes("too small") && faceTooSmall.includes("1120x1120"),
+  // The largest square that fits is `min(width, height)` of the recorded
+  // photograph, derived rather than transcribed: the fixture's size moved once
+  // already, in #53, and a hand-copied number is how that goes unnoticed.
+  faceTooSmall.includes("too small") &&
+    faceTooSmall.includes(
+      `${String(Math.min(PORTRAIT_SIZE.width, PORTRAIT_SIZE.height))}x${String(Math.min(PORTRAIT_SIZE.width, PORTRAIT_SIZE.height))}`,
+    ),
   faceTooSmall,
 );
 

@@ -7,25 +7,26 @@ duties, and published by NASA for public use. None carries a copyright that this
 repository has to honour, and none was taken privately — every subject is an
 astronaut or cosmonaut photographed at an official event meant to be published.
 
-Each file here is the Wikimedia Commons original **downscaled to a 1400 px long
-side and re-encoded as JPEG at quality 88**, so that a repository about image
-rendering does not carry 60 MB of fixtures. Nothing was cropped, rotated or
-retouched. Go to the source page below for the untouched original.
+Each file here is **exactly the bytes `boundedSource` in `src/faces.ts` returns
+for the Wikimedia Commons original** — a resize to the 1600 px `LONG_EDGE` and
+JPEG at quality 90, since every one of these photographs is larger than that.
+Nothing was cropped, rotated or retouched. Go to the source page below for the
+untouched original.
 
-> **1400 px is below the bound production applies, and that is a known gap.**
-> `src/faces.ts` bounds a Source Image to a `LONG_EDGE` of 1600 px, so these
-> files are smaller than any caller sending the same photographs would produce.
-> `fixtures/karts/LICENCE.md` states the rule and `scripts/match-calibration.ts`
-> enforces it — **for the kart fixtures only**. Issue #42 re-derived those and
-> deliberately left these alone: `fixtures/faces/face-prints.json` is what
-> `MATCH_THRESHOLD` and `MATCH_MARGIN` are calibrated on, and moving every number
-> in that calibration is its own change with its own review, not a rider on a
-> fixture-size ticket.
->
-> The detection half is already covered: `detect-test.ts` runs
-> `artemis-2-crew-full.jpg` at 2048, 1600, 1280 and 640 px and asserts the same
-> faces are found, so the bound itself is exercised. What is not exercised is the
-> Face Prints, which come from the 1400 px copies.
+**A fixture must not be smaller than the bound production applies, or it tests a
+regime that does not exist.** `fixtures/karts/LICENCE.md` states the rule at
+length and `scripts/match-calibration.ts` enforces it over both directories: that
+`boundedSource` returns each file unchanged, and that each file's long edge is
+`min(LONG_EDGE, natural)`, checked against the `sources` block in
+`expected.json`. Pass-through alone is not enough — a smaller file passes it too.
+
+These files were committed at 1400 px until issue #53, which is below the bound.
+`MATCH_THRESHOLD` is calibrated on them, so it was calibrated on faces no caller
+sends. Re-deriving them moved every same-person and different-people score by
+less than a JPEG re-encode does and changed no constant — but that is a
+*measurement*, and it is recorded in
+[ADR-0003](../../docs/adr/0003-face-recognition-licence-consent-and-threshold.md)
+rather than assumed.
 
 `artemis-2-crew-full.jpg` is the one exception: 5878x7348 and 5 424 279 bytes,
 byte for byte as Commons serves it. It is here because a photograph that size is
@@ -35,6 +36,14 @@ downscaled copy could not stand in: it is the bytes, the pixels and the
 full-resolution detail that the bound in `src/faces.ts` is measured against. It
 is the same photograph as `artemis-2-crew.jpg`, so the hand-marked boxes in
 `expected.json` are its boxes too — fractions do not change with resolution.
+
+Since issue #53 the two are related exactly: `artemis-2-crew.jpg` **is**
+`boundedSource(artemis-2-crew-full.jpg)`, byte for byte. That is not a
+coincidence to preserve by hand, it is what the rule above produces when the
+same photograph is committed twice, once bounded and once not. It does have one
+visible consequence — the copy meco sends when given the full-size file now
+hashes to the bounded fixture, so a stand-in that has Face Prints for one has
+them for the other. `scripts/http-probe.ts` says so where it matters.
 
 | File | Source page | Photographer | Licence |
 |---|---|---|---|

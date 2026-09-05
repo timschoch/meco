@@ -47,17 +47,45 @@ The runner-up is the best *other Person*, never the second-best Face Print. Othe
 
 **Calibrated on the committed fixture set in `fixtures/faces/`, not on the operator's own enrolled photographs.** No Person is enrolled anywhere, so there are none to calibrate on. A number whose provenance is recorded is a fact; one whose provenance is implied is a trap, so this sentence is the point of this section.
 
-`pnpm test:match` (`scripts/match-calibration.ts`) sweeps the threshold over the fixture Face Prints in `fixtures/faces/face-prints.json`, and is in the verification gate. Measured 5 September 2026 on nine faces of seven people:
+`pnpm test:match` (`scripts/match-calibration.ts`) sweeps the threshold over the fixture Face Prints in `fixtures/faces/face-prints.json`, and is in the verification gate. Measured 5 September 2026 on nine faces of seven people, **at the 1600 px bound `src/faces.ts` applies to a Source Image** — the resolution the threshold is used at, which issue #53 established and which the row below records so no reader has to ask:
 
 | | |
 |---|---|
-| same person, worst of 3 pairs | **0.7304** |
-| different people, best of 33 pairs | **0.2855** |
-| gap | **0.4450** |
+| same person, worst of 3 pairs | **0.7263** |
+| different people, best of 33 pairs | **0.2979** |
+| gap | **0.4284** |
 | thresholds with zero false and zero missed Matches, over 66 trials | **0.30 – 0.80** |
 | shipped threshold | **0.50** — the middle of that band, and the point furthest from both mistakes |
-| clearance above the best stranger | 0.2145 |
-| clearance below the worst same-person pair | 0.2304 |
+| clearance above the best stranger | 0.2021 |
+| clearance below the worst same-person pair | 0.2263 |
+| resolution the fixtures were measured at | **1600 px long edge**, `LONG_EDGE` in `src/faces.ts` |
+
+#### Re-measured at the production bound, and nothing moved
+
+Issue #53 asked the question #42 forced: these numbers were calibrated on fixtures committed at 1400 px while `src/faces.ts` bounds a Source Image to 1600 px. #42 had just shown that was not a formality — the Not-a-Face band did not shift at the bound, it **inverted**. So the fixtures were re-derived and the sweep re-run:
+
+| | 1400 px | **1600 px** | moved by |
+|---|---|---|---|
+| same person, pair 1 | 0.8689 | 0.8681 | −0.0008 |
+| same person, pair 2 | 0.8182 | 0.8228 | +0.0046 |
+| same person, worst pair | 0.7304 | **0.7263** | −0.0041 |
+| different people, best of 33 | 0.2855 | **0.2979** | +0.0124 |
+| gap | 0.4450 | **0.4284** | −0.0166 |
+| clean threshold band | 0.30 – 0.80 | **0.30 – 0.80** | unchanged |
+| margin sweep | flat, 0 to 0.4 | flat, 0 to 0.4 | unchanged |
+| Not-a-Face band | −0.0177 | **−0.0177** | unchanged |
+
+The last row is in the table because #53 asked for it, and it needs a caveat to
+be read correctly: that band is set by the **kart** fixtures, which #42 had
+already moved to the bound. Re-deriving the face fixtures could not move it and
+did not. It is repeated here so the two calibrations can be read together —
+the identity one confirmed, the non-face one still inverted.
+
+**Every movement is smaller than the 0.019 a JPEG re-encode alone moves a Face Print** (see the precision section in the amendment below). The clean band is identical to the hundredth, 0.50 is still its midpoint, and the margin table is still flat. **No constant changes, and this is a result rather than the absence of one**: the identity threshold is now confirmed at the resolution it is applied at, instead of merely never having been re-checked there.
+
+**Why this survived and the Not-a-Face band did not** is worth stating, because it is the general lesson. The identity separation is **0.43** wide; the non-face separation was **0.04**. A perturbation of about 0.02 — which is what changing the resolution turned out to be worth — is invisible against the first and fatal to the second. A threshold's fragility to this class of change is a property of its band, and the band is the number to look at before assuming a re-measurement is a formality.
+
+**One thing that did move, and it is larger than the encode noise.** Re-deriving the fixtures moved the detected landmarks by well under the 3 % the detect test allows — every box still matches the human's — and yet the aligned 112 × 112 squares changed enough that the Face Print of one face shifted by **0.065** of cosine against its old reference. Geometry moves a print further than encoding does. That is why `fixtures/faces/aligned/` and `edgeface-reference.json` have to be regenerated together whenever the fixtures move, and why `pnpm test:embed` checks the squares before it checks the prints.
 
 The 66 trials are every fixture face against every gallery, including a gallery holding a single Person — which is the case with no runner-up at all, where the threshold has to hold up alone. A face is never asked about against a gallery containing its own photograph.
 
@@ -131,11 +159,10 @@ there is none — so refusing a *different* face fails the run.
 sends. Callers have always sent 1600 px. The suite was measuring a smaller world
 than the one meco runs in; now it is not.
 
-**Two things issue #42 did not settle, recorded so they are not mistaken for settled.**
-`fixtures/faces/` is still committed at 1400 px, and it is the set
-`MATCH_THRESHOLD` and `MATCH_MARGIN` are calibrated on. The size rule and its
-enforcement cover `fixtures/karts/` only; moving every number in Decision 3's
-calibration is its own change. And the two cosines issue #42 asked to have
+**One thing issue #42 did not settle, recorded so it is not mistaken for settled.**
+(`fixtures/faces/` was the other, and issue #53 has since re-derived it at the
+bound and re-run Decision 3's calibration — see above. The size rule and its
+enforcement now cover both fixture directories.) The two cosines issue #42 asked to have
 asserted — 0.6489 and 0.5126 — **do not reproduce against the committed bytes**.
 They were measured on a re-encode made while investigating; against the fixture
 now on disk the only pair over `MATCH_THRESHOLD` is 0.5628, and it is a face

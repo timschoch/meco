@@ -27,6 +27,12 @@ PyTorch has no wheels for every Python, so pin one it does support::
         torch torchvision timm onnx onnxruntime numpy pillow
     .temp/edgeface-venv/bin/python packages/faces/scripts/export-edgeface.py
 
+Pass ``--keep-onnx`` to re-earn the reference Face Prints against the committed
+export instead of writing a new one. Use it when the *aligned squares* changed
+and the model did not — a fixture re-derivation, for instance — so a shipped
+model is never rewritten as a side effect of a fixture change. It is the only
+flag; anything else is refused rather than ignored.
+
 Nothing in the service needs any of this. It is a one-off.
 """
 
@@ -140,10 +146,15 @@ def load_faces():
 
 
 def main() -> None:
-    import numpy as np
-    import onnxruntime as ort
     import torch
 
+    # Rejected rather than ignored: a typo like `--keep_onnx` would otherwise
+    # fall through to the export path and rewrite a shipped model, which is the
+    # one outcome this flag exists to prevent.
+    unknown = [a for a in sys.argv[1:] if a != "--keep-onnx"]
+    if unknown:
+        raise SystemExit(f"unknown argument(s): {' '.join(unknown)}. The only flag is --keep-onnx.")
+    keep_onnx = "--keep-onnx" in sys.argv[1:]
     checkpoint = fetch_checkpoint()
     sys.path.insert(0, str(CHECKOUT))
     from backbones import get_model  # noqa: E402  (needs the checkout on the path)
@@ -155,7 +166,34 @@ def main() -> None:
     names, batch = load_faces()
     print(f"faces      {len(names)} aligned squares from fixtures/faces/aligned/")
 
+    # `--keep-onnx` re-earns the reference against the committed export instead
+    # of writing a new one. It exists because the two halves of this script have
+    # different reasons to run: the export changes when the *model* changes, and
+    # the reference Face Prints change whenever the *aligned squares* do. Issue
+    # #53 was the second without the first — the fixtures moved to the bound
+    # `src/faces.ts` applies, so the squares moved, so the reference described
+    # pixels nobody sends any more. Re-exporting there would have rewritten a
+    # shipped model with whatever torch happened to be installed, which is a
+    # production change smuggled in behind a fixture change.
+    #
+    # The claim is unweakened: the comparison below still runs ONNX against
+    # PyTorch on the same squares. Only the direction changes — the export is
+    # held fixed and re-proven, rather than made and proven.
+    if keep_onnx:
+        if not ONNX_PATH.exists():
+            raise SystemExit(f"--keep-onnx needs {ONNX_PATH.relative_to(REPO)} to exist already")
+        print(f"kept       {ONNX_PATH.relative_to(REPO)}  ({ONNX_PATH.stat().st_size / 1e6:.2f} MB)")
+    else:
+        export_onnx(model)
+
+    compare_and_write(model, names, batch, checkpoint)
+
+
+def export_onnx(model) -> None:
+    import torch
+
     MODELS.mkdir(parents=True, exist_ok=True)
+
     # A dynamic batch axis so a group photograph is one inference rather than
     # one per face. Every other dimension is fixed: the network has exactly one
     # input size and pretending otherwise would only invite a caller to try.
@@ -176,6 +214,12 @@ def main() -> None:
         dynamo=False,
     )
     print(f"wrote      {ONNX_PATH.relative_to(REPO)}  ({ONNX_PATH.stat().st_size / 1e6:.2f} MB)")
+
+
+def compare_and_write(model, names, batch, checkpoint) -> None:
+    import numpy as np
+    import onnxruntime as ort
+    import torch
 
     with torch.no_grad():
         reference = model(torch.from_numpy(batch)).numpy()
