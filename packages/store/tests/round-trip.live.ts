@@ -31,10 +31,10 @@ describe("a byte round trip through the live Private Store", () => {
   it("files the bytes under their own full sha256 and hands them back identical", async () => {
     const store = blobStore();
 
-    const written = await store.put("sources", PROBE, "image/png");
+    const written = await store.put("health", PROBE, "image/png");
 
     expect(written.hash).toBe(SHA256);
-    expect(written.key).toBe(`sources/${SHA256}.png`);
+    expect(written.key).toBe(`health/${SHA256}.png`);
     expect(written.key).toMatch(/\/[0-9a-f]{64}\.png$/);
 
     const readBack = await store.get(written.key);
@@ -46,15 +46,15 @@ describe("a byte round trip through the live Private Store", () => {
   it("writes nothing the second time, because the key is the hash", async () => {
     const store = blobStore();
 
-    await store.put("sources", PROBE, "image/png");
-    const again = await store.put("sources", PROBE, "image/png");
+    await store.put("health", PROBE, "image/png");
+    const again = await store.put("health", PROBE, "image/png");
 
     expect(again.deduped).toBe(true);
     expect(again.size).toBe(PROBE.byteLength);
   });
 
   it("reads a key that was never written as null, not as a throw", async () => {
-    const missing = `sources/${"0".repeat(64)}.png`;
+    const missing = `health/${"0".repeat(64)}.png`;
 
     await expect(blobStore().get(missing)).resolves.toBeNull();
   });

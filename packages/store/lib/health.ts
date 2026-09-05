@@ -54,9 +54,17 @@ const PROBE_CONTENT_TYPE = "image/png";
  */
 const PROBE_TIMEOUT_MS = 2000;
 
-/** The Namespace each store is probed through, so the key picks the store. */
+/**
+ * The Namespace each store is probed through, so the key picks the store and
+ * this function never chooses.
+ *
+ * A Namespace maps to exactly one store, so the two probes cannot share one.
+ * `health` is the Private Store's and holds nothing else. The Public Store is
+ * probed through `renders`, which is the same pollution `health` exists to
+ * avoid; a public probe Namespace is on #81 for the orchestrator to name.
+ */
 const PROBE_NAMESPACE = {
-  private: "sources",
+  private: "health",
   public: "renders",
 } as const satisfies Record<Access, string>;
 

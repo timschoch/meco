@@ -4,18 +4,30 @@
  */
 import { createHash } from "node:crypto";
 
-/** The first segment of a Store Key, saying what kind of thing is filed under it. */
+/**
+ * The first segment of a Store Key, saying what kind of thing is filed under it.
+ *
+ * `health` holds the one probe object `/health` round-trips and nothing else.
+ * It is a Namespace of its own rather than a corner of `sources` so that a 1×1
+ * PNG never appears in a `list("sources/")` deletion proof, and so `records`
+ * never has to explain what a Source Image nothing uploaded is.
+ */
 export const NAMESPACES = [
   "sources",
   "renders",
   "crops",
   "people",
+  "health",
 ] as const satisfies readonly string[];
 
 export type Namespace = (typeof NAMESPACES)[number];
 
 /** The Namespaces whose objects no URL hands over on its own. */
-const PRIVATE_NAMESPACES: readonly Namespace[] = ["sources", "people"];
+const PRIVATE_NAMESPACES: readonly Namespace[] = [
+  "sources",
+  "people",
+  "health",
+];
 
 /**
  * Which of the two stores a key belongs to. Vercel Blob sets access per store,

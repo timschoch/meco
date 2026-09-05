@@ -15,9 +15,10 @@ const configured = () =>
 const ONE_PIXEL = new Uint8Array([1, 2, 3]);
 
 describe("isPrivate", () => {
-  it("sends the two private Namespaces to the Private Store", () => {
+  it("sends the three private Namespaces to the Private Store", () => {
     expect(isPrivate("sources/abc.jpg")).toBe(true);
     expect(isPrivate("people/laica/p_1/abc.jpg")).toBe(true);
+    expect(isPrivate("health/abc.png")).toBe(true);
   });
 
   it("sends the two public Namespaces to the Public Store", () => {
@@ -35,8 +36,14 @@ describe("isPrivate", () => {
     expect(isPrivate("sourcesomething/abc.jpg")).toBe(false);
   });
 
-  it("names the four Namespaces", () => {
-    expect(NAMESPACES).toEqual(["sources", "renders", "crops", "people"]);
+  it("names the five Namespaces", () => {
+    expect(NAMESPACES).toEqual([
+      "sources",
+      "renders",
+      "crops",
+      "people",
+      "health",
+    ]);
   });
 });
 
@@ -61,7 +68,7 @@ describe("put refuses before it reaches a backend", () => {
 
   it("refuses a prefix whose first segment is not a Namespace", async () => {
     await expect(
-      configured().put("health", ONE_PIXEL, "image/png")
+      configured().put("uploads", ONE_PIXEL, "image/png")
     ).rejects.toThrow(/Namespace/);
   });
 
