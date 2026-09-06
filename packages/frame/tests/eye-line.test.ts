@@ -100,9 +100,13 @@ describe("the eyes on the upper Golden Line", () => {
 
 /**
  * The two bounds on the zoom, swept over every fixture and target rather than
- * argued for on one: a convention about where a head looks best is not a
- * licence to widen a Crop, and headroom that cropped the face off is the
- * opposite of the point.
+ * argued for on one. A convention about where a head looks best is not a
+ * licence to widen a Crop, and headroom that left no window to hold the face is
+ * the opposite of the point.
+ *
+ * The lower bound is on the size and not on containment. Whether the leading
+ * face then lands inside the window is the fallback ladder's question, asked
+ * after — `docs/specs/frame.md`, "The fallback ladder", built on #108.
  */
 describe("what the zoom may not do", () => {
   for (const { name, fixture, target, cover } of CASES) {
@@ -113,7 +117,7 @@ describe("what the zoom may not do", () => {
       expect(window.height).toBeLessThanOrEqual(cover.height);
     });
 
-    it(`never tightens past the leading face: ${name}`, () => {
+    it(`never tightens below the size of the leading face: ${name}`, () => {
       const { window, lead, source } = measure(
         fixture.raw,
         fixture.leadRegionId,
@@ -169,11 +173,15 @@ describe("what the zoom may not do", () => {
     });
   });
 
-  // A face wide enough that the headroom the eyes ask for would cut it in half.
-  // 9:16 over a square source ties the axes together: the floor is the width the
-  // face needs, 500 px, and the height that shape then forces, 889 px, against
-  // the 471 px the eyes alone would have asked for.
-  it("keeps a wide face in frame at the cost of the headroom", () => {
+  // A face wide enough that the headroom the eyes ask for would leave a window
+  // half its width. 9:16 over a square source ties the axes together: the floor
+  // is the width the face needs, 500 px, and the height that shape then forces,
+  // 889 px, against the 471 px the eyes alone would have asked for.
+  //
+  // The window is big enough to hold the face; where it sits is not this
+  // rule's. This one lands at x 309 with the face spanning 250 to 750, so 59 px
+  // of it is outside — which is the ladder's `zoom-out` rung to answer, on #108.
+  it("sizes the window for a wide face at the cost of the headroom", () => {
     const source = { width: 1000, height: 1000 };
     const face: Box = { x: 0.25, y: 0.1, width: 0.5, height: 0.2 };
     const { window } = frameCrop({
@@ -187,14 +195,12 @@ describe("what the zoom may not do", () => {
 });
 
 /**
- * The amendment's own numbers, reproduced. `soyuz-crew.jpg` is a group: the
- * three faces stand wider apart than any window that gives one of them
- * headroom, so a floor taken over their union exceeds the cover window, the
- * zoom clamps to 1 and the eyes never move. Measured: 34.2 % on the union
- * floor against the 38.2 % the rule asks for.
+ * The amendment's own numbers, reproduced. `soyuz-crew.jpg` is the group that
+ * made the case: ADR-0001, amendment of 5 Sep 2026, says why a floor taken over
+ * the union of every face switches the rule off there.
  *
- * ADR-0001, amendment of 5 Sep 2026. The suite asserts the leading-face figure;
- * the union figure is what the mutation named in #103 reproduces.
+ * The suite asserts the leading-face figure, 38.2 % at a zoom of 1.12. The
+ * union figure, 34.2 % at a zoom of 1, is what #103's named mutation puts back.
  */
 describe("the headroom zoom, floored on the leading face", () => {
   const soyuz = FACE_FIXTURES[2]!;

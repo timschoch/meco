@@ -49,29 +49,21 @@ export const eyeLinePlacement = (
  * Tightening buys the slack back, and tightening is what a person cutting a
  * portrait into a story would do anyway.
  *
- * `room` is the two edges of the window speaking at once: `PHI_LINES[0]` of its
- * height has to fit above the eyes and the rest below, and the smaller of the
- * two is what the Source Image actually allows.
+ * `room` is the two edges of the window at once. `PHI_LINES[0]` of its height
+ * has to fit above the eyes and the rest below. The smaller of the two is what
+ * the Source Image allows.
  *
- * Below 1 when the Source Image already holds all the headroom the eyes ask
- * for. That is not a licence to widen a Crop, and `tightenedWindow` is where it
- * is refused — the bound belongs to the window arithmetic, and stating it here
- * as well would be one rule in two places, either of which could be relaxed
- * without the other noticing.
+ * The answer is below 1 when the picture already holds the headroom asked for.
+ * Widening is refused in `tightenedWindow` and nowhere else, so that the bound
+ * cannot be relaxed in one place while the other still claims it.
  *
- * Never so tight that the leading face would not fit: headroom that
- * cropped the face off is the opposite of the point. The required shape ties the
- * two axes together, so the height the floor asks for is the larger of what each
- * axis needs.
+ * `floor` is the smallest window that still holds the leading face. The target
+ * shape ties the two axes together, so it is the larger of what each axis asks
+ * for. Where the face then lands is the fallback ladder's question, asked after.
  *
- * The floor is the **leading** face's own box and not the union of every kept
- * Subject. Flooring on the union switches the rule off in exactly the case a
- * Match creates: in a group the faces stand wider apart than any window that
- * gives one of them headroom, so the floor exceeds the cover window and the eyes
- * never move. Measured on `soyuz-crew.jpg` at 1:1, 4:5 and 9:16 — 34.2 % on the
- * union floor against the 38.2 % the rule asks for. Whether the others still fit
- * is the fallback ladder's question, asked after; folding it in here answered it
- * twice. ADR-0001, amendment of 5 Sep 2026.
+ * The floor is the **leading** face's box, never the union of every kept
+ * Subject. Why, and the 34.2 % it cost: ADR-0001, amendment of 5 Sep 2026,
+ * `docs/adr/0001-analytic-solver-over-search-based-crop.md`.
  */
 export function headroomZoom(
   eyeLine: number,
