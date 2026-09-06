@@ -31,19 +31,15 @@ licence text and no licence URL.
 Terms
 -----
 
-PLACEHOLDER — the terms below are not the foundry's and do not grant anything.
+Eina 02 is a proprietary typeface. It carries no OFL, no Apache or MIT grant,
+and "All rights reserved" above is the only statement of rights in the files.
 
-Eina 02 is a proprietary typeface. It is not an open-source face: it carries no
-OFL, no Apache or MIT grant, and "All rights reserved" above is the only
-statement of rights in the files. Whatever right this repository has to ship
-these two files therefore comes from an agreement between the owner of this
-repository and Textaxis, and that agreement is not in the repository.
+The licence is held by the owner of this repository. Its text is pending, and
+the owner supplies it — a foundry licence, an invoice, or a link to the offer
+the fonts were downloaded under — to replace this section.
 
-The owner supplies the real terms — a foundry licence, an invoice, or a link to
-the offer the fonts were downloaded under — and they replace this section. Until
-then, treat the two files as redistributable only inside this repository and its
-own deployments, and not as something a reader of this repository may take and
-use.
+Nothing in this file grants anything. No terms are stated here that the foundry
+did not state, and none are inferred.
 
 Recorded by the ticket that moved these files under packages/compose:
 https://github.com/timschoch/meco/issues/116
