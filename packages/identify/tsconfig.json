@@ -9,6 +9,12 @@
   "references": [
     {
       "path": "../contracts"
+    },
+    {
+      "path": "../records"
+    },
+    {
+      "path": "../store"
     }
   ]
 }
