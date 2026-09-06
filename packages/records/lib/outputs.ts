@@ -6,15 +6,19 @@
  * ([ADR-0011](../../../docs/adr/0011-records-postgres-rows-counted-deletes-and-a-sweep.md),
  * Q4 and Q15).
  *
- * **Keyed by `(brand, store_key)`, and the bytes go only at zero.** No Brand
- * appears in a public key (ADR-0010), so two Brands whose Crops come out
- * byte-identical are two rows on one key. `store.delete` is unconditional: it
- * takes a key and removes the bytes, and it has no idea whether anything still
- * points at them. The count is therefore here and nowhere else — without it,
- * one Brand deleting its Crop would take the other Brand's stable URL with it.
+ * **Keyed by `(brand, request_hash)`, and the bytes go only at zero.** The key
+ * is what the Replay looks up, so one Output is one request and `record` is
+ * idempotent on it. A Store Key is not unique and never was: no Brand appears
+ * in a public key (ADR-0010), so two Brands whose Crops come out byte-identical
+ * are two rows on one key — and one Brand asking two different things that
+ * produce the same bytes is two more (#223). `store.delete` is unconditional:
+ * it takes a key and removes the bytes, and it has no idea whether anything
+ * still points at them. The count is therefore here and nowhere else — without
+ * it, one Brand deleting its Crop would take the other Brand's stable URL with
+ * it.
  *
  * **The Gallery is a keyset list.** Newest first, paged over
- * `(created_at, store_key)`, each row carrying its Call's `source_hash`,
+ * `(created_at, store_key, request_hash)`, each row carrying its Call's `source_hash`,
  * `status` and `started_at` so a tile needs no second read. webui derives URLs
  * with `store.publicUrl(key)`; records returns Store Keys and never a URL.
  */
@@ -56,7 +60,10 @@ export interface Output {
   readonly startedAt: string;
 }
 
-/** An Output to write. The Call's facts are read back off the Call. */
+/**
+ * An Output to write. The Call's facts are read back off the Call, and the
+ * Request Hash is its key: writing one twice answers the row already there.
+ */
 export interface NewOutput {
   readonly brand: string;
   readonly storeKey: string;
@@ -149,7 +156,9 @@ const asOutput = (row: OutputRow): Output => ({
 
 const keysetOf = (row: OutputRow): Keyset => ({
   at: row.cursorAt,
-  tiebreak: row.storeKey,
+  // Two of one Brand's Outputs may share a Store Key, so the Request Hash after
+  // it is what makes the order total and the cursor a place between two rows.
+  tiebreak: [row.storeKey, row.requestHash],
 });
 
 export function outputsOver(driver: DatabaseDriver, store: Store): Outputs {
@@ -170,21 +179,32 @@ export function outputsOver(driver: DatabaseDriver, store: Store): Outputs {
 
   return {
     async record(output) {
-      await orm.insert(outputs).values({
-        brand: output.brand,
-        storeKey: output.storeKey,
-        callId: output.callId,
-        kind: asOutputKind(output.kind),
-        placement: output.placement ?? null,
-        requestHash: output.requestHash,
-      });
+      await orm
+        .insert(outputs)
+        .values({
+          brand: output.brand,
+          storeKey: output.storeKey,
+          callId: output.callId,
+          kind: asOutputKind(output.kind),
+          placement: output.placement ?? null,
+          requestHash: output.requestHash,
+        })
+        // The key is the request, so recording one twice is the Output it
+        // already made and never an error. The gateway asks `byRequest` first,
+        // but two equal requests in flight at once both miss it, and the loser
+        // of that race would otherwise be a 500 for a request that has an
+        // answer (#223).
+        .onConflictDoNothing({
+          target: [outputs.brand, outputs.requestHash],
+        });
       // Read back rather than `returning()`: the Call's three facts are part of
       // an Output everywhere else, and a write that answered with a narrower
-      // shape would be the one place a caller had to handle two.
+      // shape would be the one place a caller had to handle two. It is also
+      // what makes the conflict above answer the row that is there.
       const [row] = await read(
         and(
           eq(outputs.brand, output.brand),
-          eq(outputs.storeKey, output.storeKey)
+          eq(outputs.requestHash, output.requestHash)
         )
       ).limit(1);
       if (row === undefined) {
@@ -196,14 +216,10 @@ export function outputsOver(driver: DatabaseDriver, store: Store): Outputs {
     },
 
     async byRequest(brand, requestHash) {
+      // `(brand, request_hash)` is the primary key, so this is one row or none.
       const [row] = await read(
         and(eq(outputs.brand, brand), eq(outputs.requestHash, requestHash))
-      )
-        // Nothing makes `(brand, request_hash)` unique — a Brand may hold two
-        // Outputs of one request if a Replay was ever missed — so the newest is
-        // named rather than whichever row the plan happened to reach first.
-        .orderBy(desc(outputs.createdAt), desc(outputs.storeKey))
-        .limit(1);
+      ).limit(1);
       // A miss is `null`. The gateway asks this before every Call, so the
       // ordinary first request must not be an error path.
       return row === undefined ? null : asOutput(row);
@@ -225,7 +241,7 @@ export function outputsOver(driver: DatabaseDriver, store: Store): Outputs {
           ? undefined
           : olderThan(
               outputs.createdAt,
-              outputs.storeKey,
+              [outputs.storeKey, outputs.requestHash],
               decodeCursor(query.cursor)
             ),
       ].filter((one) => one !== undefined);
@@ -233,9 +249,14 @@ export function outputsOver(driver: DatabaseDriver, store: Store): Outputs {
       const rows = await read(
         narrowed.length === 0 ? undefined : and(...narrowed)
       )
-        // The Store Key as well as the time, so two Outputs written in the same
-        // microsecond still have one order for a cursor to point between.
-        .orderBy(desc(outputs.createdAt), desc(outputs.storeKey))
+        // The Store Key and then the Request Hash as well as the time, so two
+        // Outputs written in the same microsecond — of one key or of two —
+        // still have one order for a cursor to point between.
+        .orderBy(
+          desc(outputs.createdAt),
+          desc(outputs.storeKey),
+          desc(outputs.requestHash)
+        )
         .limit(query.limit + 1);
 
       return pageOf(rows, query.limit, asOutput, keysetOf);

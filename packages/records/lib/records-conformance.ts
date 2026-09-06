@@ -24,6 +24,7 @@ import { sql } from "drizzle-orm";
 import type { CallError, CallKind, NewCall, Step } from "./calls";
 import { PROBE_HASH, reachRecords, recordsTables } from "./health";
 import { verifying } from "./neon-database";
+import type { Output } from "./outputs";
 import { peoplePrefix } from "./people";
 import { type Records, driverOf } from "./records";
 import { BOOTSTRAP_BRANDS, seedRecords } from "./seed";
@@ -1214,6 +1215,99 @@ export function recordsConformance(
         strictEqual(
           await records.outputs.byRequest(mine.brand, hashOf("never asked")),
           null
+        );
+      },
+    },
+    {
+      name: "one Store Key holds a row per Request Hash: two requests, two Outputs, one set of bytes, and delete takes them once",
+      async run() {
+        const store = watching();
+        const records = await fixtures.withStore(store);
+        const mine = await calling(records, "crops one photograph twice");
+        const source = { hash: hashOf("crops one photograph twice") };
+        // The bare Crop, and the same Crop with `pinTo` spelled out to the
+        // default the gateway would have used anyway. Two requests, two
+        // Request Hashes, byte-identical bytes — so `store.put` keys both on
+        // the hash of those bytes and the two Outputs share one Store Key
+        // (#223).
+        const requests = [
+          { source, width: 1080, height: 1080 },
+          { source, width: 1080, height: 1080, pinTo: "mainSubjectArea" },
+        ];
+        const shared = await store.put(
+          "crops",
+          bytesFor("one crop, two requests"),
+          "image/png"
+        );
+        const hashed = (request: unknown) =>
+          records.requestHash(mine.brand, "crop", request);
+
+        const recorded: Output[] = [];
+        for (const request of requests) {
+          const call = await records.calls.record({
+            callerId: mine.callerId,
+            brand: mine.brand,
+            kind: "crop",
+            status: "ok",
+          });
+          recorded.push(
+            await records.outputs.record({
+              brand: mine.brand,
+              storeKey: shared.key,
+              callId: call.id,
+              kind: "crop",
+              requestHash: hashed(request),
+            })
+          );
+        }
+
+        // Two rows, and the Gallery lists both: the second request is not a
+        // Replay of the first, so answering it with the first Output would be
+        // answering a question nobody asked.
+        const gallery = await records.outputs.list({
+          brand: mine.brand,
+          limit: 10,
+        });
+        strictEqual(gallery.rows.length, 2);
+        deepStrictEqual(
+          [...gallery.rows.map((one) => one.requestHash)].sort(),
+          [...requests.map(hashed)].sort()
+        );
+        for (const [index, request] of requests.entries()) {
+          deepStrictEqual(
+            await records.outputs.byRequest(mine.brand, hashed(request)),
+            recorded[index]
+          );
+        }
+
+        // Recording the same Request Hash again is the Output it already made.
+        // The gateway asks `byRequest` first, but two equal requests in flight
+        // at once both miss, and the loser must not be a 500.
+        const again = await records.outputs.record({
+          brand: mine.brand,
+          storeKey: shared.key,
+          callId: recorded[1]?.callId ?? "",
+          kind: "crop",
+          requestHash: hashed(requests[0]),
+        });
+        deepStrictEqual(again, recorded[0]);
+        strictEqual(
+          (await records.outputs.list({ brand: mine.brand, limit: 10 })).rows
+            .length,
+          2
+        );
+
+        // The Reference Count is rows on the key, so deleting the key takes
+        // both rows and the bytes go once.
+        const deleted = await records.outputs.delete(mine.brand, shared.key);
+
+        strictEqual(deleted.deleted, true);
+        strictEqual(deleted.bytesDeleted, true);
+        deepStrictEqual(store.deletes, [shared.key]);
+        strictEqual(await store.head(shared.key), null);
+        deepStrictEqual(
+          (await records.outputs.list({ brand: mine.brand, limit: 10 })).rows,
+          []
         );
       },
     },

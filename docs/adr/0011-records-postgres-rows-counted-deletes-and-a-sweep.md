@@ -24,7 +24,7 @@ The contracts Annotation is stored whole in `annotations.annotation`, parsed wit
 
 ## Decision 3 — records counts, the store deletes
 
-`outputs` is keyed `(brand, store_key)`. Two Brands with byte-identical Crops are two rows on one public key, because ADR-0010 keeps the Brand out of public keys. `outputs.delete` removes the row and calls `store.delete` only when no row is left on that key, in one transaction. The alternative, never deleting bytes, would make "delete my Crop" a sentence meco cannot say honestly. The same count guards a Person's two enrolments of one file.
+`outputs` is keyed `(brand, request_hash)` and `store_key` is a column. A Store Key is not unique and never was: ADR-0010 keeps the Brand out of public keys, so two Brands with byte-identical Crops are two rows on one key — and, amended on [#223](https://github.com/timschoch/meco/issues/223), so are one Brand's two requests that produce the same bytes, which the original key refused with a primary-key error the gateway answered as a `500`. The key is what the Replay reads, so `record` is idempotent on it. `outputs.delete` removes the Brand's rows on the key and calls `store.delete` only when no row is left on it, in one transaction. The alternative, never deleting bytes, would make "delete my Crop" a sentence meco cannot say honestly. The same count guards a Person's two enrolments of one file.
 
 Source Images are shared private bytes, so who may see one is not in the key. A `sources (brand, hash)` row, the Source Hold, is the fact the gateway checks before minting a Signed URL. It is its own table and not a scan of `calls`, because a Call is also a thing a Brand may delete.
 

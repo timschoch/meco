@@ -243,7 +243,7 @@ type ListedCallRow = CallRow & { readonly cursorAt: string };
 
 const keysetOf = (row: ListedCallRow): Keyset => ({
   at: row.cursorAt,
-  tiebreak: row.id,
+  tiebreak: [row.id],
 });
 
 export function callsOver(driver: DatabaseDriver): Calls {
@@ -301,7 +301,7 @@ export function callsOver(driver: DatabaseDriver): Calls {
           : eq(calls.status, asCallStatus(query.status)),
         query.cursor === undefined
           ? undefined
-          : olderThan(calls.startedAt, calls.id, decodeCursor(query.cursor)),
+          : olderThan(calls.startedAt, [calls.id], decodeCursor(query.cursor)),
       ].filter((one) => one !== undefined);
 
       const rows = await orm
