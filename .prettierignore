@@ -8,6 +8,7 @@ skills-lock.json
 # generated or byte-exact — reformatting them is a defect
 pnpm-lock.yaml
 fixtures/**
+packages/frame/tests/fixtures/**
 packages/records/drizzle/**
 packages/records/migrations.generated.ts
 

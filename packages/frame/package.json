@@ -6,7 +6,13 @@
   "exports": {
     ".": "./index.ts"
   },
+  "scripts": {
+    "record": "node tests/record.build.mjs && node dist/record/record.js"
+  },
   "dependencies": {
     "@meco/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

@@ -13,6 +13,7 @@ import {
 
 const SQUARE = { width: 1080, height: 1080 };
 const FACE_ONLY = { pinTo: ["face"] };
+const KART_ONLY = { pinTo: ["kart"] };
 
 /** Whether a box, in source fractions, lies inside a window. Whole pixels, no slack. */
 const holds = (
@@ -324,27 +325,40 @@ describe("the window, whichever rung ran", () => {
   }
 });
 
-describe("the recordings reach every rung", () => {
-  it("answers on all four, and on none at all", () => {
-    const reached = new Set(
+/** Which rungs the nine recordings reach at the four shapes, on one ladder. */
+const rungsReached = (extra: Record<string, unknown>): string[] =>
+  [
+    ...new Set(
       [...FACE_FIXTURES, ...KART_FIXTURES].flatMap((fixture) => {
         const annotation = Annotation.parse(fixture.raw);
 
         return TARGETS.map(
           ({ target }) =>
-            frameCrop({ annotation, request: requestFor(target) }).fallback ??
-            "none"
+            frameCrop({ annotation, request: requestFor(target, extra) })
+              .fallback ?? "none"
         );
       })
-    );
+    ),
+  ].sort();
 
-    expect([...reached].sort()).toEqual([
-      "clip",
-      "drop",
-      "none",
-      "relax",
-      "zoom-out",
-    ]);
+/**
+ * Each ladder's own set, asserted whole rather than unioned. A union would
+ * pass on one ladder reaching everything and the other reaching nothing, and
+ * these two reach different rungs on purpose.
+ *
+ * `clip` is only reached by a Subject no window of the target shape can hold,
+ * and on these nine photographs that is the kart union — which the default
+ * ladder does not compose, because the face rung answers first on a recording
+ * that carries faces. `zoom-out` is the other way round: only the default
+ * ladder reaches it.
+ */
+describe("the recordings reach every rung", () => {
+  it("reaches four of the five on the default ladder", () => {
+    expect(rungsReached({})).toEqual(["drop", "none", "relax", "zoom-out"]);
+  });
+
+  it("reaches the fifth, `clip`, on the kart rung", () => {
+    expect(rungsReached(KART_ONLY)).toEqual(["clip", "drop", "none", "relax"]);
   });
 });
 
@@ -355,6 +369,14 @@ describe("the recordings reach every rung", () => {
  *
  * This is the other half of the partition. Uniqueness alone would pass a
  * Framing that quietly lost a Region from both lists.
+ *
+ * The kart entries name their rung. Five of the six karting photographs carry
+ * a face since #109 re-recorded them through the whole Catalogue — YuNet finds
+ * the driver's head through a visor at 0.65 and 0.81 — and `face` precedes
+ * `kart` in `DEFAULT_PIN_TO`, so the default ladder answers them on the face
+ * rung. Which rung the default reaches is `pinTo`'s promise and is asserted in
+ * `face.test.ts` and `kart.test.ts`; this check is about the partition, so it
+ * asks each fixture the rung whose composition it wrote down.
  */
 const COMPOSED_ON = [
   ...FACE_FIXTURES.map((fixture) => {
@@ -366,6 +388,7 @@ const COMPOSED_ON = [
     return {
       name: fixture.name,
       annotation,
+      ladder: {},
       keptRegionIds: [
         fixture.leadRegionId,
         ...faces.filter((id) => id !== fixture.leadRegionId),
@@ -375,15 +398,19 @@ const COMPOSED_ON = [
   ...KART_FIXTURES.map((fixture) => ({
     name: fixture.name,
     annotation: Annotation.parse(fixture.raw),
+    ladder: KART_ONLY,
     keptRegionIds: fixture.keptRegionIds,
   })),
 ];
 
 describe("kept and dropped partition the Regions the rung composed on", () => {
-  for (const { name, annotation, keptRegionIds } of COMPOSED_ON) {
+  for (const { name, annotation, ladder, keptRegionIds } of COMPOSED_ON) {
     for (const { name: shape, target } of TARGETS) {
       it(`loses nobody and doubles nobody: ${name} at ${shape}`, () => {
-        const framing = frameCrop({ annotation, request: requestFor(target) });
+        const framing = frameCrop({
+          annotation,
+          request: requestFor(target, ladder),
+        });
         const both = [...framing.keptRegionIds, ...framing.droppedRegionIds];
 
         expect(new Set(both).size).toBe(both.length);
