@@ -12,10 +12,26 @@
 import { createHash } from "node:crypto";
 import { MAX_OBJECT_BYTES, type Store } from "@meco/store";
 import type { Records } from "@meco/records";
+import { z } from "zod";
 import { GatewayError } from "./errors";
 import type { Trace } from "./trace";
 
-export type SourceReference = { url: string } | { hash: string };
+/** How a request names a Source Image: by URL, or by a Content Hash it already sent. */
+export const SourceReference = z.union([
+  z.object({
+    url: z
+      .url({ protocol: /^https$/ })
+      .describe("An https URL the gateway fetches and files."),
+  }),
+  z.object({
+    hash: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .describe("The Content Hash of bytes this Brand already sent."),
+  }),
+]);
+
+export type SourceReference = z.infer<typeof SourceReference>;
 
 /** A Source Image the pipeline may run: its hash now, its bytes on demand. */
 export interface ResolvedSource {
@@ -75,7 +91,7 @@ async function fetchBytes(
     await response.body?.cancel();
     throw tooLarge(url);
   }
-  if (response.body === null) return new Uint8Array(0);
+  if (response.body === null) throw unfetchable(url, "it answered no bytes");
 
   // By the stream as well: a host that lies about, or omits, `Content-Length`
   // must not hand the gateway a runaway body.
@@ -97,6 +113,7 @@ async function fetchBytes(
     }
     throw unfetchable(url, "its body broke off", { cause: error });
   }
+  if (total === 0) throw unfetchable(url, "it answered no bytes");
   const bytes = new Uint8Array(total);
   let at = 0;
   for (const chunk of chunks) {
@@ -120,7 +137,9 @@ export async function resolveSource(
     return { hash, bytes: async () => bytes };
   }
 
-  const held = await deps.records.sources.heldBy(brand, source.hash);
+  const held = await trace.step("records.sources.heldBy", () =>
+    deps.records.sources.heldBy(brand, source.hash)
+  );
   if (!held) {
     throw new GatewayError(
       "not_found",

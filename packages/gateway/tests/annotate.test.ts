@@ -166,6 +166,7 @@ describe("a { hash } Source Reference", () => {
       expect(byHash.body.annotation?.hash).toBe(HASH);
       expect(one.photosSeen).toHaveLength(1);
       expect(stepNames(recorded)).toEqual([
+        "records.sources.heldBy",
         "records.annotations.get",
         "records.sources.hold",
       ]);
@@ -194,7 +195,8 @@ describe("a { hash } Source Reference", () => {
 
       expect(status).toBe(200);
       expect(one.photosSeen).toEqual([]);
-      expect(stepNames(recorded).slice(0, 3)).toEqual([
+      expect(stepNames(recorded).slice(0, 4)).toEqual([
+        "records.sources.heldBy",
         "records.annotations.get",
         "store.get",
         "models.annotate",

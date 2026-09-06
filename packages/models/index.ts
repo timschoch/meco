@@ -7,7 +7,7 @@ export {
   ModelsError,
   type Annotated,
   type FetchLike,
-  type ModelsStage,
+  type ServerTimingEntry,
   type ModelsClient,
   type ModelsClientOptions,
   type ModelsErrorCode,

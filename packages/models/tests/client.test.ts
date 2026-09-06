@@ -76,7 +76,7 @@ describe("the client over the app", async () => {
   });
 
   it("hands the host's Server-Timing back as stages beside the Annotation", async () => {
-    const { annotation, timing } = await overApp.annotateTimed(bytes, {
+    const { annotation, serverTiming } = await overApp.annotateTimed(bytes, {
       hash: sha256(bytes),
     });
 
@@ -84,19 +84,19 @@ describe("the client over the app", async () => {
     // `decode` first, then one stage per Model in Catalogue order: the header
     // is the host's own clock, and the client reads it rather than timing the
     // hop itself.
-    expect(timing.map((t) => t.stage)).toEqual([
+    expect(serverTiming.map((t) => t.name)).toEqual([
       "decode",
       ...annotation.producedBy.map((m) => m.name),
     ]);
-    for (const { durMs } of timing) expect(durMs).toBeGreaterThanOrEqual(0);
+    for (const { durMs } of serverTiming) expect(durMs).toBeGreaterThanOrEqual(0);
   });
 
   it("reads no stages off an answer with no Server-Timing header", async () => {
     const silent = client(
       answers(JSON.stringify(await overApp.annotate(bytes)), { status: 200 })
     );
-    const { timing } = await silent.annotateTimed(bytes);
-    expect(timing).toEqual([]);
+    const { serverTiming } = await silent.annotateTimed(bytes);
+    expect(serverTiming).toEqual([]);
   });
 
   it("lists the Catalogue with each Model's licence id", async () => {

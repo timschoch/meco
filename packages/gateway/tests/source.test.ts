@@ -82,6 +82,20 @@ describe("a { url } Source Reference the gateway cannot use", () => {
   );
 
   it(
+    "is 422 source_unfetchable on a 200 with no bytes, never a models refusal",
+    async () => {
+      const one = await stack({
+        photos: hostAnswering(async () => new Response(null, { status: 200 })),
+      });
+      const { status, body } = await annotate(one.app(), `${PHOTOS}/${FILE}`);
+      expect(status).toBe(422);
+      expect(body.error?.code).toBe("source_unfetchable");
+      expect(one.modelsSeen).toEqual([]);
+    },
+    TIMEOUT
+  );
+
+  it(
     "is 413 too_large on Content-Length alone, without reading a byte of the body",
     async () => {
       let read = false;

@@ -13,7 +13,7 @@ import { type Annotation, type ModelId, isComplete } from "@meco/contracts";
 import type { ModelsClient } from "@meco/models";
 import type { Records } from "@meco/records";
 import type { Store } from "@meco/store";
-import { GatewayError } from "./errors";
+import { modelsUnbound } from "./catalogue";
 import type { ResolvedSource } from "./source";
 import type { Trace } from "./trace";
 
@@ -21,7 +21,7 @@ export interface AnnotateDeps {
   readonly records: Records;
   readonly store: Store;
   readonly models: ModelsClient | null;
-  /** The Models the cache must be complete for; `null` until models answered. */
+  /** The Models the cache must be complete for; rejects until models answered. */
   catalogue(): Promise<readonly ModelId[]>;
 }
 
@@ -42,19 +42,14 @@ export async function annotationOf(
     annotation = cached;
   } else {
     const models = deps.models;
-    if (models === null) {
-      throw new GatewayError(
-        "models_unavailable",
-        "MODELS_URL is not set, so no Model can run"
-      );
-    }
+    if (models === null) throw modelsUnbound();
     const bytes = await source.bytes();
-    const { annotation: fresh, timing } = await trace.step(
+    const { annotation: fresh, serverTiming } = await trace.step(
       "models.annotate",
       () => models.annotateTimed(bytes, { hash })
     );
-    for (const { stage, durMs } of timing) {
-      trace.add({ name: `models.${stage}`, durMs });
+    for (const { name, durMs } of serverTiming) {
+      trace.add({ name: `models.${name}`, durMs });
     }
     annotation = fresh;
 
@@ -85,12 +80,4 @@ export async function annotationOf(
     deps.records.sources.hold(brand, hash)
   );
   return annotation;
-}
-
-/** The Annotation as the wire may carry it: no Face Print on any Region. */
-export function withoutPrints(annotation: Annotation): Annotation {
-  return {
-    ...annotation,
-    regions: annotation.regions.map(({ facePrint: _print, ...region }) => region),
-  };
 }

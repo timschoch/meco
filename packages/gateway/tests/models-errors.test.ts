@@ -172,7 +172,9 @@ describe("the pipeline without a Catalogue", () => {
           const { pathname } = new URL(request.url);
           if (pathname === "/models" && cold) {
             cold = false;
-            throw new Error("connection refused");
+            // Not even a wire error: a Catalogue the client cannot parse is
+            // still no Catalogue, and the pipeline says so with one code.
+            return new Response("<html>starting</html>", { status: 200 });
           }
           const res = await inner.fetch(request);
           seen.push(...inner.seen.splice(0));

@@ -177,7 +177,7 @@ const prints = (value: unknown): number => {
 const stepsOn = (html: string): string[] =>
   [...html.matchAll(/class="step-name"[^>]*>([^<]+)</g)].map((m) => m[1] ?? "");
 
-type Annotated = {
+type AnnotateAnswer = {
   call?: { id: string };
   annotation?: { hash: string; regions: { kind: string }[]; producedBy: unknown[] };
   error?: { code: string; message: string };
@@ -189,7 +189,7 @@ for (const round of ["first", "second"] as const) {
     brand,
     source: { url: sourceUrl },
   });
-  const body = answer.body as Annotated;
+  const body = answer.body as AnnotateAnswer;
   line(
     answer.status === 200 && body.call?.id !== undefined,
     `POST /v1/annotate (${round}) -> ${answer.status} in ${answer.ms.toFixed(0)} ms, call ${body.call?.id ?? "-"}, hash ${body.annotation?.hash ?? "-"}, ${body.annotation?.regions.length ?? 0} regions, producedBy ${JSON.stringify(body.annotation?.producedBy ?? [])}`

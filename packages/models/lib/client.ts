@@ -46,18 +46,18 @@ export class ModelsError extends Error {
 export type FetchLike = (request: Request) => Response | Promise<Response>;
 
 /**
- * One stage of the host's own clock on one `/annotate`: `decode`, then one
- * per Model in the order they ran, read off `Server-Timing`. Never inside the
+ * One entry of the `Server-Timing` header on one `/annotate`: the host's own
+ * clock, `decode` then one per Model in the order they ran. Never inside the
  * Annotation; the gateway files each as a Step.
  */
-export interface ModelsStage {
-  readonly stage: string;
+export interface ServerTimingEntry {
+  readonly name: string;
   readonly durMs: number;
 }
 
 export interface Annotated {
   readonly annotation: Annotation;
-  readonly timing: readonly ModelsStage[];
+  readonly serverTiming: readonly ServerTimingEntry[];
 }
 
 export interface ModelsClient {
@@ -88,18 +88,18 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  * `decode;dur=12.3, yunet;dur=28.1` as stages, in the header's order. An
  * entry without a `dur` is not a stage of the host's clock and is skipped.
  */
-function stages(header: string | null): ModelsStage[] {
+function serverTiming(header: string | null): ServerTimingEntry[] {
   if (header === null) return [];
-  const found: ModelsStage[] = [];
+  const found: ServerTimingEntry[] = [];
   for (const entry of header.split(",")) {
-    const [stage, ...params] = entry.trim().split(";");
+    const [name, ...params] = entry.trim().split(";");
     const dur = params
       .map((p) => p.trim())
       .find((p) => p.startsWith("dur="))
       ?.slice(4);
-    if (!stage || dur === undefined) continue;
+    if (!name || dur === undefined) continue;
     const durMs = Number(dur);
-    if (Number.isFinite(durMs)) found.push({ stage, durMs });
+    if (Number.isFinite(durMs)) found.push({ name, durMs });
   }
   return found;
 }
@@ -236,7 +236,10 @@ export function createModelsClient(options: ModelsClientOptions): ModelsClient {
         status
       );
     }
-    return { annotation, timing: stages(headers.get("server-timing")) };
+    return {
+      annotation,
+      serverTiming: serverTiming(headers.get("server-timing")),
+    };
   };
 
   return {

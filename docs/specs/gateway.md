@@ -83,7 +83,7 @@ Dropped from the prototype: `/v1/carousel` (out of compose v1), `/v1/gallery` (w
 
 ### Inputs
 
-- **Source Reference**: `source: { url } | { hash }`. `url` is `https:` only, fetched with the gateway's `fetch`, `Content-Length` and the stream bounded at the store's `MAX_OBJECT_BYTES`, refused with `source_unfetchable` (422) on any non-2xx, timeout (30 s) or over-size, hashed, `store.put("sources")`, `files.ensure`, `sources.hold(brand, hash)`. `hash` requires `sources.heldBy(brand, hash)`, else `404 not_found`: a Brand may not name bytes it never sent, and the answer does not say whether the bytes exist.
+- **Source Reference**: `source: { url } | { hash }`. `url` is `https:` only, fetched with the gateway's `fetch`, `Content-Length` and the stream bounded at the store's `MAX_OBJECT_BYTES`, refused with `source_unfetchable` (422) on any non-2xx, timeout (30 s) or empty body and with `too_large` (413) over the bound, hashed, then filed: `store.put("sources")` and `files.ensure` on the first sight of the bytes (the pipeline row below says when), `sources.hold(brand, hash)` on every call. `hash` requires `sources.heldBy(brand, hash)`, else `404 not_found`: a Brand may not name bytes it never sent, and the answer does not say whether the bytes exist.
 - **Framing options**, shared by `render` and `crop`, all optional at the door: `pinTo` (default `DEFAULT_PIN_TO`), `persons`, `anchor`, `subjectArea` (crop only; render takes it from the Plan), `redaction.blurUnknownFaces` (default **true**), `format`, `quality`. `occlusion` is never an input: it comes from compose's Plan, or is empty for a Crop. The FramingRequest is built at the door and validated with contracts' schema before frame sees it, so a 17th Occlusion Zone or a bad ladder is a `400` from the contract itself.
 - **`render`**: `template`, `placement`, `fields` (validated by compose, refused as `invalid_fields`), `brand`.
 - **`crop`**: `brand`, `width`, `height`.
@@ -115,7 +115,7 @@ The decode happens once, after frame, because frame needs no pixel and a Replay 
 ### Responses
 
 - `render`, `crop`: `{ output: { url, key, kind, placement?, width, height, mime, bytes }, call: { id, replayed }, framing: Framing, faces: FaceReport[] }`. `FaceReport = { regionId, verdict, personId?, similarity?, hidden, inFrame }`: `verdict` from identify's Face Verdict, `hidden` when the Region id is in the Redaction Records, `inFrame` when `projectIntoFrame(framing, region.box)` intersects the unit box. A Replay answers the stored Output and `replayed: true`; `framing` and `faces` come from the replayed Call.
-- `annotate`: `{ call: { id }, annotation, identification }`, `annotation.regions[].facePrint` removed.
+- `annotate`: `{ call: { id }, annotation, identification }`, `annotation.regions[].facePrint` removed. `identification` lands with the render ticket (#183), which wires identify in; until then the field is absent and the Call's `matches` is empty (decision on #88).
 - `list_*`: `{ items: [...] }`, on both Doors. An object and not a bare array, because the MCP protocol types `structuredContent` as an object and the two Doors answer one shape (decided on #181). `erase_person`: records' Erasure with the empty listing.
 - MCP: every result is `content: [{ type: "text", text: JSON }]` plus `structuredContent` with the same object; every error `isError: true` with the same `{ error }` JSON as text.
 
@@ -159,7 +159,7 @@ The Call's `error` is `{ module, code, message }`; `module` is not on the wire. 
 
 ### Boot
 
-`server.ts`: `neonDatabase(RECORDS_DATABASE_URL_UNPOOLED)`, `blobStore()`, `createModelsClient({ baseUrl: MODELS_URL })`, `records.migrate()` (a failed migration is a failed boot), `models.catalogue()` for `CATALOGUE` (retried while models is cold; the gateway serves `/health` meanwhile and answers `503 models_unavailable` on the pipeline until it has a Catalogue), then `serve`.
+`server.ts`: `neonDatabase(RECORDS_DATABASE_URL_UNPOOLED)`, `blobStore()`, `createModelsClient({ baseUrl: MODELS_URL })`, `records.migrate()` (a failed migration is a failed boot), then `serve`. `CATALOGUE` is not read at boot: the first pipeline request asks `models.catalogue()` and the answer is memoised, a failure forgotten, so a cold models is retried by the next request and no timer; the gateway serves `/health` meanwhile and answers `503 models_unavailable` on the pipeline until it has a Catalogue (whatever models answered instead, a `bad_response` included).
 
 ### Configuration
 
