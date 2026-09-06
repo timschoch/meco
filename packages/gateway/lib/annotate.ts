@@ -10,14 +10,11 @@
  * (ADR-0014, Decision 3).
  */
 import { type Annotation, type ModelId, isComplete } from "@meco/contracts";
-import {
-  type AnnotateSource,
-  ModelsError,
-  type ModelsClient,
-} from "@meco/models";
+import { ModelsError, type ModelsClient } from "@meco/models";
 import type { Records } from "@meco/records";
 import { MAX_SIGNED_URL_SECONDS, type Store } from "@meco/store";
 import { modelsUnbound } from "./catalogue";
+import { imageFacts } from "./decode";
 import type { ResolvedSource } from "./source";
 import type { Trace } from "./trace";
 
@@ -88,57 +85,52 @@ export async function annotationOf(
     const models = deps.models;
     if (models === null) throw modelsUnbound();
 
-    // Which carrier, decided by where the bytes are rather than by their size.
-    // Already filed: a Signed URL, so the photograph crosses the binding once
-    // and at any size — bytes in the body meet the platform's 4.5 MB limit,
-    // measured on #201. Only in this process: the bytes, which are already
-    // here and cannot be filed until models has named the media type.
-    const key = await source.storeKey();
-    const carrier: AnnotateSource =
-      key === null
-        ? await source.bytes()
-        : {
-            url: await trace.step("store.signedUrl", () =>
-              deps.store.signedUrl(key, {
-                expiresInSeconds: SOURCE_URL_SECONDS,
-              })
-            ),
-          };
+    // One carrier, whatever the photograph's size or where it came from: a
+    // Signed URL, which models fetches for itself. Bytes in the body meet the
+    // platform's 4.5 MB service-binding cap, measured on #201, and an ordinary
+    // phone photograph is over it — so the body shape cannot be the pipeline's,
+    // and a size cutover would only decide which requests fail.
+    //
+    // A `{ url }` Source Reference is therefore filed here, before models sees
+    // it, rather than after. What names the media type is `imageFacts`, the
+    // gateway's own `metadata()` read — the same three lines `POST /v1/sources`
+    // runs, so the File a fetched photograph gets and the File an uploaded one
+    // gets are written from one reading. Bytes no decoder can read never reach
+    // the store: `imageFacts` refuses them as `unsupported_mime` first.
+    let key = await source.storeKey();
+    if (key === null) {
+      const bytes = await source.bytes();
+      const facts = await trace.step("source.facts", () => imageFacts(bytes));
+      const put = await trace.step("store.put", () =>
+        deps.store.put("sources", bytes, facts.mime)
+      );
+      await trace.step("records.files.ensure", () =>
+        deps.records.files.ensure({
+          hash,
+          mime: facts.mime,
+          width: facts.width,
+          height: facts.height,
+          bytes: bytes.byteLength,
+          storeKey: put.key,
+        })
+      );
+      key = put.key;
+    }
 
-    const { annotation: fresh, serverTiming } = await trace.step(
-      "models.annotate",
-      () => models.annotateTimed(carrier, { hash })
-    ).catch(async (failure: unknown) => {
-      throw key === null ? failure : await diagnosed(deps, key, hash, failure);
-    });
+    const url = await trace.step("store.signedUrl", () =>
+      deps.store.signedUrl(key, { expiresInSeconds: SOURCE_URL_SECONDS })
+    );
+
+    const { annotation: fresh, serverTiming } = await trace
+      .step("models.annotate", () => models.annotateTimed({ url }, { hash }))
+      .catch(async (failure: unknown) => {
+        throw await diagnosed(deps, key, hash, failure);
+      });
     for (const { name, durMs } of serverTiming) {
       trace.add({ name: `models.${name}`, durMs });
     }
     annotation = fresh;
 
-    // The File after the Annotation, because its width, height and mime are
-    // what the decoder read off the bytes. Bytes models refused are never
-    // filed. Nothing to file when the carrier was a URL: those bytes are in
-    // the store already and their File row is what the key was read from, and
-    // `files.ensure` is `onConflictDoNothing`, so it could add nothing.
-    if (key === null) {
-      // Already in hand and memoised by the resolver, so this is the same
-      // read the carrier made and not a second one.
-      const bytes = await source.bytes();
-      const put = await trace.step("store.put", () =>
-        deps.store.put("sources", bytes, annotation.mime)
-      );
-      await trace.step("records.files.ensure", () =>
-        deps.records.files.ensure({
-          hash,
-          mime: annotation.mime,
-          width: annotation.width,
-          height: annotation.height,
-          bytes: bytes.byteLength,
-          storeKey: put.key,
-        })
-      );
-    }
     await trace.step("records.annotations.put", () =>
       deps.records.annotations.put(annotation)
     );

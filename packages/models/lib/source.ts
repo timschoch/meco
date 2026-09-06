@@ -83,8 +83,15 @@ export function parseUrlBody(text: string): AnnotateUrl {
   return parsed.data;
 }
 
+/** One fetch's answer and how many requests it took to get there. */
+interface Answered {
+  readonly response: Response;
+  /** 1 when the first request answered; 2 and up means it redirected. */
+  readonly hops: number;
+}
+
 /** The URL's answer, following redirects by hand so every hop is checked. */
-async function answered(call: FetchSource, url: string): Promise<Response> {
+async function answered(call: FetchSource, url: string): Promise<Answered> {
   const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
   let at = url;
 
@@ -111,7 +118,7 @@ async function answered(call: FetchSource, url: string): Promise<Response> {
       await response.body?.cancel();
       throw unfetchable(url, `it answered ${response.status}`);
     }
-    return response;
+    return { response, hops: hop + 1 };
   }
   throw unfetchable(url, `it redirected more than ${MAX_REDIRECTS} times`);
 }
@@ -123,11 +130,22 @@ async function answered(call: FetchSource, url: string): Promise<Response> {
  * `hash` is of what this host fetched and the client's `hash_mismatch` still
  * proves the carrier moved the photograph intact.
  */
+export interface FetchedSource {
+  readonly bytes: Uint8Array;
+  /**
+   * How many requests the fetch took. 1 means the URL served the object
+   * itself. Reported so the open question of whether a Signed URL redirects
+   * is answered by a number from the running system rather than by a guess:
+   * if it is always 1, the hop loop can go.
+   */
+  readonly hops: number;
+}
+
 export async function fetchSource(
   call: FetchSource,
   url: string
-): Promise<Uint8Array> {
-  const response = await answered(call, url);
+): Promise<FetchedSource> {
+  const { response, hops } = await answered(call, url);
 
   // Cancelled and not merely dropped on every refusal below: an abandoned
   // body holds the connection open while the far side keeps sending, and a
@@ -148,5 +166,5 @@ export async function fetchSource(
     throw unfetchable(url, "its body broke off", { cause });
   }
   if (bytes.byteLength === 0) throw unfetchable(url, "it answered no bytes");
-  return bytes;
+  return { bytes, hops };
 }
