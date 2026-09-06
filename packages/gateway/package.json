@@ -9,14 +9,19 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.7",
+    "@meco/compose": "workspace:*",
     "@meco/contracts": "workspace:*",
+    "@meco/models": "workspace:*",
     "@meco/records": "workspace:*",
     "@meco/store": "workspace:*",
     "@meco/webui": "workspace:*",
-    "hono": "^4.10.7"
+    "@modelcontextprotocol/server": "^2.0.0",
+    "hono": "^4.10.7",
+    "zod": "^4.5.4"
   },
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "probe": "node scripts/probe.build.mjs && node dist/probe/probe.js"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
