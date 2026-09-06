@@ -50,10 +50,11 @@ describe("the client over the app", async () => {
 
     expect(Annotation.parse(annotation)).toEqual(annotation);
     expect(annotation.hash).toBe(sha256(bytes));
-    // Every Catalogue entry, read off the Catalogue: a Model added to it is a
-    // Model the client is expected to carry, not a test to edit.
+    // Every Catalogue entry, read off the Catalogue in the order it runs: a
+    // Model added to it is one the client is expected to carry, not a test to
+    // edit.
     expect(annotation.producedBy).toEqual(
-      catalogue.detectors.map((d) => d.model)
+      [...catalogue.detectors, ...catalogue.enrichers].map((e) => e.model)
     );
     expect(annotation.regions).not.toHaveLength(0);
   });
