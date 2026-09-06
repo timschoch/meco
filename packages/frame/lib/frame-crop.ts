@@ -1,4 +1,9 @@
-import { DEFAULT_ANCHOR, type Annotation, type Region } from "@meco/contracts";
+import {
+  DEFAULT_ANCHOR,
+  type Annotation,
+  type Region,
+  type Size,
+} from "@meco/contracts";
 import { centreOf } from "./boxes";
 import { eyeLineOf, eyeLinePlacement, headroomZoom } from "./eye-line";
 import {
@@ -7,7 +12,12 @@ import {
   clearOfZones,
   freeArea,
 } from "./free-area";
-import { MAX_OCCLUSION_ZONES, type FrameInput, type Framing } from "./framing";
+import {
+  MAX_OCCLUSION_ZONES,
+  type CropWindow,
+  type FrameInput,
+  type Framing,
+} from "./framing";
 import { goldenAim } from "./golden-lines";
 import { climbLadder, type KeptRegion, type LadderOutcome } from "./ladder";
 import { composeSubject } from "./subject";
@@ -45,6 +55,14 @@ const leadRegion = (
   leadRegionId === undefined
     ? undefined
     : annotation.regions.find((region) => region.id === leadRegionId);
+
+/**
+ * How much the window is resampled by to fill the target. The two axes agree
+ * up to the window's whole-pixel rounding; the larger ratio is the one a
+ * resampler has to make up, so it is the one reported.
+ */
+const scaleOf = (window: CropWindow, target: Size): number =>
+  Math.max(target.width / window.width, target.height / window.height);
 
 /**
  * The whole module. Subject composition, the ladder, the Golden Lines, the Eye
@@ -205,10 +223,13 @@ export function frameCrop(input: FrameInput): Framing {
         });
 
   const cropWindow = climbed.window;
+  const scale = scaleOf(cropWindow, request.target);
 
   return {
     window: cropWindow,
     windowFraction: toFraction(cropWindow, source),
+    scale,
+    ...(scale > 1 ? { lowResolution: true as const } : {}),
     resolvedBy:
       composed?.resolvedBy ??
       (request.anchor === undefined ? "center" : "anchor"),
