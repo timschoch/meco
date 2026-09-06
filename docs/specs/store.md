@@ -124,7 +124,9 @@ The prototype had a second, overwriting verb (`putAt`) because it had no databas
 
 `publicUrl(key)` is arithmetic, not a lookup: `https://<store id, lowercased, without the store_ prefix>.public.blob.vercel-storage.com/<key>`. Verified against the live account on 6 Sep 2026 with `vercel blob list`. It throws for a private key, because a private key has no such URL and returning one would be a lie a caller could publish.
 
-`signedUrl(key, { expiresInSeconds })` throws for a public key, defaults to 300 seconds and refuses more. Vercel caps `validUntil` at seven days; meco caps at five minutes, because the only use is showing one private object to the caller who just asked for it.
+`signedUrl(key, { expiresInSeconds })` throws for a public key, defaults to 300 seconds and refuses more. Vercel caps `validUntil` at seven days; meco caps at five minutes, because the only use is showing one private object to the caller who just asked for it. A lifetime outside 1 to 300 whole seconds is refused rather than clamped: a caller that asked for an hour and silently got five minutes would find out when the link died in front of someone. The delegation is scoped to that one pathname and to `get`, so a Signed URL can neither name another object nor write.
+
+The Private Store serves its objects from `https://<store id, lowercased, without the `store_` prefix>.private.blob.vercel-storage.com/<key>` — the same arithmetic as the public host with `private` in place of `public`, measured against `meco-people-eu` on 6 Sep 2026. That URL is never handed out and has no function on the interface. It is what the wall is made of, and the live proof reaches it without guessing: a Signed URL for the object with its query removed **is** the plain URL, so the same URL answers 200 with the identical bytes signed and `403 Forbidden` unsigned.
 
 The Private Store holds two shapes, and they differ in who may see them:
 
@@ -167,29 +169,35 @@ The prototype's `list(prefix)` built the Gallery, because there was no database.
 
 `storeConformance(store, fixtures)` returns named `Check`s that both adapters run. A package's Vitest file maps them: `for (const c of checks) it(c.name, c.run)`.
 
-| Check                                                                                | Mutation that must turn it red                           |
-| ------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| `put` returns a key ending in the sha256 of the bytes                                | truncate the hash to 32 characters, as the prototype did |
-| `get` returns the identical bytes                                                    | return the bytes of a different key                      |
-| writing the same bytes twice returns the same key and `deduped: true` on the second  | drop the `head` check and always write                   |
-| writing different bytes to the same prefix returns different keys                    | key on the prefix alone                                  |
-| the bytes handed to `put` and returned by `get` are the caller's own                 | keep the caller's array instead of copying it            |
-| `get` of a key never written is `null`, not a throw                                  | throw on a miss                                          |
-| `head` of a missing key is `null`; of a present key reports the true size            | report the requested size instead of the stored one      |
-| after `delete`, `get` is `null` and `list(prefix)` no longer names the key           | make `delete` a no-op                                    |
-| deleting a key that is already gone is not an error                                  | throw on a missing key                                   |
-| `list` names every key under the prefix with its size, however many pages that takes | return the first page and never follow the cursor        |
-| `list` names a subtree, so a prefix never matches half a segment                     | match the prefix as a raw string                         |
-| `list` hands its objects back ordered by key                                         | return them in whatever order the backend gave them      |
-| a key with `..`, an empty segment or a leading `/` is refused                        | drop the key validation                                  |
-| bytes over `MAX_OBJECT_BYTES` are refused, with the size in the message              | drop the size check                                      |
-| an unmapped content type is refused                                                  | fall back to a guessed extension                         |
-| `isPrivate` is true for `people/…` and `People/…`, false for `peoples-choice/…`      | make the comparison case-sensitive                       |
-| `isPrivate` is true for `health/…` and false for `health-public/…`                   | map `health-public` private                              |
-| `publicUrl` throws for a private key                                                 | return a URL for any key                                 |
-| `signedUrl` throws for a public key and refuses over 300 seconds                     | drop the cap                                             |
-| a private object's plain URL does not serve the bytes unauthenticated                | write a private key to the public store                  |
-| with no private store configured, a private write throws naming the variable         | fall back to the Public Store                            |
+| Check                                                                                  | Mutation that must turn it red                           |
+| -------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `put` returns a key ending in the sha256 of the bytes                                  | truncate the hash to 32 characters, as the prototype did |
+| `get` returns the identical bytes                                                      | return the bytes of a different key                      |
+| writing the same bytes twice returns the same key and `deduped: true` on the second    | drop the `head` check and always write                   |
+| writing different bytes to the same prefix returns different keys                      | key on the prefix alone                                  |
+| the bytes handed to `put` and returned by `get` are the caller's own                   | keep the caller's array instead of copying it            |
+| `get` of a key never written is `null`, not a throw                                    | throw on a miss                                          |
+| `head` of a missing key is `null`; of a present key reports the true size              | report the requested size instead of the stored one      |
+| after `delete`, `get` is `null` and `list(prefix)` no longer names the key             | make `delete` a no-op                                    |
+| deleting a key that is already gone is not an error                                    | throw on a missing key                                   |
+| `list` names every key under the prefix with its size, however many pages that takes   | return the first page and never follow the cursor        |
+| `list` names a subtree, so a prefix never matches half a segment                       | match the prefix as a raw string                         |
+| `list` hands its objects back ordered by key                                           | return them in whatever order the backend gave them      |
+| a key with `..`, an empty segment or a leading `/` is refused                          | drop the key validation                                  |
+| bytes over `MAX_OBJECT_BYTES` are refused, with the size in the message                | drop the size check                                      |
+| an unmapped content type is refused                                                    | fall back to a guessed extension                         |
+| `isPrivate` is true for `people/…` and `People/…`, false for `peoples-choice/…`        | make the comparison case-sensitive                       |
+| `isPrivate` is true for `health/…` and false for `health-public/…`                     | map `health-public` private                              |
+| `publicUrl` names the key under the store's own base URL                               | return a URL that drops or rewrites the key              |
+| `publicUrl` throws for a private key                                                   | return a URL for any key                                 |
+| `signedUrl` throws for a public key and refuses over 300 seconds                       | drop the cap                                             |
+| `signedUrl` names the private key and carries what makes it expire                     | hand back the plain URL                                  |
+| `publicUrl` is byte for byte the URL the SDK returns, and serves the bytes             | drop the store id's lowercasing                          |
+| a private object's plain URL does not serve the bytes unauthenticated                  | write a private key to the public store                  |
+| a Signed URL for that object serves the identical bytes, and stops when its time is up | drop the cap, or sign a wider delegation                 |
+| with no private store configured, a private write throws naming the variable           | fall back to the Public Store                            |
+
+The last three rows are live-only, for the same reason the paging row is: they are properties of a backend. The in-memory adapter mints URLs of the identical shape under its own two `.invalid` hosts, so every arithmetic and refusal row runs on both adapters and the suite is one list; `.invalid` is reserved by RFC 2606 and can never resolve, so an in-memory URL cannot be mistaken for one that serves bytes.
 
 Two adapters, not three. `memoryStore()` runs the suite inside `pnpm check`, in the gate. `blobStore()` runs the identical suite under `pnpm test:store:live`, out of the gate, against a run-scoped throwaway prefix it deletes in a `finally`. The prototype also had a disk adapter, which existed only because there was no other way to run offline. `vercel env pull` now hands a developer real credentials, and a third adapter is a third thing to keep honest.
 

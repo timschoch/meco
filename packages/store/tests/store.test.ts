@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { blobStore, isPrivate, MAX_OBJECT_BYTES, NAMESPACES } from "../index";
+import {
+  blobStore,
+  isPrivate,
+  MAX_OBJECT_BYTES,
+  MAX_SIGNED_URL_SECONDS,
+  NAMESPACES,
+} from "../index";
 
 /** Both stores configured, so a refusal below is never a missing-id refusal. */
 const configured = () =>
@@ -113,6 +119,67 @@ describe("a private write with no Private Store configured", () => {
 
   it("refuses a private read the same way", async () => {
     await expect(noPrivate().get("sources/a.png")).rejects.toThrow(
+      "BLOB_PRIVATE_STORE_ID"
+    );
+  });
+});
+
+describe("publicUrl", () => {
+  /** The two live `fra1` store ids, so the arithmetic is proved on real shapes. */
+  const live = () =>
+    blobStore({
+      env: {
+        BLOB_PUBLIC_STORE_ID: "store_g8k1dqE6AcEmXk6K",
+        BLOB_PRIVATE_STORE_ID: "store_rNFO9fh833veVEUi",
+        BLOB_READ_WRITE_TOKEN: "rw-public",
+        BLOB_PEOPLE_READ_WRITE_TOKEN: "rw-private",
+      },
+    });
+
+  it("is the store id lowercased without its prefix, then the key verbatim", () => {
+    const key = `crops/${"a".repeat(64)}.png`;
+
+    expect(live().publicUrl(key)).toBe(
+      `https://g8k1dqe6acemxk6k.public.blob.vercel-storage.com/${key}`
+    );
+  });
+
+  it("refuses a key whose first segment is no Namespace, before computing a URL", () => {
+    expect(() => live().publicUrl("uploads/a.png")).toThrow(/Namespace/);
+  });
+
+  it("throws naming BLOB_PUBLIC_STORE_ID when the Public Store has no address", () => {
+    const noPublic = blobStore({
+      env: {
+        BLOB_PRIVATE_STORE_ID: "store_private",
+        BLOB_PEOPLE_READ_WRITE_TOKEN: "rw-private",
+      },
+    });
+
+    expect(() => noPublic.publicUrl("crops/a.png")).toThrow(
+      "BLOB_PUBLIC_STORE_ID"
+    );
+  });
+});
+
+describe("signedUrl refuses before it reaches a backend", () => {
+  it("refuses a lifetime over MAX_SIGNED_URL_SECONDS without asking the store", async () => {
+    await expect(
+      configured().signedUrl("people/laica/p_1/a.jpg", {
+        expiresInSeconds: MAX_SIGNED_URL_SECONDS + 1,
+      })
+    ).rejects.toThrow(String(MAX_SIGNED_URL_SECONDS));
+  });
+
+  it("throws naming BLOB_PRIVATE_STORE_ID when the Private Store has no address", async () => {
+    const noPrivate = blobStore({
+      env: {
+        BLOB_PUBLIC_STORE_ID: "store_public",
+        BLOB_READ_WRITE_TOKEN: "rw-public",
+      },
+    });
+
+    await expect(noPrivate.signedUrl("people/laica/p_1/a.jpg")).rejects.toThrow(
       "BLOB_PRIVATE_STORE_ID"
     );
   });
