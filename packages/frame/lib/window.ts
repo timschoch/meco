@@ -42,9 +42,43 @@ export function coverWindow(source: Size, target: Size): Size {
 }
 
 /**
+ * The cover window tightened by a zoom.
+ *
+ * A zoom of 1 or below is the cover window itself. Nothing widens a window past
+ * the largest one of that shape the Source Image holds — and this is the only
+ * place that says so, which is what makes an Eye Line a convention about where
+ * a head looks best rather than a licence to widen a Crop the caller asked to
+ * be tight.
+ *
+ * The shorter axis is rounded and the longer one derived from it, so neither
+ * residual against the target shape can pass half a pixel. Rounding the longer
+ * axis first would scale its half-pixel up by the aspect ratio, and rounding
+ * both independently would add the two errors together. The same reasoning, and
+ * the same order, as `windowForArea` in `lib/subject-area.ts`.
+ */
+export function tightenedWindow(
+  cover: Size,
+  zoom: number,
+  target: Size,
+  source: Size
+): Size {
+  if (zoom <= 1) return cover;
+
+  const aspect = target.width / target.height;
+
+  if (aspect >= 1) {
+    const height = roundOntoAxis(cover.height / zoom, source.height);
+    return { width: roundOntoAxis(height * aspect, source.width), height };
+  }
+
+  const width = roundOntoAxis(cover.width / zoom, source.width);
+  return { width, height: roundOntoAxis(width / aspect, source.height) };
+}
+
+/**
  * Where the window starts on one axis, in whole Source Image pixels: the offset
- * that puts the Subject's centre at `aim` of the window, clamped to the Source
- * Image.
+ * that puts `at`, a fraction of the Source Image, at `aim`, a fraction of the
+ * window. Clamped to the Source Image.
  *
  * An axis with no slack clamps to 0, which is the shape's answer rather than
  * this one's: a cover window touches the Source Image on one axis by
@@ -52,44 +86,35 @@ export function coverWindow(source: Size, target: Size): Size {
  * sits against the edge and the aim is simply out of reach.
  */
 const originOnAxis = (
-  subjectCentre: number,
+  at: number,
   sourceExtent: number,
   windowExtent: number,
   aim: number
 ): number =>
   Math.min(
     sourceExtent - windowExtent,
-    Math.max(0, Math.round(subjectCentre * sourceExtent - aim * windowExtent))
+    Math.max(0, Math.round(at * sourceExtent - aim * windowExtent))
   );
 
 /**
- * Puts a window of a given size where the Subject's centre lands on the aim
- * point, a fraction of the window on each axis. The one placement every
- * composed Subject goes through: a Golden Line and a Subject Area disagree
- * about where to aim and about nothing else.
+ * Puts a window of a given size where `at` — a point in Source Image fractions
+ * — lands on the aim point, a fraction of the window on each axis. The one
+ * placement every composed Subject goes through: a Golden Line, a Subject Area
+ * and an Eye Line disagree about where to aim, and an Eye Line about which
+ * point is being aimed, and about nothing else.
  *
  * Each axis is solved on its own, because the two are independent — the aim
  * across says nothing about the aim down.
  */
 export function placeAtAim(
-  subject: Box,
+  at: Point,
   size: Size,
   source: Size,
   aim: Point
 ): CropWindow {
   return {
-    x: originOnAxis(
-      subject.x + subject.width / 2,
-      source.width,
-      size.width,
-      aim.x
-    ),
-    y: originOnAxis(
-      subject.y + subject.height / 2,
-      source.height,
-      size.height,
-      aim.y
-    ),
+    x: originOnAxis(at.x, source.width, size.width, aim.x),
+    y: originOnAxis(at.y, source.height, size.height, aim.y),
     width: size.width,
     height: size.height,
   };

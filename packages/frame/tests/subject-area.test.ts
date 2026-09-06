@@ -316,8 +316,11 @@ describe("the window a Subject Area sized, whatever the shapes", () => {
 
     it(`is never larger than the cover window: ${name}`, () => {
       const { window } = frame();
+      // Read off an Annotation with no Region at all, so that nothing composes
+      // and nothing sizes: the same face without an area would be tightened by
+      // its own Eye Line and would not be a cover window to measure against.
       const cover = frameCrop({
-        annotation: oneFaceAnnotation(source, FACE),
+        annotation: emptyAnnotation(source),
         request: requestFor(target, FACE_ONLY),
       }).window;
 

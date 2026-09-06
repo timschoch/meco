@@ -1,19 +1,36 @@
-import { DEFAULT_ANCHOR } from "@meco/contracts";
+import { DEFAULT_ANCHOR, type Annotation, type Region } from "@meco/contracts";
+import { centreOf } from "./boxes";
+import { eyeLineOf, eyeLinePlacement, headroomZoom } from "./eye-line";
 import { MAX_OCCLUSION_ZONES, type FrameInput, type Framing } from "./framing";
 import { goldenAim } from "./golden-lines";
 import { composeSubject } from "./subject";
 import { fillsSubjectArea, solveSubjectArea } from "./subject-area";
-import { coverWindow, placeAtAim, placeAtAnchor, toFraction } from "./window";
+import {
+  coverWindow,
+  placeAtAim,
+  placeAtAnchor,
+  tightenedWindow,
+  toFraction,
+} from "./window";
+
+/** The Region a rung led on, when a rung led at all. */
+const leadRegion = (
+  annotation: Annotation,
+  leadRegionId: string | undefined
+): Region | undefined =>
+  leadRegionId === undefined
+    ? undefined
+    : annotation.regions.find((region) => region.id === leadRegionId);
 
 /**
  * The whole module. Subject composition, the ladder, the Golden Lines, the Eye
  * Line, the Free Area and the fallback rungs all sit behind this one call.
  *
- * Today it composes on the `face` rung, sizes and aims on a declared Subject
- * Area, and falls back to frame's own last resorts, the Crop Anchor the request
- * named and then the centre. The rungs that lead on a Match or compose a kart,
- * the Eye Line's zoom and the Free Area arrive on later tickets and add no
- * field this signature does not already declare.
+ * Today it composes on the `face` and `kart` rungs, sizes and aims on a
+ * declared Subject Area or else on the leading face's Eye Line, and falls back
+ * to frame's own last resorts, the Crop Anchor the request named and then the
+ * centre. The rung that leads on a Match and the Free Area arrive on later
+ * tickets and add no field this signature does not already declare.
  */
 export function frameCrop(input: FrameInput): Framing {
   const { annotation, request } = input;
@@ -44,17 +61,45 @@ export function frameCrop(input: FrameInput): Framing {
           request.target
         );
 
-  // The cover window is the size for every other rung, and the ceiling for this
-  // one: nothing grows the window past the largest one the picture holds.
-  const size = area?.size ?? coverWindow(source, request.target);
+  // The Eye Line, read where the size and the aim meet, because it settles
+  // both. Only a face carries one, so the kart rung never sees it; and a
+  // declared Subject Area turns it off, so the two sizing rules can never
+  // disagree about one window.
+  const lead = leadRegion(annotation, composed?.leadRegionId);
+  const eyeLine =
+    declaredArea === undefined && lead !== undefined
+      ? eyeLineOf(lead)
+      : undefined;
 
-  const cropWindow = composed
-    ? placeAtAim(
-        composed.subject,
-        size,
-        source,
-        area?.aim ?? goldenAim(composed.subject)
-      )
+  // The cover window is the size for every other rung, and the ceiling for
+  // both of these: nothing grows the window past the largest one the picture
+  // holds.
+  const cover = coverWindow(source, request.target);
+  const size =
+    area?.size ??
+    (eyeLine === undefined || lead === undefined
+      ? cover
+      : tightenedWindow(
+          cover,
+          // Floored on the leading face's own box, never on the union of every
+          // kept Subject. `lib/eye-line.ts` says what the union costs.
+          headroomZoom(eyeLine, lead.box, cover, source, request.target),
+          request.target,
+          source
+        ));
+
+  const placement =
+    composed === undefined
+      ? undefined
+      : eyeLine === undefined
+        ? {
+            at: centreOf(composed.subject),
+            aim: area?.aim ?? goldenAim(composed.subject),
+          }
+        : eyeLinePlacement(composed.subject, eyeLine);
+
+  const cropWindow = placement
+    ? placeAtAim(placement.at, size, source, placement.aim)
     : placeAtAnchor(
         size,
         source,

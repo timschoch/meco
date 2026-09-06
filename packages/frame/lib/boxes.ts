@@ -1,7 +1,13 @@
-import type { Box, Region } from "@meco/contracts";
+import type { Box, Point, Region } from "@meco/contracts";
 
 /** A Box's area, in the square of the source fraction. Never a pixel count. */
 export const area = (box: Box): number => box.width * box.height;
+
+/** A Box's centre, in the fractions the Box itself is in. */
+export const centreOf = (box: Box): Point => ({
+  x: box.x + box.width / 2,
+  y: box.y + box.height / 2,
+});
 
 /**
  * How much of the smaller of two boxes lies inside the other, from 0 to 1.

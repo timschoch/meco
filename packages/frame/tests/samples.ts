@@ -59,12 +59,16 @@ export const requestFor = (
   });
 
 /**
- * Landmarks placed inside a box by proportion. A face Region must carry them,
- * and no test in this ticket reads one: the Eye Line arrives on #103.
+ * Where {@link oneFaceAnnotation} puts the eyes, as a fraction of the Source
+ * Image height. Exported so an Eye Line check reads the proportion off the
+ * fixture rather than restating it, which would let the two drift apart.
  */
+export const eyeLineOfSample = (box: Box): number => box.y + 0.4 * box.height;
+
+/** Landmarks placed inside a box by proportion. A face Region must carry them. */
 const landmarksIn = (box: Box): Landmarks => ({
-  rEye: { x: box.x + 0.3 * box.width, y: box.y + 0.4 * box.height },
-  lEye: { x: box.x + 0.7 * box.width, y: box.y + 0.4 * box.height },
+  rEye: { x: box.x + 0.3 * box.width, y: eyeLineOfSample(box) },
+  lEye: { x: box.x + 0.7 * box.width, y: eyeLineOfSample(box) },
   nose: { x: box.x + 0.5 * box.width, y: box.y + 0.55 * box.height },
   rMouth: { x: box.x + 0.35 * box.width, y: box.y + 0.75 * box.height },
   lMouth: { x: box.x + 0.65 * box.width, y: box.y + 0.75 * box.height },
@@ -72,9 +76,14 @@ const landmarksIn = (box: Box): Landmarks => ({
 
 /**
  * An Annotation carrying one face at a box the test chose. For the geometry no
- * recording happens to contain — a Subject exactly on the frame centre, say.
+ * recording happens to contain — a Subject exactly on the frame centre, say, or
+ * a head tilted far enough that its two eyes sit at different heights.
  */
-export const oneFaceAnnotation = (source: Size, box: Box): Annotation =>
+export const oneFaceAnnotation = (
+  source: Size,
+  box: Box,
+  landmarks: Landmarks = landmarksIn(box)
+): Annotation =>
   Annotation.parse({
     schema: 1,
     hash: HASH,
@@ -90,7 +99,7 @@ export const oneFaceAnnotation = (source: Size, box: Box): Annotation =>
         box,
         score: 0.9,
         model: MODEL,
-        landmarks: landmarksIn(box),
+        landmarks,
       },
     ],
   });
