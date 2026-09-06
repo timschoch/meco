@@ -100,15 +100,15 @@ export interface FacePrint {
 }
 
 const printed = read("face-prints.json") as {
-  readonly producedBy: PrintedBy;
+  readonly printedBy: PrintedBy;
   readonly prints: readonly FacePrint[];
 };
 
 /** Every committed fixture face print, in the order the dump wrote them. */
 export const facePrints = (): readonly FacePrint[] => printed.prints;
 
-/** What produced `fixtures/faces/face-prints.json`. */
-export const facePrintsProducedBy = (): PrintedBy => printed.producedBy;
+/** What printed `fixtures/faces/face-prints.json`. */
+export const facePrintsPrintedBy = (): PrintedBy => printed.printedBy;
 
 /** The detector the fixture boxes came from. Its own Model, per ADR-0005. */
 const BOX_MODEL = { name: "yunet", version: "1" } as const;
@@ -262,7 +262,7 @@ export interface KartPrint {
 }
 
 const kartPrinted = readKart("face-prints.json") as {
-  readonly producedBy: PrintedBy;
+  readonly printedBy: PrintedBy;
   readonly prints: readonly {
     readonly file: string;
     readonly index: number;
@@ -333,8 +333,8 @@ const KART_PRINTS = kartPrinted.prints.map((one): KartPrint => {
 /** Every committed kart print. */
 export const kartPrints = (): readonly KartPrint[] => KART_PRINTS;
 
-/** What produced `fixtures/karts/face-prints.json`. */
-export const kartPrintsProducedBy = (): PrintedBy => kartPrinted.producedBy;
+/** What printed `fixtures/karts/face-prints.json`. */
+export const kartPrintsPrintedBy = (): PrintedBy => kartPrinted.printedBy;
 
 /** One kart print by `<file>#<index>`. */
 export const kartPrint = (id: string): KartPrint => {

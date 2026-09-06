@@ -22,7 +22,7 @@ The prototype narrowed the answer by `persons` at the end and threw on unknown i
 
 `MATCH_THRESHOLD` 0.50, `MATCH_MARGIN` 0.05, `MIN_FACE_PX` 40 in the Decoded Image, `NOT_A_FACE_THRESHOLD` 0.60, best similarity per Person with the runner-up the best other Person, all as ADR-0003 left them. Centroid aggregation measured on the one three-print Person, held out in turn: 0.9101 / 0.8351 / 0.8015 against max 0.8681 / 0.8681 / 0.8229. Not better; rejected.
 
-The Not-a-Face band is 0.036 wide in one direction and closed in the other, and the Enricher that produces production prints was not the one those prints came from. A rule with no band cannot be assumed to survive a new print path — the assumption is what ADR-0003's amendment was written about — so the constants shipped inherited and marked unverified, and #177 measured them.
+The Not-a-Face band is 0.0365 wide in one direction and closed in the other, and the Enricher that produces production prints was not the one those prints came from. A rule with no band cannot be assumed to survive a new print path — the assumption is what ADR-0003's amendment was written about — so the constants shipped inherited and marked unverified, and #177 measured them.
 
 ### The measurement, 6 Sep 2026 (#177)
 

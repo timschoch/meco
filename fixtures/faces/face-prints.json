@@ -5,16 +5,14 @@
     "paired to a hand-marked face in expected.json by nearest centre inside",
     "that file's own tolerance. Written by",
     "`pnpm --filter @meco/models print:fixtures`; do not edit by hand.",
-    "producedBy records the Print Model, the Decode Bound the prints were",
+    "printedBy records the Print Model, the Decode Bound the prints were",
     "taken at and the ONNX Runtime that ran it. identify refuses a print",
     "from any other Model, so a Catalogue bump forces a re-run of this",
     "script and of the sweeps in packages/identify/tests/calibration.test.ts.",
     "person is which human the face belongs to: two faces sharing a letter",
-    "are the same human. It comes from expected.json.",
-    "name is the aligned 112px square in aligned/, kept so the prototype's",
-    "own squares can still be found by eye. Nothing reads it."
+    "are the same human. It comes from expected.json."
   ],
-  "producedBy": {
+  "printedBy": {
     "model": {
       "name": "edgeface",
       "version": "1"
@@ -24,7 +22,6 @@
   },
   "prints": [
     {
-      "name": "artemis-2-crew-back-left.png",
       "file": "artemis-2-crew.jpg",
       "label": "back left",
       "person": "B",
@@ -544,7 +541,6 @@
       ]
     },
     {
-      "name": "artemis-2-crew-back-centre.png",
       "file": "artemis-2-crew.jpg",
       "label": "back centre",
       "person": "C",
@@ -1064,7 +1060,6 @@
       ]
     },
     {
-      "name": "artemis-2-crew-front-centre.png",
       "file": "artemis-2-crew.jpg",
       "label": "front centre",
       "person": "D",
@@ -1584,7 +1579,6 @@
       ]
     },
     {
-      "name": "artemis-2-crew-back-right.png",
       "file": "artemis-2-crew.jpg",
       "label": "back right",
       "person": "E",
@@ -2104,7 +2098,6 @@
       ]
     },
     {
-      "name": "astronaut-portrait-centre.png",
       "file": "astronaut-portrait.jpg",
       "label": "centre",
       "person": "A",
@@ -2624,7 +2617,6 @@
       ]
     },
     {
-      "name": "astronaut-portrait-2-centre.png",
       "file": "astronaut-portrait-2.jpg",
       "label": "centre",
       "person": "A",
@@ -3144,7 +3136,6 @@
       ]
     },
     {
-      "name": "soyuz-crew-left.png",
       "file": "soyuz-crew.jpg",
       "label": "left",
       "person": "A",
@@ -3664,7 +3655,6 @@
       ]
     },
     {
-      "name": "soyuz-crew-centre.png",
       "file": "soyuz-crew.jpg",
       "label": "centre",
       "person": "F",
@@ -4184,7 +4174,6 @@
       ]
     },
     {
-      "name": "soyuz-crew-right.png",
       "file": "soyuz-crew.jpg",
       "label": "right",
       "person": "G",

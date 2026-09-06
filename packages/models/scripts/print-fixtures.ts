@@ -33,16 +33,21 @@ import { catalogue, decode, DECODE_BOUND } from "../catalogue";
 /** The repository's fixtures folder, resolved by the build. */
 declare const __FIXTURES__: string;
 
-const edgeface = catalogue.enrichers.find(
-  (one) => one.model.name === "edgeface"
-);
-if (edgeface === undefined) {
-  throw new Error("the Catalogue holds no edgeface Enricher");
-}
-const yunet = catalogue.detectors.find((one) => one.model.name === "yunet");
-if (yunet === undefined) {
-  throw new Error("the Catalogue holds no yunet Detector");
-}
+/** A Catalogue member by name, or a failure that says which one is missing. */
+const inCatalogue = <T extends { model: { name: string } }>(
+  role: string,
+  members: readonly T[],
+  name: string
+): T => {
+  const found = members.find((one) => one.model.name === name);
+  if (found === undefined) {
+    throw new Error(`the Catalogue holds no ${name} ${role}`);
+  }
+  return found;
+};
+
+const edgeface = inCatalogue("Enricher", catalogue.enrichers, "edgeface");
+const yunet = inCatalogue("Detector", catalogue.detectors, "yunet");
 
 /** The Detector the recorded boxes came from. Its own Model, per ADR-0005. */
 const BOX_MODEL = { name: "yunet", version: "1" } as const;
@@ -94,7 +99,7 @@ async function printsOf(
   );
   const regions: AdapterRegion[] =
     faces === undefined
-      ? await yunet!.run(image)
+      ? await yunet.run(image)
       : faces.map((face) => ({
           kind: "face",
           label: "face",
@@ -106,7 +111,7 @@ async function printsOf(
   return {
     width: image.width,
     height: image.height,
-    printed: await edgeface!.run(image, regions),
+    printed: await edgeface.run(image, regions),
   };
 }
 
@@ -125,8 +130,30 @@ const apart = (a: Box, b: Box): number =>
 const cosine = (a: readonly number[], b: readonly number[]): number =>
   a.reduce((sum, value, index) => sum + value * (b[index] ?? 0), 0);
 
+/**
+ * The print of one Region, refused unless it is on the unit sphere.
+ *
+ * Every number this script reports is a dot product, which is the cosine only
+ * for unit vectors. An adapter that ever emitted an unnormalised print would
+ * make the drift and both sweeps quietly wrong rather than loudly wrong, so
+ * the property they rest on is checked once, here, where the vectors are read.
+ */
+const unitPrintOf = (id: string, region: AdapterRegion): number[] => {
+  const vector = region.facePrint?.vector;
+  if (vector === undefined) {
+    throw new Error(`${id}: the Enricher printed nothing`);
+  }
+  const norm = Math.sqrt(cosine(vector, vector));
+  if (Math.abs(norm - 1) > 1e-6) {
+    throw new Error(
+      `${id}: the print has length ${norm}, and a Face Print is on the unit sphere`
+    );
+  }
+  return [...vector];
+};
+
 /** The stamp both files carry: what produced these prints, and at what size. */
-const PRODUCED_BY = {
+const PRINTED_BY = {
   model: edgeface.model,
   bound: DECODE_BOUND,
   onnxruntime: catalogue.onnxruntime,
@@ -151,7 +178,6 @@ const record = (
 // drift in either file fails here rather than printing the wrong face.
 
 interface FacePrint {
-  readonly name: string;
   readonly file: string;
   readonly label: string;
   readonly person: string;
@@ -200,28 +226,20 @@ for (const marked of facesExpected.images) {
     }
     claimed.add(nearest);
 
-    const vector = nearest.facePrint?.vector;
-    if (vector === undefined) {
-      throw new Error(
-        `${marked.file} ${face.label}: the Enricher could not align it`
-      );
-    }
-    // The aligned 112px square in `fixtures/faces/aligned/`, named the way the
-    // prototype's dump named it: the file stem and the label, spaces to dashes.
-    const name = `${marked.file.replace(/\.[^.]+$/, "")}-${face.label.replace(/ /g, "-")}.png`;
+    const id = `${marked.file} ${face.label}`;
+    const print = unitPrintOf(id, nearest);
     record(
-      `${marked.file} ${face.label}`,
+      id,
       facesWas.prints.find(
         (one) => one.file === marked.file && one.label === face.label
       )?.print,
-      vector
+      print
     );
     facePrints.push({
-      name,
       file: marked.file,
       label: face.label,
       person: face.person,
-      print: vector,
+      print,
     });
   }
 }
@@ -236,16 +254,14 @@ await writeFile(
         "paired to a hand-marked face in expected.json by nearest centre inside",
         "that file's own tolerance. Written by",
         "`pnpm --filter @meco/models print:fixtures`; do not edit by hand.",
-        "producedBy records the Print Model, the Decode Bound the prints were",
+        "printedBy records the Print Model, the Decode Bound the prints were",
         "taken at and the ONNX Runtime that ran it. identify refuses a print",
         "from any other Model, so a Catalogue bump forces a re-run of this",
         "script and of the sweeps in packages/identify/tests/calibration.test.ts.",
         "person is which human the face belongs to: two faces sharing a letter",
         "are the same human. It comes from expected.json.",
-        "name is the aligned 112px square in aligned/, kept so the prototype's",
-        "own squares can still be found by eye. Nothing reads it.",
       ],
-      producedBy: PRODUCED_BY,
+      printedBy: PRINTED_BY,
       prints: facePrints,
     },
     null,
@@ -307,8 +323,8 @@ for (const image of kartsExpected.images) {
   for (const [index, marked] of image.faces.entries()) {
     const id = `${image.file}#${index}`;
     const face = detectedImage.faces[index]!;
-    const vector = printed[index]?.facePrint?.vector;
-    if (vector === undefined) {
+    const region = printed[index];
+    if (region?.facePrint === undefined) {
       skipped.push({
         file: image.file,
         index,
@@ -320,12 +336,13 @@ for (const image of kartsExpected.images) {
     }
     if (marked.is === undefined)
       throw new Error(`${id} has no classification in expected.json`);
+    const print = unitPrintOf(id, region);
     record(
       id,
       kartsWas.prints.find(
         (one) => one.file === image.file && one.index === index
       )?.print,
-      vector
+      print
     );
     kartPrints.push({
       file: image.file,
@@ -336,7 +353,7 @@ for (const image of kartsExpected.images) {
       ...(marked.person === undefined ? {} : { person: marked.person }),
       score: face.score,
       pixels: pixelsOf(face.box, width, height),
-      print: vector,
+      print,
     });
   }
 }
@@ -350,7 +367,7 @@ await writeFile(
         "Enricher could align, over the recorded detections in detected.json",
         "beside this file. Written by",
         "`pnpm --filter @meco/models print:fixtures`; do not edit by hand.",
-        "producedBy records the Print Model, the Decode Bound and the ONNX",
+        "printedBy records the Print Model, the Decode Bound and the ONNX",
         "Runtime. is says what a human decided the detection is and reference",
         "marks the print identify commits in lib/not-a-face-prints.ts; both come",
         "from expected.json beside this file, and this dump only copies them.",
@@ -361,7 +378,7 @@ await writeFile(
         "packages/identify/tests/calibration.test.ts sweeps NOT_A_FACE_THRESHOLD",
         "over these prints.",
       ],
-      producedBy: PRODUCED_BY,
+      printedBy: PRINTED_BY,
       prints: kartPrints,
       skipped,
     },
@@ -377,7 +394,7 @@ console.log(
   [
     `printed ${facePrints.length} face fixtures and ${kartPrints.length} kart detections`,
     `  ${skipped.length} skipped: ${skipped.map((one) => `${one.file}#${one.index}`).join(", ") || "none"}`,
-    `  at ${PRODUCED_BY.bound} px through ${PRODUCED_BY.model.name}/${PRODUCED_BY.model.version}, onnxruntime ${PRODUCED_BY.onnxruntime}`,
+    `  at ${PRINTED_BY.bound} px through ${PRINTED_BY.model.name}/${PRINTED_BY.model.version}, onnxruntime ${PRINTED_BY.onnxruntime}`,
     "",
     `drift against the prints replaced — ${drift.length} compared`,
     `  worst  ${drift[0]?.cosine.toFixed(6)} — ${drift[0]?.id}`,

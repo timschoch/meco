@@ -4,7 +4,7 @@
     "Enricher could align, over the recorded detections in detected.json",
     "beside this file. Written by",
     "`pnpm --filter @meco/models print:fixtures`; do not edit by hand.",
-    "producedBy records the Print Model, the Decode Bound and the ONNX",
+    "printedBy records the Print Model, the Decode Bound and the ONNX",
     "Runtime. is says what a human decided the detection is and reference",
     "marks the print identify commits in lib/not-a-face-prints.ts; both come",
     "from expected.json beside this file, and this dump only copies them.",
@@ -15,7 +15,7 @@
     "packages/identify/tests/calibration.test.ts sweeps NOT_A_FACE_THRESHOLD",
     "over these prints."
   ],
-  "producedBy": {
+  "printedBy": {
     "model": {
       "name": "edgeface",
       "version": "1"

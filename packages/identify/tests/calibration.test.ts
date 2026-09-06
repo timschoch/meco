@@ -31,9 +31,9 @@ import {
 import {
   cosine,
   facePrints,
-  facePrintsProducedBy,
+  facePrintsPrintedBy,
   kartPrints,
-  kartPrintsProducedBy,
+  kartPrintsPrintedBy,
   type PrintedBy,
   printPairs,
 } from "./fixtures";
@@ -44,7 +44,7 @@ import {
  * between two runs of the same weights, and looser would let a print path
  * change slip through the band it is supposed to be checking.
  */
-const PLACES = 4;
+const DECIMALS = 4;
 
 const worst = (of: readonly { similarity: number }[]) =>
   of.reduce(
@@ -73,8 +73,8 @@ const provenance = (file: string, by: PrintedBy): string =>
  */
 describe("both fixture print files come from the Print Model at the bound", () => {
   for (const [file, by] of [
-    ["fixtures/faces/face-prints.json", facePrintsProducedBy()],
-    ["fixtures/karts/face-prints.json", kartPrintsProducedBy()],
+    ["fixtures/faces/face-prints.json", facePrintsPrintedBy()],
+    ["fixtures/karts/face-prints.json", kartPrintsPrintedBy()],
   ] as const) {
     it(`${file} was printed by the Print Model`, () => {
       expect(by.model).toEqual(PRINT_MODEL);
@@ -85,7 +85,7 @@ describe("both fixture print files come from the Print Model at the bound", () =
 
 describe("the identity calibration on the committed fixture prints", () => {
   const { samePerson, strangers } = printPairs();
-  const by = facePrintsProducedBy();
+  const by = facePrintsPrintedBy();
 
   it("recomputes ADR-0012's table and leaves the band open", () => {
     const sameWorst = worst(samePerson);
@@ -103,8 +103,8 @@ describe("the identity calibration on the committed fixture prints", () => {
     // ADR-0003 Decision 3, re-measured 6 Sep 2026 on the shipped Enricher.
     expect(samePerson).toHaveLength(3);
     expect(strangers).toHaveLength(33);
-    expect(sameWorst).toBeCloseTo(0.7263, PLACES);
-    expect(strangerBest).toBeCloseTo(0.2978, PLACES);
+    expect(sameWorst).toBeCloseTo(0.7263, DECIMALS);
+    expect(strangerBest).toBeCloseTo(0.2978, DECIMALS);
 
     // The threshold sits inside the band with room on both sides, which is the
     // whole reason 0.50 is allowed to be a chosen number rather than a fitted
@@ -174,7 +174,7 @@ describe("the margin table on the committed fixture prints", () => {
 
     console.log(
       [
-        `margin table — ${provenance("fixtures/faces/face-prints.json", facePrintsProducedBy())}`,
+        `margin table — ${provenance("fixtures/faces/face-prints.json", facePrintsPrintedBy())}`,
         `  threshold ${MATCH_THRESHOLD}, margin ${MATCH_MARGIN}`,
         ...scored.map(
           (one) =>
@@ -195,7 +195,7 @@ describe("the margin table on the committed fixture prints", () => {
     }
     expect(worst(named.map((one) => ({ similarity: one.margin })))).toBeCloseTo(
       0.5251,
-      PLACES
+      DECIMALS
     );
 
     // And the faces with a margin under 0.05 — down to 0.0005 — are the six
@@ -208,7 +208,7 @@ describe("the margin table on the committed fixture prints", () => {
     }
     expect(
       worst(refused.map((one) => ({ similarity: one.margin })))
-    ).toBeCloseTo(0.0005, PLACES);
+    ).toBeCloseTo(0.0005, DECIMALS);
   });
 });
 
@@ -227,7 +227,7 @@ describe("the margin table on the committed fixture prints", () => {
  */
 describe("the Not-a-Face calibration on the committed kart prints", () => {
   const reference = NOT_A_FACE_PRINTS;
-  const by = kartPrintsProducedBy();
+  const by = kartPrintsPrintedBy();
 
   /** Every classified detection with a print, against the reference set. */
   const measured = kartPrints()
@@ -305,22 +305,22 @@ describe("the Not-a-Face calibration on the committed kart prints", () => {
 
     // ADR-0003's amendment, re-measured 6 Sep 2026 on the shipped Enricher.
     expect(furthestNonFace.id).toBe("paddock-mixed.jpg#7");
-    expect(furthestNonFace.nearest).toBeCloseTo(0.6364, PLACES);
+    expect(furthestNonFace.nearest).toBeCloseTo(0.6364, DECIMALS);
     expect(nearestFace.id).toBe("paddock-mixed.jpg#8");
-    expect(nearestFace.nearest).toBeCloseTo(0.6545, PLACES);
+    expect(nearestFace.nearest).toBeCloseTo(0.6545, DECIMALS);
     // Both rejections are out of sample. The held-out second helmet is the
     // one that says the rule generalises past its own reference photograph.
-    expect(heldOut.nearest).toBeCloseTo(0.6933, PLACES);
+    expect(heldOut.nearest).toBeCloseTo(0.6933, DECIMALS);
     expect(furthestNonFace.nearest - NOT_A_FACE_THRESHOLD).toBeCloseTo(
       0.0364,
-      PLACES
+      DECIMALS
     );
     // The real face is nearer the reference than that non-face is: no value of
     // the threshold accepts it and still refuses the non-face. The band is
     // negative, and 0.60 is safe rather than centred.
     expect(furthestNonFace.nearest - nearestFace.nearest).toBeCloseTo(
       -0.0181,
-      PLACES
+      DECIMALS
     );
     // Every detection in the sweep clears the size floor, so the floor is not
     // silently doing the Not-a-Face rule's work.

@@ -41,7 +41,7 @@ const expected = read("expected.json");
 // would compare two unrelated networks term by term and could refuse a real
 // face on nothing. Refused here, at the one place the vectors leave the
 // fixtures: re-print with `pnpm --filter @meco/models print:fixtures` first.
-const model = printed.producedBy?.model;
+const model = printed.printedBy?.model;
 if (model?.name !== PRINT_MODEL.name || model.version !== PRINT_MODEL.version) {
   throw new Error(
     `fixtures/karts/face-prints.json was printed by ${

@@ -31,11 +31,13 @@ await build({
 // because a local script has no reason to duplicate the weights on every run.
 const adapters = new URL("../lib/adapters/", import.meta.url);
 const out = new URL("../dist/print-fixtures/", import.meta.url);
+await mkdir(fileURLToPath(out), { recursive: true });
 for (const entry of await readdir(adapters, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
   const link = fileURLToPath(new URL(entry.name, out));
-  await rm(link, { force: true, recursive: false }).catch(() => {});
-  await mkdir(fileURLToPath(out), { recursive: true });
+  // `force` covers the first run, where there is nothing to remove. Anything
+  // else it throws is a real failure and takes the build down.
+  await rm(link, { force: true });
   await symlink(
     fileURLToPath(new URL(`${entry.name}/`, adapters)),
     link,
