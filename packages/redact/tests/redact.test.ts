@@ -98,8 +98,8 @@ describe("redact, the Unknown Face rule", () => {
     expect(result.image).toBe(image);
   });
 
-  // #130 chooses and does not draw, so the image comes back untouched. #131
-  // replaces this with the mask checks and keeps the size and the channels.
+  // The mask is drawn into a copy, so the returned image is a different buffer
+  // of the same shape. What it holds is `mask.test.ts`'s business.
   it("returns an image of the source's size and channels", async () => {
     const result = await redact(call({}));
 
@@ -108,6 +108,6 @@ describe("redact, the Unknown Face rule", () => {
       height: result.image.height,
       channels: result.image.channels,
     }).toEqual({ width: image.width, height: image.height, channels: 3 });
-    expect(result.image.data).toBe(image.data);
+    expect(result.image.data).not.toBe(image.data);
   });
 });

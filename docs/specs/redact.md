@@ -88,18 +88,25 @@ Region boxes are fractions of the Source Image, per contracts. Inside redact the
 
 Vitest, through `packages/redact/index.ts` only. Every check names the mutation that must turn it red.
 
-| Check                                                                                           | Mutation that must make it fail                 |
-| ----------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| every face Region with no Match is in `redactions`; a matched one is not                        | treat a missing Match as known                  |
-| an empty `matches` hides every face                                                             | default to hiding none                          |
-| a `person` Region is never in `redactions` and never blurred                                    | widen the kind filter past `face`               |
-| mean \|Laplacian\| inside each ellipse is under 20 % of the untouched image's (measured: 7.0 %) | skip the blur, or blur the wrong rectangle      |
-| every pixel outside every ellipse is the byte it was                                            | blur the whole image and composite the ellipses |
-| `blurUnknownFaces: false` returns the input buffer byte for byte                                | apply the mask regardless of the policy         |
-| a Region flush against the image edge is hidden and nothing is written out of bounds            | drop the clip guard and read past the buffer    |
-| sigma differs between two Regions of different widths in one call                               | hoist sigma out of the loop                     |
+| Check                                                                                                  | Mutation that must make it fail                                                                                      |
+| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| every face Region with no Match is in `redactions`; a matched one is not                               | treat a missing Match as known                                                                                       |
+| an empty `matches` hides every face                                                                    | default to hiding none                                                                                               |
+| a `person` Region is never in `redactions` and never blurred                                           | widen the kind filter past `face`                                                                                    |
+| mean \|Laplacian\| inside each ellipse is under 20 % of the untouched image's (measured: 4.9 to 6.5 %) | skip the blur, or paint the mask on a rectangle offset by half its width                                             |
+| the mask fades: the rim changes under a tenth of what the core changes                                 | a hard edge, coverage 1 everywhere inside the ellipse                                                                |
+| every pixel outside every ellipse is the byte it was                                                   | blur the whole image and composite the ellipses; touch one pixel outside                                             |
+| `blurUnknownFaces: false` returns the input buffer byte for byte                                       | apply the mask regardless of the policy                                                                              |
+| a Region flush against the image edge is hidden and nothing is written out of bounds                   | drop the clip guard and read past the buffer                                                                         |
+| the sigma read back off a step edge is 0.25 x that face's width                                        | any sigma that does not read this face's width: a literal, a constant, the call's first Region, or k halved to 0.125 |
+| four masks in one call are the four masks drawn one at a time                                          | hoist sigma out of the loop                                                                                          |
+| every changed pixel is inside the Region's rounded rectangle                                           | take the width from `round(box.width x 1280)` instead of from the two rounded edges                                  |
 
-Halving the sigma is **not** a valid mutation for the detail check: the measured curve is flat from k = 0.2, so the check would stay green. The spec says so rather than shipping a check nobody can fail.
+The detail figure is the shipped suite's own: a four-neighbour Laplacian over ITU luma, counted only where all four neighbours are inside the opaque core too, per face, on `artemis-2-crew.jpg` at 1280x1600. The design pass measured 7.0 % with a different definition; both are far under the bound, and the bound is what the check enforces.
+
+**Sigma is measured, not inferred from what it leaves behind.** A detail check cannot police it: the curve is flat from k = 0.2, so halving the sigma leaves the |Laplacian| bound green, and the four recorded faces span only 100 to 114 px — too narrow a range for any detail measure to separate. So the check lays a mask over a synthetic step edge instead and reads the sigma straight off the result, because a Gaussian of sigma s spreads a step over a 25 % to 75 % rise of 1.349 s. Face boxes 200 and 400 px wide give rises of 62.25 and 124.50 px, exactly 2x, for sigmas of 46.15 and 92.29 against the nominal 50 and 100 — sharp's approximation reads 7.7 % under at both widths, identically, which is why the check bands the constant at 15 % and the proportion at 5 %. Provenance: darwin arm64, node v26.7.0, sharp 0.35.4, a 1024x512 synthetic step.
+
+The rectangle check sweeps **2 px wider than the rectangle it defends**. Bounded by that rectangle it could not see a mask that ran past it, and would pass whatever the module did.
 
 No face detector runs in redact's suite. "No face can be found in the output" is the product promise and belongs to the cross-module conformance run, where the models are already loaded.
 

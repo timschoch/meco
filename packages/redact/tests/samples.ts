@@ -84,6 +84,47 @@ export const smallestFace: Region = [...crewRegions].sort(
   (a, b) => a.box.width - b.box.width
 )[0]!;
 
+/**
+ * A face Region on a hand-built box.
+ *
+ * The four recorded faces span 100 to 114 pixels, which is too narrow a range
+ * to tell a sigma that scales from one that does not. A check that needs two
+ * sizes builds the second one.
+ */
+export const faceOn = (box: Region["box"]): Region =>
+  assignRegionIds([
+    { kind: "face", label: "face", box, score: 0.9, model: detector },
+  ])[0]!;
+
+/** The size of `stepEdge`. Wide enough to hold a 400 px mask clear of the sides. */
+export const STEP_EDGE_SIZE = { width: 1024, height: 512 };
+
+/**
+ * Black on the left, white on the right, with the step down the middle.
+ *
+ * A photograph cannot say what sigma was used; this can. A Gaussian of sigma s
+ * turns a step into a profile whose 25 % to 75 % rise spans 1.349 s, so a mask
+ * drawn over the step measures its own blur strength.
+ */
+export const stepEdge = (): RedactRequest["image"] => {
+  const { width, height } = STEP_EDGE_SIZE;
+  const data = new Uint8Array(width * height * 3);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * width * 3;
+    data.fill(255, row + (width / 2) * 3, row + width * 3);
+  }
+  return { width, height, channels: 3, data };
+};
+
+/** A face box `widthInPixels` wide, centred on `stepEdge`'s step. */
+export const faceOnTheStep = (widthInPixels: number): Region =>
+  faceOn({
+    x: 0.5 - widthInPixels / 2 / STEP_EDGE_SIZE.width,
+    y: 0.25,
+    width: widthInPixels / STEP_EDGE_SIZE.width,
+    height: 0.5,
+  });
+
 /** A Match for one Region. The similarity is the caller's to choose. */
 export const matchOf = (regionId: string, similarity: number): Match => ({
   regionId,
