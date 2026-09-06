@@ -9,7 +9,7 @@ import {
   credentialSourceFor,
   storeIdFor,
 } from "./credentials";
-import type { Access } from "./keys";
+import type { Access, Namespace } from "./keys";
 
 /** What one of the two stores looks like from inside the deployment. */
 export type StoreReach = {
@@ -21,6 +21,13 @@ export type StoreReach = {
   readonly credential: CredentialSource | null;
   /** Bytes were written and read back identical. */
   readonly roundTrip: boolean;
+  /**
+   * The Store Key the round trip went through, or `null` when it did not
+   * happen. Reported rather than left implicit because the Namespace in it is
+   * what keeps the probe out of the Namespaces that hold real objects, and an
+   * unreported key is one nothing can hold to that.
+   */
+  readonly key: string | null;
   /** Wall time of the round trip, milliseconds. */
   readonly ms: number | null;
   /** Why the round trip did not happen, or `null` when it did. */
@@ -66,7 +73,7 @@ const PROBE_TIMEOUT_MS = 2000;
 const PROBE_NAMESPACE = {
   private: "health",
   public: "health-public",
-} as const satisfies Record<Access, string>;
+} as const satisfies Record<Access, Namespace>;
 
 export async function reachStores(
   env: NodeJS.ProcessEnv = process.env
@@ -90,6 +97,7 @@ async function probe(
       storeId: null,
       credential: null,
       roundTrip: false,
+      key: null,
       ms: null,
       reason: "the store id is not set",
     };
@@ -113,6 +121,7 @@ async function probe(
       storeId,
       credential,
       roundTrip,
+      key,
       ms: elapsed(started),
       reason: reasonFor(readBack),
     };
@@ -122,6 +131,7 @@ async function probe(
       storeId,
       credential,
       roundTrip: false,
+      key: null,
       ms: elapsed(started),
       reason: publicMessage(error),
     };

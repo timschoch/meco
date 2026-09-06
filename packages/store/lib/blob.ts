@@ -25,7 +25,15 @@ export interface PutResult extends StoredObject {
   readonly deduped: boolean;
 }
 
-/** Bytes filed under a Store Key, handed back on request. */
+/**
+ * Bytes filed under a Store Key, handed back on request.
+ *
+ * A store owns its bytes: what a caller hands to `put` and what `get` hands
+ * back are the caller's own arrays, and writing into either changes nothing
+ * stored. A backend gets this by sending the bytes over a wire; an adapter
+ * that keeps them in the process has to say so, which is why it is a
+ * Conformance Check and not a remark.
+ */
 export interface Store {
   /**
    * Hash the bytes, append `<sha256>.<ext>` to the prefix, and write only if

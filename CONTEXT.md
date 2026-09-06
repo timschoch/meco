@@ -311,6 +311,10 @@ _Avoid_: bucket, CDN, public bucket
 The store whose objects no URL hands over on its own. Holds the photographs meco was given rather than asked to publish — Source Images, and every Reference Photo. Reads happen inside the deployment, or through a Signed URL the gateway minted; there is no third way, and a missing Private Store is an error rather than a quiet fall back to the Public Store.
 _Avoid_: secure bucket, vault, protected store
 
+**In-Memory Store**:
+The adapter that keeps its objects in a `Map` for the life of the process. Behind the identical interface and under the identical Conformance Checks as the Blob adapter, so it is the gate's store and never a weaker imitation of one. Not a cache and not a fake: nothing sits in front of it, and nothing it does is stubbed.
+_Avoid_: mock, fake, stub, test double, disk adapter
+
 **Signed URL**:
 A URL that hands over one Private Store object to whoever holds it, until it expires minutes later. Minted only by the gateway, only for a caller it has already authorised, and short-lived because the reason it was minted does not outlive the request.
 _Avoid_: presigned URL, temporary link, token URL, share link
@@ -324,7 +328,7 @@ Which credential carried one call to one store: the platform's OIDC token, or th
 _Avoid_: rung (a Fallback Rung is frame's), auth mode, strategy, provider
 
 **Store Reach**:
-What one of the two stores looks like from inside the deployment: whether it is configured, which store it is, the Credential Source that reached it, whether bytes written came back identical, and how long that took. A measurement of the round trip, never a reading of whether an environment variable happens to be set.
+What one of the two stores looks like from inside the deployment: whether it is configured, which store it is, the Credential Source that reached it, whether bytes written came back identical, the Store Key they went through, and how long that took. A measurement of the round trip, never a reading of whether an environment variable happens to be set.
 _Avoid_: status, connection, ping, availability
 
 **Store Health**:
