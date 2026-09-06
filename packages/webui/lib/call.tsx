@@ -6,22 +6,32 @@
  * without it a failure is a gap in the Gallery rather than something a person
  * can read.
  */
-import type { Call, Output, Step } from "@meco/records";
+import type { Output, Step } from "@meco/records";
 import type { Store } from "@meco/store";
+import type {
+  CallView as CallViewData,
+  FaceVerdictRow,
+  RedactionRow,
+} from "./call-page";
 import { Layout } from "./layout";
+import { Overlay } from "./overlay";
 import { percent } from "./percent";
 
 export interface CallProps {
   readonly basePath: string;
-  readonly call: Call;
-  readonly outputs: readonly Output[];
-  readonly moreOutputs: boolean;
+  readonly view: CallViewData;
   readonly store: Pick<Store, "publicUrl">;
 }
+
+type Call = CallViewData["call"];
 
 /** The Gallery's own path, which is the sub-app's root wherever it is mounted. */
 const galleryPath = (basePath: string): string =>
   basePath === "" ? "/" : basePath;
+
+/** The redirect route the Source Thumbnail is fetched through. */
+const sourcePath = (basePath: string, id: string): string =>
+  `${basePath}/calls/${id}/source`;
 
 function Facts(props: { call: Call }) {
   const { call } = props;
@@ -145,8 +155,94 @@ function Outputs(props: {
   );
 }
 
+/** identify's verdict for every face, with the Person named where there is one. */
+function Faces(props: {
+  faces: readonly FaceVerdictRow[] | null;
+  names: ReadonlyMap<string, string>;
+  raw: unknown;
+}) {
+  if (props.faces === null) {
+    return <Verbatim value={props.raw} absent="No face was identified." />;
+  }
+  if (props.faces.length === 0) {
+    return <p class="note">No face was identified.</p>;
+  }
+  return (
+    <dl class="facts">
+      {props.faces.map((one) => (
+        <>
+          <dt>{one.regionId}</dt>
+          <dd>
+            {one.verdict}
+            {one.personId === undefined
+              ? ""
+              : ` — ${props.names.get(one.personId) ?? one.personId}`}
+            {one.similarity === undefined ? "" : ` (${one.similarity})`}
+          </dd>
+        </>
+      ))}
+    </dl>
+  );
+}
+
+/** What redact hid, one line per face. */
+function Redactions(props: {
+  redactions: readonly RedactionRow[] | null;
+  raw: unknown;
+}) {
+  if (props.redactions === null) {
+    return <Verbatim value={props.raw} absent="No face was hidden." />;
+  }
+  if (props.redactions.length === 0) {
+    return <p class="note">No face was hidden.</p>;
+  }
+  return (
+    <dl class="facts">
+      {props.redactions.map((one) => (
+        <>
+          <dt>{one.regionId}</dt>
+          <dd>hidden — {one.reason}</dd>
+        </>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * A Replay made no Output of its own: the row stays on the Call that first
+ * made it, which is what "one Output and two Calls" means. So the page points
+ * at that Call rather than pretending this one produced something.
+ */
+function Replayed(props: {
+  basePath: string;
+  output: Output;
+  store: Pick<Store, "publicUrl">;
+}) {
+  return (
+    <div class="note">
+      <p>
+        This Call replayed an earlier Output, so no module ran.{" "}
+        <a href={`${props.basePath}/calls/${props.output.callId}`}>
+          The Call that made it
+        </a>
+        .
+      </p>
+      <p>
+        <code>{props.output.storeKey}</code>
+      </p>
+      <img
+        class="source"
+        src={props.store.publicUrl(props.output.storeKey)}
+        alt={`${props.output.kind} for ${props.output.brand}`}
+        loading="lazy"
+        decoding="async"
+      />
+    </div>
+  );
+}
+
 export function CallView(props: CallProps) {
-  const { call } = props;
+  const { call, overlay } = props.view;
   return (
     <Layout title={`meco — ${call.kind} for ${call.brand}`}>
       <p>
@@ -176,18 +272,32 @@ export function CallView(props: CallProps) {
             Source Hold and mints a URL that lives a minute, so a saved page
             holds no photograph.
           */}
-          <img
-            class="source"
-            src={`${props.basePath}/calls/${call.id}/source`}
-            alt="the Source Image of this Call"
-            loading="lazy"
-            decoding="async"
-          />
+          {overlay === null ? (
+            <img
+              class="source"
+              src={sourcePath(props.basePath, call.id)}
+              alt="the Source Image of this Call"
+              loading="lazy"
+              decoding="async"
+            />
+          ) : (
+            <Overlay
+              src={sourcePath(props.basePath, call.id)}
+              overlay={overlay}
+            />
+          )}
         </>
       )}
 
       <h2>Steps</h2>
       <Steps steps={call.steps} />
+      {props.view.replayed === null ? null : (
+        <Replayed
+          basePath={props.basePath}
+          output={props.view.replayed}
+          store={props.store}
+        />
+      )}
 
       <h2>Cost</h2>
       <Cost cost={call.cost} />
@@ -195,8 +305,8 @@ export function CallView(props: CallProps) {
       <h2>Outputs</h2>
       <Outputs
         basePath={props.basePath}
-        outputs={props.outputs}
-        more={props.moreOutputs}
+        outputs={props.view.outputs}
+        more={props.view.moreOutputs}
         store={props.store}
       />
 
@@ -207,10 +317,14 @@ export function CallView(props: CallProps) {
       <Verbatim value={call.framing} absent="No window was framed." />
 
       <h2>Matches</h2>
-      <Verbatim value={call.matches} absent="No face was identified." />
+      <Faces
+        faces={props.view.faces}
+        names={props.view.names}
+        raw={call.matches}
+      />
 
       <h2>Redactions</h2>
-      <Verbatim value={call.redactions} absent="No face was hidden." />
+      <Redactions redactions={props.view.redactions} raw={call.redactions} />
     </Layout>
   );
 }

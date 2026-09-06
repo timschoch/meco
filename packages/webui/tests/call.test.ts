@@ -1,3 +1,4 @@
+import type { Annotation } from "@meco/contracts";
 import { records, type Caller, type Records, type Step } from "@meco/records";
 import { pgliteDatabase } from "@meco/records/pglite";
 import { memoryStore } from "@meco/store";
@@ -458,6 +459,232 @@ describe("the Source Thumbnail", () => {
       expect(res.status).toBe(401);
       expect(res.headers.get("WWW-Authenticate")).toBe('Basic realm="meco"');
       expect(res.headers.get("Location")).toBe(null);
+    },
+    TIMEOUT
+  );
+});
+
+/** One face Region, in source fractions, with the landmarks a face must carry. */
+const face = (id: string, box: Annotation["regions"][number]["box"]) => ({
+  id,
+  kind: "face" as const,
+  label: "face",
+  box,
+  score: 0.99,
+  model: { name: "test", version: "1" },
+  landmarks: {
+    rEye: { x: box.x + 0.01, y: box.y + 0.01 },
+    lEye: { x: box.x + 0.02, y: box.y + 0.01 },
+    nose: { x: box.x + 0.015, y: box.y + 0.02 },
+    rMouth: { x: box.x + 0.01, y: box.y + 0.03 },
+    lMouth: { x: box.x + 0.02, y: box.y + 0.03 },
+  },
+});
+
+const annotationOf = (
+  hash: string,
+  regions: Annotation["regions"]
+): Annotation => ({
+  schema: 1,
+  hash,
+  mime: "image/png",
+  width: 800,
+  height: 600,
+  producedBy: [{ name: "test", version: "1" }],
+  regions,
+});
+
+describe("the Overlay", () => {
+  it(
+    "places a Region at its box and the Crop Window divided by the File's own size",
+    async () => {
+      const { one, caller } = await openRecords();
+      const hash = await writeSource(one, "laica", "source");
+      await one.annotations.put(
+        annotationOf(hash, [
+          face("face-1", { x: 0.1, y: 0.2, width: 0.25, height: 0.3 }),
+        ])
+      );
+      const call = await one.calls.record({
+        callerId: caller.id,
+        brand: "laica",
+        kind: "crop",
+        sourceHash: hash,
+        status: "ok",
+        // The File is 800 × 600, the Target is 1080 × 1080. Dividing by the
+        // Target instead would put the window at 9.26% / 4.63% / 37% / 27.8%.
+        framing: {
+          window: { x: 100, y: 50, width: 400, height: 300 },
+          windowFraction: { x: 0.125, y: 0.08333, width: 0.5, height: 0.5 },
+          resolvedBy: "face",
+          leadRegionId: "face-1",
+          keptRegionIds: ["face-1"],
+          droppedRegionIds: [],
+          satisfied: true,
+        },
+        request: { target: { width: 1080, height: 1080 } },
+      });
+
+      const app = webui({
+        records: one,
+        store: memoryStore(),
+        caller: always(holding(caller, "laica")),
+      });
+
+      const html = await (await app.request(`/calls/${call.id}`)).text();
+
+      expect(html).toContain("left: 10%; top: 20%; width: 25%; height: 30%");
+      expect(html).toContain(
+        "left: 12.5%; top: 8.3333%; width: 50%; height: 50%"
+      );
+      // Positioned elements and per cent, so the Overlay holds at any display
+      // width. Nothing on the page runs.
+      expect(html).not.toContain("<script");
+    },
+    TIMEOUT
+  );
+
+  it(
+    "names the Person on a Match, says hidden on a redacted face, and falls back to the Region id",
+    async () => {
+      const { one, caller } = await openRecords();
+      const hash = await writeSource(one, "laica", "source");
+      await one.annotations.put(
+        annotationOf(hash, [
+          face("face-1", { x: 0.1, y: 0.1, width: 0.1, height: 0.1 }),
+          face("face-2", { x: 0.5, y: 0.1, width: 0.1, height: 0.1 }),
+          face("face-3", { x: 0.8, y: 0.1, width: 0.1, height: 0.1 }),
+        ])
+      );
+      const person = await one.people.create({
+        brand: "laica",
+        name: "Nora Bianchi",
+      });
+      const call = await one.calls.record({
+        callerId: caller.id,
+        brand: "laica",
+        kind: "crop",
+        sourceHash: hash,
+        status: "ok",
+        matches: {
+          matches: [
+            {
+              regionId: "face-1",
+              personId: person.id,
+              brand: "laica",
+              similarity: 0.71,
+            },
+          ],
+          faces: [
+            {
+              regionId: "face-1",
+              verdict: "match",
+              personId: person.id,
+              similarity: 0.71,
+            },
+            { regionId: "face-2", verdict: "unknown", best: 0.2 },
+            { regionId: "face-3", verdict: "uncompared", reason: "no-print" },
+          ],
+          unusableReferencePhotos: [],
+        },
+        redactions: [{ regionId: "face-2", reason: "unknown-face" }],
+      });
+
+      const app = webui({
+        records: one,
+        store: memoryStore(),
+        caller: always(holding(caller, "laica")),
+      });
+
+      const html = await (await app.request(`/calls/${call.id}`)).text();
+
+      expect(html).toContain("Nora Bianchi");
+      expect(html).toContain("hidden");
+      expect(html).toContain("face-3");
+      // The verdicts of the faces nobody matched are on the page too.
+      expect(html).toContain("unknown");
+      expect(html).toContain("uncompared");
+    },
+    TIMEOUT
+  );
+
+  it(
+    "draws the Regions with no Crop Window for a Call that framed none",
+    async () => {
+      const { one, caller } = await openRecords();
+      const hash = await writeSource(one, "laica", "source");
+      await one.annotations.put(
+        annotationOf(hash, [
+          face("face-1", { x: 0.1, y: 0.2, width: 0.25, height: 0.3 }),
+        ])
+      );
+      const call = await one.calls.record({
+        callerId: caller.id,
+        brand: "laica",
+        kind: "annotate",
+        sourceHash: hash,
+        status: "ok",
+      });
+
+      const app = webui({
+        records: one,
+        store: memoryStore(),
+        caller: always(holding(caller, "laica")),
+      });
+
+      const res = await app.request(`/calls/${call.id}`);
+      expect(res.status).toBe(200);
+      const html = await res.text();
+
+      expect(html).toContain('class="region"');
+      expect(html).not.toContain('class="window"');
+      expect(html).toContain("This Call made no Output.");
+    },
+    TIMEOUT
+  );
+});
+
+describe("a Replay", () => {
+  it(
+    "says the Call replayed an earlier Output and links the Call that made it",
+    async () => {
+      const { one, caller } = await openRecords();
+      const request = { template: "story", fields: { title: "hello" } };
+      const first = await one.calls.record({
+        callerId: caller.id,
+        brand: "laica",
+        kind: "render",
+        status: "ok",
+        request,
+      });
+      await one.outputs.record({
+        brand: "laica",
+        storeKey: "renders/first.png",
+        callId: first.id,
+        kind: "render",
+        requestHash: one.requestHash("laica", "render", request),
+      });
+      // The same request again: one Output, two Calls, the second with one Step.
+      const replay = await one.calls.record({
+        callerId: caller.id,
+        brand: "laica",
+        kind: "render",
+        status: "ok",
+        request,
+        steps: [{ name: "records.replay", durMs: 4 }],
+      });
+
+      const app = webui({
+        records: one,
+        store: memoryStore(),
+        caller: always(holding(caller, "laica")),
+      });
+
+      const html = await (await app.request(`/calls/${replay.id}`)).text();
+
+      expect(html).toContain("replay");
+      expect(hrefs(html)).toContain(`/ui/calls/${first.id}`);
+      expect(html).toContain("renders/first.png");
     },
     TIMEOUT
   );

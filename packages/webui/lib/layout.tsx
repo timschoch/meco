@@ -68,6 +68,16 @@ const STYLE = `
   .bar { display: block; background: #eceef1; border-radius: 999px; height: .5rem; }
   .bar-fill { display: block; background: #16181d; border-radius: 999px; height: 100%; }
   .source { display: block; width: 100%; height: auto; background: #eceef1; border-radius: .5rem; }
+  .overlay { position: relative; display: block; max-width: 40rem; }
+  .overlay .region, .overlay .window { position: absolute; }
+  .overlay .region { border: 2px solid #2563eb; }
+  .overlay .region[data-hidden="true"] { border-color: #b91c1c; border-style: dashed; }
+  .overlay .window { border: 2px dashed #16181d; box-shadow: 0 0 0 100vmax rgba(0,0,0,.06); }
+  .overlay .tag {
+    position: absolute; top: 0; left: 0; transform: translateY(-100%);
+    background: #16181d; color: #fff; font-size: .6875rem; padding: 0 .3rem;
+    white-space: nowrap; border-radius: .2rem;
+  }
 `;
 
 export function Layout(props: { title: string; children?: Child }) {

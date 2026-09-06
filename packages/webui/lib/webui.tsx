@@ -290,13 +290,7 @@ export function webui(options: WebuiOptions): Hono {
     if (view === null) return notFound(c);
 
     return c.html(
-      <CallView
-        basePath={basePath}
-        call={view.call}
-        outputs={view.outputs}
-        moreOutputs={view.moreOutputs}
-        store={options.store}
-      />
+      <CallView basePath={basePath} view={view} store={options.store} />
     );
   });
 

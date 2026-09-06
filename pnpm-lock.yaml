@@ -180,6 +180,9 @@ importers:
 
   packages/webui:
     dependencies:
+      '@meco/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@meco/records':
         specifier: workspace:*
         version: link:../records
