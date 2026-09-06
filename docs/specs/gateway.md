@@ -308,14 +308,14 @@ Every test is `createApp(deps).request(...)`: the HTTP Door and, as JSON-RPC bod
 
 The front's own suite (`packages/front/tests/`) runs `createFront(deps).request(...)` over a fake gateway behind an injected `fetch`, a Hono app that answers `/mcp` as the stateless SDK handler does and `/health` as the test says:
 
-| Check                                                                                                                          | Mutation that must turn it red |
-| ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
-| `tools/list` reaches the container verbatim with its `Authorization` / `x-auth-token`, and the answer comes back byte for byte | forward without the credential |
-| `Mcp-Session-Id` reaches the container and comes back on a warm answer (a cold answer's headers arrive after the front's status line) | drop the session header |
-| a cold result's first content block carries the news and a warm result is untouched; a call with no credential is relayed as it is | prepend on every path; intercept it |
-| a warm `tools/call` is forwarded at once with the probe beside it, and answered with no notification                           | probe on every message         |
-| a cold `tools/call` is told so before the container has answered anything, confirmed once it has, then given the real result   | skip the probe                 |
-| a forwarded call the platform dropped is a JSON-RPC error with the call's id, asking for the call again                        | swallow the rejection          |
+| Check                                                                                                                                 | Mutation that must turn it red |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `tools/list` reaches the container verbatim with its `Authorization` / `x-auth-token`, and the answer comes back byte for byte        | forward without the credential |
+| `Mcp-Session-Id` reaches the container and comes back on a warm answer (a cold answer's headers arrive after the front's status line) | drop the session header        |
+| a cold result's first content block carries the news and a warm result is untouched; a call with no credential is relayed as it is    | never prepend; intercept it    |
+| a warm `tools/call` is forwarded at once with the probe beside it, and answered with no notification                                  | probe on every message         |
+| a cold `tools/call` is told so before the container has answered anything, confirmed once it has, then given the real result          | skip the probe                 |
+| a forwarded call the platform dropped is a JSON-RPC error with the call's id, asking for the call again                               | swallow the rejection          |
 
 Every check is proved able to fail by its mutation before it ships. Commit the green state first, then mutate, then `git restore`.
 
