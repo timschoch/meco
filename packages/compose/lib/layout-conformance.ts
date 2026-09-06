@@ -6,7 +6,14 @@ import { Box, MAX_OCCLUSION_ZONES, type DecodedImage } from "@meco/contracts";
 import type { Check } from "@meco/contracts/conformance";
 import type { PlacementId } from "../placements";
 import type { Template } from "../template";
-import { layout, planOf, resolve, type Layout, type Plan } from "./plan";
+import {
+  layout,
+  planOf,
+  resolve,
+  variantsOf,
+  type Layout,
+  type Plan,
+} from "./plan";
 import type { MeasuredBox } from "./measured-tree";
 import { LOOKS } from "./looks/registry";
 import { registerTemplates } from "./templates/register";
@@ -126,10 +133,11 @@ function once<T>(make: () => Promise<T>): () => Promise<T> {
 function checksFor(
   template: Template,
   placement: PlacementId,
+  variant: string | undefined,
   fixtures: LayoutFixtures,
   registry: ReadonlyMap<string, Template>
 ): Check[] {
-  const name = `${template.id} at ${placement}`;
+  const name = `${template.id} at ${placement}${variant === undefined ? "" : ` (${variant})`}`;
   // The Template's own `example`, so the suite runs the Fields its author says
   // are real and no test invents a second set to keep in step.
   const resolved = () =>
@@ -142,9 +150,9 @@ function checksFor(
       },
       registry
     );
-  const measured = once(async () => layout(resolved()));
+  const measured = once(async () => layout(resolved(), undefined, variant));
   const planned = once(async (): Promise<Plan> =>
-    planOf(resolved(), await measured())
+    planOf(resolved(), await measured(), variant)
   );
 
   return [
@@ -214,13 +222,13 @@ function checksFor(
         const { slot } = await measured();
         for (const image of fixtures.images) {
           const src = await intoSlot(image, slot);
-          const withBytes = await layout(resolved(), {
-            src,
-            width: slot.width,
-            height: slot.height,
-          });
+          const withBytes = await layout(
+            resolved(),
+            { src, width: slot.width, height: slot.height },
+            variant
+          );
           deepStrictEqual(
-            planOf(resolved(), withBytes),
+            planOf(resolved(), withBytes, variant),
             await planned(),
             `The Plan changed once a ${image.width}x${image.height} picture sat in the Image Slot. A Template may not lay itself out around the bytes: the Plan is built before they exist.`
           );
@@ -266,7 +274,8 @@ function checksFor(
 
 /**
  * The layout suite: what every Template must be true of at every Placement it
- * declares, run with the Template's own `example` Fields.
+ * declares, under every Variant it offers, run with the Template's own
+ * `example` Fields.
  *
  * An entry point of its own, like `@meco/contracts/conformance`. Two of the
  * rules read takumi's measured tree and one needs a layout pass taken *with*
@@ -280,7 +289,9 @@ export function layoutConformance(fixtures: LayoutFixtures): Check[] {
     : TEMPLATES;
   return [...registry.values()].flatMap((template) =>
     template.placements.flatMap((placement) =>
-      checksFor(template, placement, fixtures, registry)
+      variantsOf(template).flatMap((variant) =>
+        checksFor(template, placement, variant, fixtures, registry)
+      )
     )
   );
 }

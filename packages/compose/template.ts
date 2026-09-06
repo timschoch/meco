@@ -82,6 +82,29 @@ export interface TemplateProps<Fields> {
   readonly look: Look;
   readonly placement: Placement;
   readonly image: SlotImage;
+  /**
+   * Which of the Template's Variants to draw. Always one of the names the
+   * Template declares, and absent for a Template that declares none.
+   */
+  readonly variant?: string;
+}
+
+/**
+ * One way a Template can lay itself out: the same Fields and the same Look,
+ * with its blocks somewhere else — the caption at the top instead of the
+ * bottom. compose plans every Variant and frame chooses the one that keeps
+ * the Subject clearest, so a Template offers them in its order of preference
+ * and the first is what a picture with nothing to keep clear gets.
+ */
+export interface TemplateVariant {
+  readonly name: string;
+  /**
+   * Where the Subject should land under this layout, in Image Slot fractions,
+   * per Placement. Declared per Variant because the clear part of the frame
+   * moves with the blocks; a Placement not named here falls back to the
+   * Template's own `subjectArea`.
+   */
+  readonly subjectArea?: Partial<Record<PlacementId, Box>>;
 }
 
 /**
@@ -97,6 +120,12 @@ export interface Template<Fields extends z.ZodType = z.ZodType> {
   readonly placements: readonly PlacementId[];
   /** Where the Subject should land, in Image Slot fractions. Design intent, per Placement. */
   readonly subjectArea?: Partial<Record<PlacementId, Box>>;
+  /**
+   * The layouts this Template can take, most preferred first, each named
+   * once. A Template that declares none lays out one way and its `render` is
+   * never handed a `variant`.
+   */
+  readonly variants?: readonly TemplateVariant[];
   /** Real Fields that render, so a caller can see the Template working. */
   readonly example: z.infer<Fields>;
   render(props: TemplateProps<z.infer<Fields>>): ReactNode;

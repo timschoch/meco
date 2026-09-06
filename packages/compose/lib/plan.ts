@@ -33,6 +33,41 @@ export interface Plan {
   readonly imageSlot: Size;
   readonly occlusion: readonly Box[];
   readonly subjectArea?: Box;
+  /** The Variant this Plan measures. Absent for a Template that lays out one way. */
+  readonly variant?: string;
+}
+
+/**
+ * The Variants a Template lays out, as `layout` takes them: the declared
+ * names in the Template's order, or one `undefined` for a Template that
+ * declares none, so every caller walks one list.
+ */
+export const variantsOf = (
+  template: Template
+): readonly (string | undefined)[] =>
+  template.variants?.map((variant) => variant.name) ?? [undefined];
+
+/**
+ * The Variant a `render` draws: the one asked for, or the Template's first.
+ *
+ * A name the Template does not declare is refused, and so is any name on a
+ * Template that declares none — frame chose it off a Plan this Template did
+ * not make, so drawing the Template's one layout under that name would file a
+ * Render whose Framing lies about it.
+ */
+export function resolveVariant(
+  template: Template,
+  asked: string | undefined
+): string | undefined {
+  const names = variantsOf(template);
+  if (asked === undefined) return names[0];
+  if (names.includes(asked)) return asked;
+  throw new ComposeError(
+    "unknown_variant",
+    template.variants === undefined
+      ? `Template "${template.id}" lays out one way and has no Variant "${asked}".`
+      : `Template "${template.id}" has no Variant "${asked}"; it offers ${names.join(", ")}.`
+  );
 }
 
 /** The four inputs after the registries and the Fields schema have had them. */
@@ -119,7 +154,8 @@ const round = (box: MeasuredBox): MeasuredBox => ({
  */
 export async function layout(
   resolved: Resolved,
-  image?: SlotImage
+  image?: SlotImage,
+  variant?: string
 ): Promise<Layout> {
   const { template, look, placement } = resolved;
   const renderer = await sharedRenderer();
@@ -129,6 +165,7 @@ export async function layout(
       look,
       placement,
       image: image ?? { width: placement.width, height: placement.height },
+      ...(variant === undefined ? {} : { variant }),
     })
   );
   const measured = await renderer.measure(node, {
@@ -171,26 +208,43 @@ function clipToSlot(zone: MeasuredBox, slot: MeasuredBox): Box | undefined {
   return { x, y, width: right - x, height: bottom - y };
 }
 
-/** The Plan a laid-out Template stands for. */
-export function planOf(resolved: Resolved, measured: Layout): Plan {
+/**
+ * The Plan a laid-out Template stands for. The Subject Area is the Variant's
+ * own for this Placement, falling back to the Template's.
+ */
+export function planOf(
+  resolved: Resolved,
+  measured: Layout,
+  variant?: string
+): Plan {
   const { slot, zones } = measured;
-  const subjectArea = resolved.template.subjectArea?.[resolved.placement.id];
+  const { template, placement } = resolved;
+  const subjectArea =
+    template.variants?.find((one) => one.name === variant)?.subjectArea?.[
+      placement.id
+    ] ?? template.subjectArea?.[placement.id];
   return {
     imageSlot: { width: slot.width, height: slot.height },
     occlusion: zones.flatMap((zone) => clipToSlot(zone, slot) ?? []),
     ...(subjectArea ? { subjectArea } : {}),
+    ...(variant === undefined ? {} : { variant }),
   };
 }
 
 /**
  * What a Template will cover at one Placement with these Fields, before any
- * picture exists.
+ * picture exists: one Plan per Variant, in the Template's order of
+ * preference, and one unnamed Plan for a Template that lays out one way.
  *
- * Pure and cheap (0.6–3.6 ms, ADR-0009 decision 1): the gateway calls it to
- * fill the FramingRequest's `target`, `occlusion` and `subjectArea` from one
- * source, then calls `render` once frame has chosen the window.
+ * Pure and cheap (0.6–3.6 ms per layout, ADR-0009 decision 1): the gateway
+ * calls it to fill one FramingRequest per Plan from one source, lets frame
+ * choose among them, then calls `render` with the Variant frame named.
  */
-export async function plan(input: PlanInput): Promise<Plan> {
+export async function plan(input: PlanInput): Promise<readonly Plan[]> {
   const resolved = resolve(input);
-  return planOf(resolved, await layout(resolved));
+  return Promise.all(
+    variantsOf(resolved.template).map(async (variant) =>
+      planOf(resolved, await layout(resolved, undefined, variant), variant)
+    )
+  );
 }

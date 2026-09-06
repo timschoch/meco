@@ -65,7 +65,12 @@ describe("the layout suite", () => {
     // as a wrong count.
     const expected = SHIPPED.flatMap((template) =>
       template.placements.flatMap((placement) =>
-        RULES.map((rule) => `${template.id} at ${placement} ${rule}`)
+        (template.variants ?? [undefined]).flatMap((variant) =>
+          RULES.map(
+            (rule) =>
+              `${template.id} at ${placement}${variant === undefined ? "" : ` (${variant})`} ${rule}`
+          )
+        )
       )
     );
 

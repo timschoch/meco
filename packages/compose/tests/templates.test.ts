@@ -43,8 +43,18 @@ describe("templates", () => {
     expect(story).toMatchObject({
       brand: "swisshutless",
       placements: ["instagram/story", "facebook/story"],
+      variants: ["caption-bottom", "caption-top"],
     });
     expect(story.description).toContain("Swiss Hutless");
+  });
+
+  it("lists a Template's Variants in its order, and none for one that lays out one way", () => {
+    // What a Framing may come back naming; the caller does not choose.
+    expect(shipped("hopefamily-story").variants).toEqual([
+      "caption-bottom",
+      "caption-top",
+    ]);
+    expect("variants" in post).toBe(false);
   });
 
   it("lists laica-post with both the Placements it draws for", () => {
@@ -119,5 +129,19 @@ describe("registerTemplates", () => {
     expect(registerTemplates([template], looks).get(template.id)).toBe(
       template
     );
+  });
+
+  it("refuses a Template that names a Variant twice, or declares none by an empty list", () => {
+    const looks = new Map([["swisshutless", {}]]);
+    const twice = {
+      ...templateFor("swisshutless"),
+      variants: [{ name: "caption-top" }, { name: "caption-top" }],
+    };
+    const empty = { ...templateFor("swisshutless"), variants: [] };
+
+    expect(() => registerTemplates([twice], looks)).toThrowError(
+      /twice: caption-top, caption-top/
+    );
+    expect(() => registerTemplates([empty], looks)).toThrowError(/empty/);
   });
 });
