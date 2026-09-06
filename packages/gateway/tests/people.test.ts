@@ -406,11 +406,32 @@ describe("add_reference_photo", () => {
         consentAt: CONSENT,
       });
 
+      // Only the outcome, so the platform's cap is the one thing that can
+      // fail this. Which key the URL named is the check below.
       expect(res.status).toBe(200);
       const body = (await res.json()) as { photo?: { hash?: string } };
       expect(body.photo?.hash).toBe(sha256(bytes));
-      // Filed under the Person's prefix, which is the only place a Reference
-      // Photo's bytes ever live, and the key the Signed URL was minted for.
+      expect(await one.store.list(`people/${BRAND}/${person.id}`)).toHaveLength(
+        1
+      );
+    },
+    TIMEOUT
+  );
+
+  it(
+    "hands models a Signed URL for the key it filed the photograph under",
+    async () => {
+      // The other half of the carrier: not that a big photograph got through,
+      // but that what models was given names the object identify wrote, under
+      // the Person's prefix and nowhere else.
+      const { one, app, person } = await somebody();
+
+      await post(app, `/v1/people/${person.id}/photos`, {
+        brand: BRAND,
+        source: { url: sourceUrl(ONE_FACE) },
+        consentAt: CONSENT,
+      });
+
       const stored = await one.store.list(`people/${BRAND}/${person.id}`);
       expect(stored).toHaveLength(1);
       expect(one.modelsFetched).toHaveLength(1);
