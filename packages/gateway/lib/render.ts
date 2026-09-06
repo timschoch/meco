@@ -89,17 +89,23 @@ export type RenderAnswer = {
   readonly faces: readonly FaceReport[];
 };
 
-/** What one pass through the modules produced, before the Call row exists. */
-interface Rendered {
+/** What one pass produced, before the Call row exists. */
+interface Produced {
   readonly storeKey: string;
   readonly mime: string;
   readonly bytes: number;
-  readonly requestHash: string;
   readonly framing: Framing;
   readonly faces: readonly FaceReport[];
-  /** True when records answered and no module ran. */
-  readonly replayed: boolean;
 }
+
+/**
+ * The two ways a Call ends, as one discriminated union rather than a flag: the
+ * Request Hash is a fact of a render that happened and of nothing else, and a
+ * Replay must not be able to carry one to `outputs.record`.
+ */
+type Rendered =
+  | (Produced & { readonly replayed: false; readonly requestHash: string })
+  | (Produced & { readonly replayed: true });
 
 export async function renderImage(
   deps: RenderDeps,
@@ -290,17 +296,20 @@ async function replayOf(
     if (call === null || annotation === null || head === null) return null;
 
     // Written by frame, identify and redact and stored unread, so this is the
-    // one place the three shapes are named again.
-    const framing = call.framing as Framing;
+    // one place the three shapes are named again — and the one place a row an
+    // older shape wrote has to be survived rather than trusted. Anything that
+    // is not the shape this reads is a miss, and the pipeline renders again.
+    const framing = call.framing as Framing | null;
     const identification = call.matches as Identification | null;
     const redactions = (call.redactions ?? []) as readonly RedactionRecord[];
-    if (framing === null || identification === null) return null;
+    if (framing?.windowFraction === undefined) return null;
+    if (!Array.isArray(identification?.faces)) return null;
+    if (!Array.isArray(redactions)) return null;
 
     return {
       storeKey: output.storeKey,
       mime: head.contentType,
       bytes: head.size,
-      requestHash: hash,
       framing,
       faces: faceReports(annotation, identification, redactions, framing),
       replayed: true,
@@ -308,7 +317,7 @@ async function replayOf(
   });
 }
 
-/** True when any part of the Box lands inside the frame frame cut. */
+/** True when any part of the Box lands inside the frame frame cut out. */
 const intersectsFrame = (box: {
   x: number;
   y: number;

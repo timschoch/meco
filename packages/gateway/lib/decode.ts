@@ -31,10 +31,13 @@ export async function decodeAt(
     .raw()
     .toBuffer({ resolveWithObject: true });
 
+  // Not a `resolution_mismatch`: a channel count is not a resolution, and the
+  // wire's codes each mean one thing. `removeAlpha` answers three channels for
+  // every image sharp can read, so this is a bug here, answered as the
+  // gateway's `500 internal` with the message kept off the wire.
   if (info.channels !== 3) {
-    throw new GatewayError(
-      "resolution_mismatch",
-      `the source decoded to ${info.channels} channels, not the three every Region is a fraction of`
+    throw new Error(
+      `decode: expected 3 channels after removeAlpha, got ${info.channels}`
     );
   }
   if (info.width !== annotation.width || info.height !== annotation.height) {

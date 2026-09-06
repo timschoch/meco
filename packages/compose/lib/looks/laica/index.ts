@@ -1,7 +1,9 @@
 import type { Look, LookFont } from "../../../template";
 import { lookAssets } from "../assets";
 
-const bytes = lookAssets("laica");
+/** Named once: the Brand is both the Look's own id and its asset folder. */
+const BRAND = "laica";
+const bytes = lookAssets(BRAND);
 
 /**
  * One weight instanced out of a variable font file.
@@ -45,7 +47,7 @@ const FIGTREE = "fonts/figtree/Figtree-Variable.ttf";
  * network-free.
  */
 export const laica = {
-  brand: "laica",
+  brand: BRAND,
   colors: {
     green: "#00a461",
     greenDark: "#00884f",
