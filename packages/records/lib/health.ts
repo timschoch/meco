@@ -118,6 +118,10 @@ export async function reachRecords(records: Records): Promise<RecordsReach> {
     };
   }
 
+  // Derived once, so "is this container on the right schema" is answered in
+  // one place whichever way the round trip goes.
+  const migrated = pending === 0;
+
   const started = performance.now();
   try {
     const readBack = await withTimeout(roundTrip(records));
@@ -130,7 +134,7 @@ export async function reachRecords(records: Records): Promise<RecordsReach> {
       reachable: identical,
       serverVersion,
       pending,
-      migrated: pending === 0,
+      migrated,
       roundTripMs: elapsed(started),
       reason: identical
         ? null
@@ -142,7 +146,7 @@ export async function reachRecords(records: Records): Promise<RecordsReach> {
       reachable: false,
       serverVersion,
       pending,
-      migrated: pending === 0,
+      migrated,
       roundTripMs: elapsed(started),
       reason: publicMessage(error),
     };

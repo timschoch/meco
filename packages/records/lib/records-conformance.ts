@@ -239,6 +239,26 @@ export function recordsConformance(
       },
     },
     {
+      name: "annotations.get refuses a stored document that is no longer an Annotation",
+      async run() {
+        const records = await open();
+        const file = fileFor("from an older build");
+        await records.files.ensure(file);
+
+        // What a row written by an older build looks like from here. The seam
+        // types forbid writing one, which is why this check has to force it:
+        // the document is stored as contracts defined it *then*, and reading it
+        // back has to be a refusal rather than an Annotation this build would
+        // act on.
+        await records.annotations.put({
+          ...annotationFor("from an older build"),
+          schema: 0,
+        } as unknown as Annotation);
+
+        await rejects(() => records.annotations.get(file.hash));
+      },
+    },
+    {
       name: "annotations.put without its File is refused",
       async run() {
         const records = await open();
