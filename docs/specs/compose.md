@@ -42,16 +42,18 @@ plan({ template, placement, brand, fields }) → Promise<Plan>
   Plan = { imageSlot: Size, occlusion: Box[], subjectArea?: Box }
 render({ template, placement, brand, fields, source: DecodedImage, window: Box, format?, quality? })
   → Promise<{ bytes: Uint8Array, mime }>
+cut({ source: DecodedImage, window: Box, target: Size, format?, quality? })
+  → Promise<{ bytes: Uint8Array, mime }>   // a bare Crop: no Template
 templates(brand?) → TemplateDescription[]       // id, brand, description, placements, fields as JSON Schema, example
 PLACEMENTS: readonly Placement[]                 // the closed catalogue
 ComposeError { code: "unknown_template" | "unknown_brand" | "placement_not_supported" | "invalid_fields" | "framing_mismatch" }
 ```
 
-`template.ts`, the only import a Template author needs: the `Template` and `Look` types, `TemplateProps`, and the Markers `ImageSlot` and `Occludes`.
+`template.ts`, the only import a Template author needs: the `Template` and `Look` types, `TemplateProps`, the Markers `ImageSlot` and `Occludes`, and the Building Blocks `PhotoCard`, `Scrim` and `TextBlock`.
 
 `placements.ts`: `Placement`, `PlacementId` and the catalogue, also reachable from `index.ts`.
 
-`conformance.ts`: `layoutConformance(fixtures) → Check[]`, the layout suite below. Its own entry point, like [`packages/contracts/conformance.ts`](../../packages/contracts/conformance.ts), so the fixture pictures the Checks take never reach the runtime graph. A Template author outside compose runs the same Checks from their own Vitest file.
+`conformance.ts`: `layoutConformance({ images, templates? }) → Check[]`, the layout suite below. `templates` names the Templates to check; without it the suite runs the ones compose ships. What a caller passes is registered through `registerTemplates` against compose's own Looks, so a Template whose Brand has no Look is refused there and not at the first Check. Its own entry point, like [`packages/contracts/conformance.ts`](../../packages/contracts/conformance.ts), so the fixture pictures the Checks take never reach the runtime graph. A Template author outside compose runs the same Checks from their own Vitest file.
 
 ### The Template contract
 
@@ -68,7 +70,7 @@ A Template must lay out identically whatever the image bytes are; the Plan depen
 
 ### The Plan
 
-`plan` builds the tree with a blank image descriptor of the slot's size, lays it out with takumi's `measure()`, walks the measured tree in step with the source tree, and reads the `ImageSlot` box and every `Occludes` box off the absolute transform. Zones are translated from canvas pixels to Image Slot fractions and clipped to the slot; a zone wholly outside the slot is dropped. `imageSlot` is the slot box in pixels. `subjectArea` is copied from the Template for that Placement.
+`plan` builds the tree with a blank image descriptor of the slot's size, lays it out with takumi's `measure()`, walks the measured tree in step with the source tree, and reads the `ImageSlot` box and every `Occludes` box off the absolute transform. Zones are translated from canvas pixels to Image Slot fractions and clipped to the slot; a zone wholly outside the slot is dropped rather than reported as a rectangle of no area, which no FramingRequest would accept. Only a Template a caller registered can produce one — the layout suite forbids a shipped Template a zone the slot's edge cuts. `imageSlot` is the slot box in pixels. `subjectArea` is copied from the Template for that Placement.
 
 ### The Render
 
@@ -80,6 +82,14 @@ A Template must lay out identically whatever the image bytes are; the Plan depen
 4. Encodes `png | jpeg | webp`. Default `jpeg` at quality 90 for a Template with an Image Slot; `png` only when asked.
 
 No fetch, no store, no crop decision. `source` is a Decoded Image and `window` a Box in Source Image fractions, both contracts types; the gateway lifts the window (frame's `windowFraction`) out of the Framing. compose imports nothing from `@meco/frame`. Precondition: `source` is at the Annotation's own resolution, the one frame divided by. redact blurs in place and does not resize, so this holds today; a resize step anywhere before compose would scale the window correctly but make the one-pixel tolerance below mean something else.
+
+### The Cut
+
+`cut` is the same pixel path with no Template over it: `extract`, `resize` to the target with lanczos3, the same `framing_mismatch` refusal read against the target instead of the Image Slot, and the same encoder at the same defaults. The picture is already the canvas's size, so takumi draws it 1:1. It exists because compose owns pixels and the gateway's bare Crop route must not reach for sharp to skip a Template (#88).
+
+### Building Blocks
+
+`PhotoCard`, `Scrim` and `TextBlock` on `template.ts`, beside the Markers. A Template may import only that entry, which is why two Templates for one Brand were ~90 % the same file (#116); the answer is to put what they share on the far side of the rule rather than to relax it. The blocks are layout and never Look: every colour, family, size and spacing is a prop, and colour props take `string | undefined` because a Look's colour map is open.
 
 ### Looks
 
@@ -107,7 +117,8 @@ Tests cross the entry points only, enforced by dependency-cruiser. Prior art: co
 
 - exactly one `ImageSlot` in the measured tree, of a positive size;
 - every Occlusion Zone parses as a contracts `Box`, so its fractions are in `[0, 1]`;
-- no Occlusion Zone had to be clipped, so the Template's own overlay stays on its own Image Slot;
+- no Occlusion Zone is cut by the Image Slot's edge, so the Template's own overlay stays on its own Image Slot;
+- every Occlusion Zone wholly outside the Image Slot is dropped from the Plan, and every one over it is kept. The other half of the rule above, and the half a Template may break without being wrong: a zone off the slot covers no part of the picture;
 - every text run inside its own box on the inline axis. That axis only: a run's reported height is the font's line box, not the CSS one, so a Template that tightens `lineHeight` puts every run over its box by design;
 - the Plan is identical with no image bytes, with a flat 9x16 placeholder and with a fixture photo;
 - `subjectArea`, when declared, is a valid Box;
@@ -115,11 +126,13 @@ Tests cross the entry points only, enforced by dependency-cruiser. Prior art: co
 
 Exact assertions. The Plan's own numbers carry no tolerance: `tests/plan.test.ts` names the text block in whole Image Slot pixels, 92, 1437, 896 by 391 for the example Fields. The two containment rules allow half a pixel, because takumi lays out in floats and a run that exactly fills its line comes back a fraction over; anything a reader would see is whole pixels.
 
-Each check names the mutation that turns it red: a `<div>` where `<Occludes>` belongs, a title three times longer than the box, a Template that reads `image.width` into its layout.
+Each check names the mutation that turns it red: a `<div>` where `<Occludes>` belongs, a title three times longer than the box, a Template that reads `image.width` into its layout. The two halves of the clipping rule are separated by a pair of fixture Templates registered through `templates`, drawing the same frame and differing only in where the second zone sits.
 
 **Golden images**, one per Template x Placement, rendered from a fixture photo and the `example` Fields, compared by mean absolute pixel difference against a threshold set from a cross-platform measurement (takumi is byte-deterministic on one machine; Linux CI is the open question). Regenerated only by an explicit script, never by the suite.
 
-**Interface checks**: `plan` and `render` refuse each error code with the named input; `render` with a window two pixels off the slot's aspect fails `framing_mismatch` and one pixel off passes; the default format is JPEG and `format: "png"` yields PNG bytes.
+**The bare Crop**: its own golden at 1080x1920 on the kart fixture, at the same threshold, plus a byte-for-byte check that `cut` and `render` put the same pixels in the Image Slot. Read over the part of `swisshutless-story` that nothing covers — the band its scrim holds at alpha 0, less the brand stripe — because compose ships no empty Template and registering one for a test would put it in the catalogue every caller reads.
+
+**Interface checks**: `plan` and `render` refuse each error code with the named input; `cut` refuses `framing_mismatch` on the same rule; `render` with a window two pixels off the slot's aspect fails `framing_mismatch` and one pixel off passes; the default format is JPEG and `format: "png"` yields PNG bytes.
 
 Every check is proved able to fail before it ships.
 
