@@ -4,6 +4,7 @@ import { fixtureAnnotation, fixtureBytes, sha256 } from "./annotations";
 import {
   HELD,
   KEY,
+  NOT_HELD,
   PHOTOS,
   TIMEOUT,
   rpc,
@@ -61,6 +62,172 @@ const call = async (one: Opened, id: string | undefined): Promise<Call> => {
   if (found === null) throw new Error(`no Call ${String(id)}`);
   return found;
 };
+
+const stepNames = (recorded: Call) => recorded.steps.map((s) => s.name);
+
+describe("the Annotation cache", () => {
+  it(
+    "answers the same photograph again from records, with no models Step and no second fetch of the store",
+    async () => {
+      const one = await stack();
+      const app = one.app();
+      await annotate(one, { url: `${PHOTOS}/${FILE}` }, app);
+      const again = await annotate(one, { url: `${PHOTOS}/${FILE}` }, app);
+      const recorded = await call(one, again.body.call?.id);
+
+      expect(again.status).toBe(200);
+      expect(again.body.annotation?.hash).toBe(HASH);
+      expect(one.modelsSeen.filter((s) => s === "POST /annotate")).toHaveLength(1);
+      expect(stepNames(recorded)).toEqual([
+        "source.fetch",
+        "records.annotations.get",
+        "records.sources.hold",
+      ]);
+    },
+    TIMEOUT
+  );
+
+  it(
+    "re-annotates a row an older Catalogue wrote and replaces it",
+    async () => {
+      const one = await stack();
+      const complete = fixtureAnnotation(FILE);
+      const stale = {
+        ...complete,
+        producedBy: complete.producedBy.filter((m) => m.name !== "dfine"),
+      };
+      await one.records.files.ensure({
+        hash: HASH,
+        mime: "image/jpeg",
+        width: 1280,
+        height: 1600,
+        bytes: BYTES.byteLength,
+        storeKey: `sources/${HASH}.jpg`,
+      });
+      await one.records.annotations.put(stale);
+
+      const { status, body } = await annotate(one, {
+        url: `${PHOTOS}/${FILE}`,
+      });
+      const recorded = await call(one, body.call?.id);
+
+      expect(status).toBe(200);
+      expect(one.modelsSeen).toContain("POST /annotate");
+      expect(stepNames(recorded)).toContain("models.annotate");
+      await expect(one.records.annotations.get(HASH)).resolves.toEqual(complete);
+    },
+    TIMEOUT
+  );
+});
+
+describe("a { hash } Source Reference", () => {
+  it(
+    "is 404 not_found for a hash this Brand holds no Source Hold on, whether or not the bytes exist",
+    async () => {
+      const one = await stack();
+      // Filed by another Brand: the bytes exist, this Brand may not name them.
+      const other = one.app().request("/v1/annotate", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${KEY}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          brand: HELD[1],
+          source: { url: `${PHOTOS}/${FILE}` },
+        }),
+      });
+      expect((await other).status).toBe(200);
+
+      const known = await annotate(one, { hash: HASH });
+      const unknown = await annotate(one, { hash: "0".repeat(64) });
+
+      expect(known.status).toBe(404);
+      expect(unknown.status).toBe(404);
+      expect(known.body.error?.code).toBe("not_found");
+      // The same answer word for word, bar the hash the caller itself sent.
+      expect(known.body.error?.message.replace(HASH, "<hash>")).toBe(
+        unknown.body.error?.message.replace("0".repeat(64), "<hash>")
+      );
+    },
+    TIMEOUT
+  );
+
+  it(
+    "answers from the cache once the Brand holds it, fetching nothing",
+    async () => {
+      const one = await stack();
+      const app = one.app();
+      await annotate(one, { url: `${PHOTOS}/${FILE}` }, app);
+      const byHash = await annotate(one, { hash: HASH }, app);
+      const recorded = await call(one, byHash.body.call?.id);
+
+      expect(byHash.status).toBe(200);
+      expect(byHash.body.annotation?.hash).toBe(HASH);
+      expect(one.photosSeen).toHaveLength(1);
+      expect(stepNames(recorded)).toEqual([
+        "records.annotations.get",
+        "records.sources.hold",
+      ]);
+    },
+    TIMEOUT
+  );
+
+  it(
+    "reads the bytes off the store when the held row is incomplete",
+    async () => {
+      const one = await stack();
+      const complete = fixtureAnnotation(FILE);
+      await one.records.files.ensure({
+        hash: HASH,
+        mime: "image/jpeg",
+        width: 1280,
+        height: 1600,
+        bytes: BYTES.byteLength,
+        storeKey: (await one.store.put("sources", BYTES, "image/jpeg")).key,
+      });
+      await one.records.annotations.put({ ...complete, producedBy: [] });
+      await one.records.sources.hold(BRAND, HASH);
+
+      const { status, body } = await annotate(one, { hash: HASH });
+      const recorded = await call(one, body.call?.id);
+
+      expect(status).toBe(200);
+      expect(one.photosSeen).toEqual([]);
+      expect(stepNames(recorded).slice(0, 3)).toEqual([
+        "records.annotations.get",
+        "store.get",
+        "models.annotate",
+      ]);
+      await expect(one.records.annotations.get(HASH)).resolves.toEqual(complete);
+    },
+    TIMEOUT
+  );
+});
+
+describe("the Brand Wall on annotate", () => {
+  it(
+    "refuses a Brand the Caller does not hold before anything is fetched",
+    async () => {
+      const one = await stack();
+      const res = await one.app().request("/v1/annotate", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${KEY}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          brand: NOT_HELD,
+          source: { url: `${PHOTOS}/${FILE}` },
+        }),
+      });
+      expect(res.status).toBe(403);
+      expect(one.photosSeen).toEqual([]);
+      expect(one.modelsSeen).toEqual([]);
+    },
+    TIMEOUT
+  );
+});
 
 describe("POST /v1/annotate on a photograph meco has never seen", () => {
   it(
