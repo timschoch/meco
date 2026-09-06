@@ -161,7 +161,7 @@ describe("POST /annotate with a { url } body refuses", async () => {
     ],
     [
       "source_unfetchable",
-      "a redirect off https",
+      "more redirects than the host follows",
       () =>
         byUrl(
           createApp(catalogue, {
@@ -169,7 +169,7 @@ describe("POST /annotate with a { url } body refuses", async () => {
               () =>
                 new Response(null, {
                   status: 302,
-                  headers: { location: "http://store.test/a.jpg" },
+                  headers: { location: "https://store.test/again.jpg" },
                 })
             ),
           })
@@ -232,6 +232,27 @@ describe("POST /annotate with a { url } body refuses", async () => {
       expect(error.message).not.toBe("");
     });
   }
+
+  it("refuses a redirect off https without ever dereferencing it", async () => {
+    // The http hop serves a perfectly good photograph, so a host that followed
+    // it would answer 200 — and would have pulled the photograph over the wire
+    // in clear. Only refusing every hop, and not merely the first, is red here.
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const at = String(input instanceof Request ? input.url : input);
+      if (at.startsWith("https:")) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: "http://store.test/a.jpg" },
+        });
+      }
+      return new Response(bytes);
+    });
+
+    const res = await byUrl(createApp(catalogue, { fetch }));
+    expect(res.status).toBe(ERROR_STATUS.source_unfetchable);
+    expect((await wireError(res)).code).toBe("source_unfetchable");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
 
   it("names the status the URL answered, so an expired URL is told from a missing key", async () => {
     const app = createApp(fakeCatalogue(fakeDetector("a")), {
