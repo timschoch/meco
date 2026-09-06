@@ -140,9 +140,17 @@ invalid_request`. Then `files.ensure`, then `sources.hold(brand, hash)`.
    Bytes no decoder can read, or an image in a format no Annotation has a mime
    for, are `415 unsupported_mime`.
 
-**Every refusal takes the object with it.** Bytes nothing filed are bytes
-records will never name, and the Sweep only removes what records knows about,
-so an upload nothing accepted would sit in the Private Store for good.
+**A refusal about the bytes takes the object with it**: the `415`s and the
+`400` for a key naming bytes that were never sent. Those bytes can never be
+filed by anyone, records will never name them, and the Sweep only removes what
+records knows about, so leaving them would leave them for good.
+
+The refusals that are not about the bytes leave the object where it is, on
+purpose. A `403` from the Brand Wall, or a throw between `store.put` and
+`sources.hold`, says nothing against the photograph — it is at the key its own
+Content Hash gives it, which is the key `add_source` will use next time, so
+the caller's retry files it and uploads nothing. Deleting there would make a
+caller who named the wrong Brand upload the whole file again.
 
 **The Signed URL cannot overwrite**, and that is the guarantee the rest rests
 on. A caller names the hash its key is built from, so it can name the hash of

@@ -380,6 +380,15 @@ describe("add_source", () => {
       expect(body.error?.code).toBe("brand_not_held");
       expect(await one.records.sources.heldBy(NOT_HELD, hash)).toBe(false);
       expect(await one.records.files.get(hash)).toBeNull();
+
+      // And the bytes stay. A wall says nothing against the photograph, and
+      // the object is at the key its own Content Hash gives it, so naming a
+      // Brand the key does hold files it and uploads nothing.
+      expect(await one.store.head(key)).not.toBeNull();
+      const retried = await post(app, "/v1/sources", { brand: BRAND, key });
+      expect(retried.status).toBe(200);
+      expect(retried.body.hash).toBe(hash);
+      expect(await one.records.sources.heldBy(BRAND, hash)).toBe(true);
     },
     TIMEOUT
   );
