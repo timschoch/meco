@@ -8,6 +8,7 @@
 import { Annotation } from "@meco/contracts";
 import type { Store } from "@meco/store";
 import { eq, sql } from "drizzle-orm";
+import { withoutBoundSecrets } from "./bound-secrets";
 import { type Brands, brandsOver } from "./brands";
 import { type Callers, callersOver } from "./callers";
 import { type CallKind, type Calls, callsOver } from "./calls";
@@ -188,6 +189,16 @@ export function records(options: RecordsOptions): Records {
             // `annotated_at` defaults only on insert, so a replacement that
             // did not set it would date the new Annotation by the old one.
             set: { ...values, annotatedAt: sql`now()` },
+          })
+          // An Annotation binds every Face Print its Regions carry, which
+          // makes this the widest Bound Secret in records: one statement, and
+          // every face in the photograph. `bound-secrets.ts` says why the
+          // failure cannot travel.
+          .catch((error: unknown) => {
+            throw withoutBoundSecrets(
+              `storing the annotation of ${annotation.hash}`,
+              error
+            );
           });
       },
     },

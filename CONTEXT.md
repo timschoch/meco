@@ -427,6 +427,10 @@ _Avoid_: TTL, expiry, grace period, lifetime
 One committed SQL file that moves the schema forward, named by its tag and applied once. The gateway applies every pending one at boot, under a lock, and a failure there is a failed boot. An applied Migration is history: it is never edited, only followed by another. It travels inside the container's bundle, because the runtime image carries no folder to read it from.
 _Avoid_: schema change, DDL, patch, upgrade, sync
 
+**Bound Secret**:
+A value a statement binds that must never reach a log: the hash of a bearer key, and a Face Print. A statement that binds one cannot report its own failure, because drizzle wraps the driver's error in one whose message is the statement and its parameters, and Postgres quotes the offending value back besides. What records reports instead names what it was doing and the SQLSTATE, and carries no cause.
+_Avoid_: sensitive field, PII, redacted parameter (redact hides faces in pixels), sanitised error, masked value
+
 **Records Reach**:
 What the database looks like from inside the deployment: configured, reachable, the server version, how many Migrations are pending, whether it is migrated, how long one round trip took, and why that round trip failed when it did. Reported in `GET /health` beside Store Health; a database that cannot be reached is reported here rather than by failing the endpoint. Reachable is a measurement and never a reading of an environment variable: the probe writes a File and its Annotation under a fixed hash and reads the Annotation back. It writes once — `GET /health` is unauthenticated, so the first call on a schema writes the probe and every call after it reads.
 _Avoid_: db status, connection, ping, healthcheck
