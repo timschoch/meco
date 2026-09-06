@@ -137,15 +137,19 @@ The size floor is judged in the Decoded Image, not the photograph: `min(box.widt
 
 ### What `enrol` does
 
-In order, and nothing is written before step 5:
+In order. Steps 1 and 2 write nothing; step 3 writes the bytes, and from there every exit that is not an enrolment removes them again:
 
-1. `records.people.get(brand, personId)`; missing → `unknown_person`. `consentAt` absent → `consent_required`.
-2. `annotate(bytes, { hash })` with `hash` the sha256 of `bytes`. The Annotation is the shared one under that Content Hash; `annotate` is the models client's `annotate` with the hash check on.
-3. Choose the face: no face Region → `no_face`; `regionId` given and not a face Region of this Annotation → `unknown_region`; several faces and no `regionId` → `{ status: "choose", faces }`, sorted by size, largest first; one face → that one.
-4. Identifiable Face: no `facePrint` → `no_print`; other `model` → `other_model`; below `MIN_FACE_PX` → `too_small`; at or above `NOT_A_FACE_THRESHOLD` to a Not-a-Face Print → `not_a_face`. Each message says which photograph would work, as the prototype's did (helmet off, closer, square on).
-5. `store.put("people/<brand>/<personId>", bytes, contentType)` → Store Key and hash; `records.files.ensure` with the File's hash, mime and size; `records.annotations.put(annotation)`; `records.people.enrol({ personId, brand, hash, storeKey, regionId, facePrint, consentAt })`. The `people/…` key goes on the Reference Photo row. The `files` row is the hash plus its `sources/` key if the same bytes were ever uploaded as a Source Image; records owns that rule (decision on #87, carried to #86).
+1. `records.people.get(brand, personId)`; missing → `unknown_person`. `consentAt` absent → `consent_required`. Nothing is ever written for a Person who does not exist or has not consented.
+2. `hash` is the sha256 of `bytes`.
+3. `store.put("people/<brand>/<personId>", bytes, contentType)` → Store Key and hash.
+4. `store.signedUrl(key, MAX_SIGNED_URL_SECONDS)`, then `annotate({ url }, { hash })`. The Annotation is the shared one under that Content Hash; `annotate` is the models client's `annotate` with the hash check on, and the URL form is the only one a photograph over 4.5 MB can use (#201).
+5. Choose the face: no face Region → `no_face`; `regionId` given and not a face Region of this Annotation → `unknown_region`; several faces and no `regionId` → `{ status: "choose", faces }`, sorted by size, largest first; one face → that one. A `choose` is not an enrolment, so the bytes go with it.
+6. Identifiable Face: no `facePrint` → `no_print`; other `model` → `other_model`; below `MIN_FACE_PX` → `too_small`; at or above `NOT_A_FACE_THRESHOLD` to a Not-a-Face Print → `not_a_face`. Each message says which photograph would work, as the prototype's did (helmet off, closer, square on).
+7. `records.files.ensure` with the File's hash, mime and size; `records.annotations.put(annotation)`; `records.people.enrol({ personId, brand, hash, storeKey, regionId, facePrint, consentAt })`. The `people/…` key goes on the Reference Photo row. The `files` row is the hash plus its `sources/` key if the same bytes were ever uploaded as a Source Image; records owns that rule (decision on #87, carried to #86).
 
-A refused photograph leaves no object under the prefix and no row. The same photograph enrolled twice is two rows on one key (records, "People, Reference Photos and Erasure"); identify does not deduplicate, records counts.
+**A refused photograph leaves no object under the prefix and no row.** How that is kept changed on #235: the Annotator takes a Signed URL and can only fetch what is already in the store, so the bytes are written before the gates in steps 5 and 6 rather than after them, and the rule is "nothing written survives a refusal" instead of "nothing is written before the refusals" (ADR-0012, Decision 4, amended). The cost is a crash between the write and the removal, which is the window step 7 always had, made longer.
+
+The same photograph enrolled twice is two rows on one key (records, "People, Reference Photos and Erasure"); identify does not deduplicate, records counts.
 
 ### The constants and their provenance
 

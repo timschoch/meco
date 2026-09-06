@@ -12,6 +12,7 @@ export { IdentifyError, type IdentifyErrorCode } from "./lib/errors";
 export { identify } from "./lib/identify";
 export { NOT_A_FACE_PRINTS, type NotAFacePrint } from "./lib/not-a-face-prints";
 export {
+  type AnnotateSource,
   type Annotator,
   type EnrolRequest,
   type Enrolment,

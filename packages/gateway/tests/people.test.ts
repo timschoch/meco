@@ -22,6 +22,7 @@ import {
 import {
   HELD,
   KEY,
+  MAX_BINDING_BODY_BYTES,
   NOT_HELD,
   type Opened,
   PHOTOS,
@@ -115,20 +116,40 @@ const CRAFTED = [
   },
 ] as const;
 
-/** The bytes a crafted photograph is served as. Its name is enough. */
-const craftedBytes = (name: string): Uint8Array =>
-  new TextEncoder().encode(`crafted:${name}`);
+/**
+ * A crafted photograph big enough that the platform would refuse it as a body
+ * on the service binding. The fake models host enforces that bound, so a
+ * Reference Photo this size only enrols while `enrol` hands over a URL.
+ */
+const OVER_THE_CAP = "over-the-cap";
+
+/**
+ * The bytes a crafted photograph is served as. Its name is enough, except for
+ * the over-the-cap one, which has to actually be that big.
+ */
+const craftedBytes = (name: string): Uint8Array => {
+  const named = new TextEncoder().encode(`crafted:${name}`);
+  if (name !== OVER_THE_CAP) return named;
+  const padded = new Uint8Array(MAX_BINDING_BODY_BYTES + 1);
+  padded.set(named);
+  return padded;
+};
 
 const craftedAnnotation = (name: string): unknown => {
+  const base = { ...oneFace, producedBy: CATALOGUE, hash: sha256(craftedBytes(name)) };
+  // The over-the-cap photograph is not a refusal: it is an ordinary one face,
+  // and only its size is the point.
+  if (name === OVER_THE_CAP) return base;
   const one = CRAFTED.find((each) => each.name === name);
   if (one === undefined) throw new Error(`no crafted photograph ${name}`);
-  return {
-    ...oneFace,
-    ...one.edit,
-    producedBy: CATALOGUE,
-    hash: sha256(craftedBytes(name)),
-  };
+  return { ...base, ...one.edit };
 };
+
+/** Every crafted photograph the fake hosts answer for, refusals and not. */
+const CRAFTED_NAMES: readonly string[] = [
+  ...CRAFTED.map((one) => one.name),
+  OVER_THE_CAP,
+];
 
 /**
  * models, answering the committed fixtures and this suite's invented ones. The
@@ -137,13 +158,26 @@ const craftedAnnotation = (name: string): unknown => {
  */
 const models = () =>
   fakeModels({
-    annotate: async (request) => {
-      const hash = sha256(new Uint8Array(await request.arrayBuffer()));
-      const crafted = CRAFTED.find(
-        (one) => sha256(craftedBytes(one.name)) === hash
+    annotate: async (_request, body) => {
+      if (body === null) {
+        return Response.json(
+          {
+            error: {
+              code: "source_unfetchable",
+              message: "the Signed URL hands over nothing",
+            },
+          },
+          { status: 502 }
+        );
+      }
+      const hash = sha256(body);
+      const crafted = CRAFTED_NAMES.find(
+        (name) => sha256(craftedBytes(name)) === hash
       );
       if (crafted !== undefined) {
-        return Response.json(craftedAnnotation(crafted.name));
+        return Response.json(craftedAnnotation(crafted), {
+          headers: { "server-timing": SERVER_TIMING },
+        });
       }
       const known = annotationByHash(hash);
       if (known === null) {
@@ -205,7 +239,7 @@ const photos = () => {
         { headers: { "content-type": "image/jpeg" } }
       );
     }
-    if (CRAFTED.some((one) => one.name === name)) {
+    if (CRAFTED_NAMES.includes(name)) {
       return new Response(craftedBytes(name), {
         headers: { "content-type": "image/jpeg" },
       });
@@ -355,6 +389,59 @@ describe("erase_person", () => {
 });
 
 describe("add_reference_photo", () => {
+  it(
+    "enrols a Reference Photo the service binding would refuse as a body",
+    async () => {
+      // The whole point of #235. The fake models host refuses a raw-bytes body
+      // above the platform's measured cap, exactly as the platform does, so
+      // this passes only while `enrol` files the photograph and hands over a
+      // Signed URL instead. Post the bytes and it is a 502 `bad_response`.
+      const { one, app, person } = await somebody();
+      const bytes = craftedBytes(OVER_THE_CAP);
+      expect(bytes.byteLength).toBeGreaterThan(MAX_BINDING_BODY_BYTES);
+
+      const res = await post(app, `/v1/people/${person.id}/photos`, {
+        brand: BRAND,
+        source: { url: sourceUrl(OVER_THE_CAP) },
+        consentAt: CONSENT,
+      });
+
+      // Only the outcome, so the platform's cap is the one thing that can
+      // fail this. Which key the URL named is the check below.
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { photo?: { hash?: string } };
+      expect(body.photo?.hash).toBe(sha256(bytes));
+      expect(await one.store.list(`people/${BRAND}/${person.id}`)).toHaveLength(
+        1
+      );
+    },
+    TIMEOUT
+  );
+
+  it(
+    "hands models a Signed URL for the key it filed the photograph under",
+    async () => {
+      // The other half of the carrier: not that a big photograph got through,
+      // but that what models was given names the object identify wrote, under
+      // the Person's prefix and nowhere else.
+      const { one, app, person } = await somebody();
+
+      await post(app, `/v1/people/${person.id}/photos`, {
+        brand: BRAND,
+        source: { url: sourceUrl(ONE_FACE) },
+        consentAt: CONSENT,
+      });
+
+      const stored = await one.store.list(`people/${BRAND}/${person.id}`);
+      expect(stored).toHaveLength(1);
+      expect(one.modelsFetched).toHaveLength(1);
+      expect(new URL(one.modelsFetched[0]!).pathname).toBe(
+        `/${stored[0]?.key ?? ""}`
+      );
+    },
+    TIMEOUT
+  );
+
   it(
     "enrols from an https URL and answers the Reference Photo without its Face Print",
     async () => {

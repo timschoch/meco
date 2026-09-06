@@ -189,11 +189,11 @@ export const addReferencePhoto = async (
  */
 const annotatorOf =
   (ctx: OperationContext, trace: Trace): Annotator =>
-  async (bytes, options) => {
+  async (source, options) => {
     const models = ctx.models;
     if (models === null) throw modelsUnbound();
     const { annotation, serverTiming } = await models.annotateTimed(
-      bytes,
+      source,
       options
     );
     for (const { name, durMs } of serverTiming) {

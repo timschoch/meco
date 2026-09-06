@@ -55,6 +55,16 @@ The refused set is unchanged: `on-track-visor-open#0`, `paddock-mixed#8`, `paddo
 
 `enrol` annotates, chooses, checks, and only then writes: the bytes under `people/<brand>/<personId>/`, the File, the Annotation, the Reference Photo row. A photograph refused for size, for resembling a Not-a-Face Print, for an unalignable face or for the wrong print Model leaves nothing behind, so a refusal is not a leak and the Erasure proof has nothing to miss.
 
+Amended 7 Sep 2026 by [gateway: one carrier — file first, then `{ url }` (#235)](https://github.com/timschoch/meco/issues/235). The order is reversed and the guarantee restated, because the platform left no other shape.
+
+A body over 4.5 MB cannot cross the service binding between two container services (#201, measured), and a Reference Photo is routinely over it. The Annotator is therefore handed a Signed URL and fetches the photograph itself, and a URL can only name an object already in the store. So the bytes are written before the face gates run.
+
+The rule is now **nothing written survives a refusal**, in place of nothing is written before the refusals. Every exit that is not an enrolment removes the bytes it wrote, the `choose` answer included — that one returns normally rather than throwing, and would otherwise leave a photograph of a person under their own prefix. The outcome the user story asks for still holds: a refused enrolment leaves no object and no row.
+
+What is genuinely weaker is a crash between the write and the removal. That exposure is not new — `enrol` already wrote the bytes before `files.ensure`, `annotations.put` and `people.enrol` and removed them in a `catch`, and its own comment called that the one window — but the window is now longer. The consent and Person checks are untouched and still run before anything is written, so no bytes are ever filed for a Person who does not exist or has not consented.
+
+Considered and rejected: staging the bytes under `sources/`. They would need a File row for the Sweep to ever collect them, and #185 found that a `files` row pointing a Reference Photo at a `sources/` key leaves `people.erase` unable to take the File with the Person, so an Erasure would be partial. A staging Namespace of its own is a store change for one caller.
+
 ## Decision 5 — real adapters in the suite, a fake only at the model
 
 identify's tests run `records` over pglite and `memoryStore`, both real adapters under their own conformance suites, and fake only the Annotator, which returns committed fixture Annotations for known hashes. Rejected: a fake `Records`. It would be a third adapter with no suite keeping it honest, and the Erasure and two-enrolments-one-key rules are exactly what a fake gets wrong.
