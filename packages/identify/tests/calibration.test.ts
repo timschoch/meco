@@ -17,8 +17,14 @@
  * this file asserts the inherited numbers on the inherited prints.
  */
 import { describe, expect, it } from "vitest";
-import { MATCH_MARGIN, MATCH_THRESHOLD } from "../index";
-import { printPairs } from "./fixtures";
+import {
+  MATCH_MARGIN,
+  MATCH_THRESHOLD,
+  MIN_FACE_PX,
+  NOT_A_FACE_PRINTS,
+  NOT_A_FACE_THRESHOLD,
+} from "../index";
+import { kartPrints, printPairs } from "./fixtures";
 
 /**
  * The bound the fixture photographs were committed at, and the size every
@@ -80,5 +86,150 @@ describe("the identity calibration on the committed fixture prints", () => {
     // check says the fixtures cannot embarrass it, not that 0.05 is measured.
     const clearance = worst(samePerson) - best(strangers);
     expect(clearance).toBeGreaterThan(MATCH_MARGIN);
+  });
+});
+
+/**
+ * The Not-a-Face calibration, recomputed in the gate.
+ *
+ * ADR-0003's amendment measured `NOT_A_FACE_THRESHOLD` over the kart fixtures,
+ * whose ground truth is a human's classification of every detection
+ * (`fixtures/karts/expected.json`). This half of the file recomputes that
+ * table, asserts the exact set of detections 0.60 refuses, and fails the run on
+ * a non-face it accepts.
+ *
+ * The band here is negative: 0.60 refuses every non-face with 0.0365 to spare
+ * and refuses one real face by 0.0177 as the price. Asserting the exact set and
+ * not "there is none" is what makes refusing a *different* face a failure.
+ */
+describe("the Not-a-Face calibration on the committed kart prints", () => {
+  const reference = NOT_A_FACE_PRINTS;
+  const dot = (a: readonly number[], b: readonly number[]): number =>
+    a.reduce((sum, value, index) => sum + value * (b[index] ?? 0), 0);
+
+  /** Every classified detection with a print, against the reference set. */
+  const measured = kartPrints()
+    .filter((one) => !one.reference)
+    .map((one) => ({
+      id: one.id,
+      is: one.is,
+      pixels: one.pixels,
+      nearest: reference.reduce(
+        (high, print) => Math.max(high, dot(one.vector, print.vector)),
+        Number.NEGATIVE_INFINITY
+      ),
+    }))
+    .sort((a, b) => b.nearest - a.nearest);
+
+  it("commits exactly the prints the fixtures mark as the reference set", () => {
+    const marked = kartPrints().filter((one) => one.reference);
+    expect(reference.map((one) => one.id)).toEqual(marked.map((one) => one.id));
+    for (const [index, print] of reference.entries()) {
+      // Byte-equal, not merely close: the committed file is a copy of the
+      // fixture print, and the re-calibration ticket regenerates both together.
+      expect(print.vector).toEqual([...(marked[index]?.vector ?? [])]);
+      expect(print.saw).toBe(marked[index]?.saw);
+    }
+  });
+
+  it("recomputes ADR-0003's table and shows the band is closed", () => {
+    const faces = measured.filter((one) => one.is === "face");
+    const nonFaces = measured.filter((one) => one.is === "not-a-face");
+    // The real face nearest the reference: the one the threshold has to refuse
+    // as its price. And the non-face *furthest* from it, which is the one that
+    // decides how much room the threshold has — a non-face nearer the
+    // reference is easier to refuse, not harder. ADR-0003's table calls this
+    // row "nearest non-face"; it is the binding one either way.
+    const nearestFace = faces[0];
+    const furthestNonFace = nonFaces[nonFaces.length - 1];
+    const heldOut = measured.find(
+      (one) => one.id === "on-track-visor-open.jpg#0"
+    );
+    if (
+      nearestFace === undefined ||
+      furthestNonFace === undefined ||
+      heldOut === undefined
+    ) {
+      throw new Error(
+        "the kart fixtures lost a face, a non-face or the held-out helmet"
+      );
+    }
+
+    console.log(
+      [
+        `not-a-face calibration — fixtures/karts/face-prints.json, ${reference.length} reference print(s)`,
+        `  classified detections  ${measured.length} (${faces.length} faces, ${nonFaces.length} non-faces), every one over the ${MIN_FACE_PX} px floor`,
+        `  nearest non-face       ${furthestNonFace.nearest.toFixed(4)} — ${furthestNonFace.id}, ${furthestNonFace.pixels} px`,
+        `  nearest real face      ${nearestFace.nearest.toFixed(4)} — ${nearestFace.id}, ${nearestFace.pixels} px`,
+        `  held out of the set    ${heldOut.nearest.toFixed(4)} — ${heldOut.id}, ${heldOut.pixels} px`,
+        `  threshold              ${NOT_A_FACE_THRESHOLD}`,
+        `  clearance below the nearest non-face  ${(furthestNonFace.nearest - NOT_A_FACE_THRESHOLD).toFixed(4)}`,
+        `  band                   ${(furthestNonFace.nearest - nearestFace.nearest).toFixed(4)} — there is none`,
+      ].join("\n")
+    );
+
+    // ADR-0003's amendment, corrected 5 Sep 2026 at the 1600 px bound.
+    expect(furthestNonFace.id).toBe("paddock-mixed.jpg#7");
+    expect(furthestNonFace.nearest).toBeCloseTo(0.6365, 4);
+    expect(nearestFace.id).toBe("paddock-mixed.jpg#8");
+    expect(nearestFace.nearest).toBeCloseTo(0.6542, 4);
+    // Both rejections are out of sample. The held-out second helmet is the
+    // one that says the rule generalises past its own reference photograph.
+    expect(heldOut.nearest).toBeCloseTo(0.6935, 4);
+    expect(furthestNonFace.nearest - NOT_A_FACE_THRESHOLD).toBeCloseTo(
+      0.0365,
+      4
+    );
+    // The real face is nearer the reference than that non-face is: no value of
+    // the threshold accepts it and still refuses the non-face. The band is
+    // negative, and 0.60 is safe rather than centred.
+    expect(furthestNonFace.nearest - nearestFace.nearest).toBeCloseTo(
+      -0.0177,
+      4
+    );
+    // Every detection in the sweep clears the size floor, so the floor is not
+    // silently doing the Not-a-Face rule's work.
+    for (const one of measured) {
+      expect(one.pixels).toBeGreaterThanOrEqual(MIN_FACE_PX);
+    }
+  });
+
+  it("refuses every non-face, and exactly one real face as the price", () => {
+    const refused = measured
+      .filter((one) => one.nearest >= NOT_A_FACE_THRESHOLD)
+      .map((one) => one.id);
+
+    // The exact set, not "no non-face is accepted": refusing a different face
+    // is a change in behaviour and has to fail the run.
+    expect(refused).toEqual([
+      // Held out of the reference set on purpose, so this rejection is out of
+      // sample: a second driver's helmet, visor up.
+      "on-track-visor-open.jpg#0",
+      // A small child looking down, 40 px. The cautious mistake, named.
+      "paddock-mixed.jpg#8",
+      // A man seen from behind. The rejection the rule exists for.
+      "paddock-mixed.jpg#7",
+    ]);
+
+    const accepted = measured.filter(
+      (one) => one.nearest < NOT_A_FACE_THRESHOLD
+    );
+    // A non-face that keeps its identity is the failure of issue #34.
+    expect(accepted.filter((one) => one.is === "not-a-face")).toEqual([]);
+    // Six of paddock-mixed's seven real faces stay matchable, and both podium
+    // photographs with them.
+    expect(accepted.map((one) => one.id)).toEqual([
+      "paddock-mixed.jpg#4",
+      "paddock-mixed.jpg#6",
+      "paddock-mixed.jpg#5",
+      "paddock-mixed.jpg#2",
+      "podium-trophy-2.jpg#0",
+      "podium-trophy.jpg#0",
+      "paddock-mixed.jpg#0",
+      "paddock-mixed.jpg#3",
+    ]);
+    expect(
+      accepted.filter((one) => one.id.startsWith("paddock-mixed.jpg"))
+    ).toHaveLength(6);
   });
 });

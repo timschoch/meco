@@ -8,7 +8,11 @@
   },
   "dependencies": {
     "@meco/contracts": "workspace:*",
+    "@meco/models": "workspace:*",
     "@meco/records": "workspace:*",
     "@meco/store": "workspace:*"
+  },
+  "scripts": {
+    "generate:not-a-face-prints": "node scripts/generate-not-a-face-prints.mjs"
   }
 }
