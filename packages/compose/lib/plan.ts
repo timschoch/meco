@@ -46,9 +46,16 @@ export interface Resolved {
 /**
  * The registry lookups and the Fields parse, in the order a caller would want
  * to hear about them: what does not exist first, then what does not fit.
+ *
+ * The registry is a parameter so the layout suite can resolve a Template a
+ * caller registered rather than one compose ships. Every other caller takes the
+ * default, which is the only registry `plan` and `render` know.
  */
-export function resolve(input: PlanInput): Resolved {
-  const template = TEMPLATES.get(input.template);
+export function resolve(
+  input: PlanInput,
+  templates: ReadonlyMap<string, Template> = TEMPLATES
+): Resolved {
+  const template = templates.get(input.template);
   if (!template) {
     throw new ComposeError(
       "unknown_template",

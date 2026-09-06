@@ -8,6 +8,8 @@ import type { PlacementId } from "../placements";
 import type { Template } from "../template";
 import { layout, planOf, resolve, type Layout, type Plan } from "./plan";
 import type { MeasuredBox } from "./measured-tree";
+import { LOOKS } from "./looks/registry";
+import { registerTemplates } from "./templates/register";
 import { TEMPLATES } from "./templates/registry";
 
 /** What the layout suite is handed. */
@@ -19,6 +21,13 @@ export interface LayoutFixtures {
    * wrongly read off the bytes.
    */
   readonly images: readonly DecodedImage[];
+  /**
+   * The Templates to check. Compose's own when the caller names none; a
+   * caller's own TSX when they do, which is what makes this entry point useful
+   * outside compose. Registered the way the shipped ones are, so a Template
+   * whose Brand has no Look is refused here rather than at the first check.
+   */
+  readonly templates?: readonly Template[];
 }
 
 /**
@@ -79,7 +88,7 @@ function overflowingRuns(measured: MeasuredNode): string[] {
  * comparison needs no tolerance: an edge that exactly meets another overlaps by
  * nothing and is a design that touches, not one that covers.
  */
-function overlap(a: Box, b: Box): boolean {
+function overlap(a: MeasuredBox, b: MeasuredBox): boolean {
   return (
     a.x < b.x + b.width &&
     b.x < a.x + a.width &&
@@ -97,6 +106,17 @@ function leavesSlot(zone: MeasuredBox, slot: MeasuredBox): boolean {
   );
 }
 
+/**
+ * Whether the zone is cut by the Image Slot's edge: partly on it, partly off.
+ *
+ * The half of "leaves the slot" that is a design fault. A zone entirely off the
+ * slot is the other half, and it is not one: it covers no part of the picture,
+ * so the Plan drops it and the rule below says so.
+ */
+function crossesSlot(zone: MeasuredBox, slot: MeasuredBox): boolean {
+  return overlap(zone, slot) && leavesSlot(zone, slot);
+}
+
 /** One layout pass per Template x Placement, however many Checks ask for it. */
 function once<T>(make: () => Promise<T>): () => Promise<T> {
   let started: Promise<T> | undefined;
@@ -106,18 +126,22 @@ function once<T>(make: () => Promise<T>): () => Promise<T> {
 function checksFor(
   template: Template,
   placement: PlacementId,
-  fixtures: LayoutFixtures
+  fixtures: LayoutFixtures,
+  registry: ReadonlyMap<string, Template>
 ): Check[] {
   const name = `${template.id} at ${placement}`;
   // The Template's own `example`, so the suite runs the Fields its author says
   // are real and no test invents a second set to keep in step.
   const resolved = () =>
-    resolve({
-      template: template.id,
-      brand: template.brand,
-      placement,
-      fields: template.example,
-    });
+    resolve(
+      {
+        template: template.id,
+        brand: template.brand,
+        placement,
+        fields: template.example,
+      },
+      registry
+    );
   const measured = once(async () => layout(resolved()));
   const planned = once(async (): Promise<Plan> =>
     planOf(resolved(), await measured())
@@ -145,15 +169,32 @@ function checksFor(
     {
       name: `${name} needs no Occlusion Zone clipped`,
       run: async () => {
-        // Clipping is what the Plan does with a zone that leaves the slot, and
-        // it is right to do it. But a shipped Template whose own text block
-        // falls off its own Image Slot is a design that never renders whole,
-        // and a clipped zone is where that first shows.
+        // Clipping is what the Plan does with a zone the slot's edge cuts, and
+        // it is right to do it. But a Template whose own text block falls half
+        // off its own Image Slot is a design that never renders whole, and a
+        // clipped zone is where that first shows.
         const { slot, zones } = await measured();
-        const escaped = zones.filter((zone) => leavesSlot(zone, slot));
+        const escaped = zones.filter((zone) => crossesSlot(zone, slot));
         ok(
           escaped.length === 0,
           `${escaped.length} Occlusion Zone(s) leave the ${slot.width}x${slot.height} Image Slot and are clipped: ${JSON.stringify(escaped)}`
+        );
+      },
+    },
+    {
+      name: `${name} drops any Occlusion Zone wholly outside the Image Slot`,
+      run: async () => {
+        // The other half of the rule above, and the one a Template may break
+        // without being wrong: a zone off the slot covers no part of the
+        // picture, so frame has nothing to keep the Subject clear of. The Plan
+        // leaves it out rather than reporting a rectangle of no area, which no
+        // FramingRequest would accept.
+        const { slot, zones } = await measured();
+        const covering = zones.filter((zone) => overlap(zone, slot));
+        deepStrictEqual(
+          (await planned()).occlusion.length,
+          covering.length,
+          `The Template measures ${zones.length} Occlusion Zone(s), ${covering.length} of them over the ${slot.width}x${slot.height} Image Slot, and the Plan reports ${(await planned()).occlusion.length}.`
         );
       },
     },
@@ -234,9 +275,12 @@ function checksFor(
  * them from their own Vitest file.
  */
 export function layoutConformance(fixtures: LayoutFixtures): Check[] {
-  return [...TEMPLATES.values()].flatMap((template) =>
+  const registry = fixtures.templates
+    ? registerTemplates(fixtures.templates, LOOKS)
+    : TEMPLATES;
+  return [...registry.values()].flatMap((template) =>
     template.placements.flatMap((placement) =>
-      checksFor(template, placement, fixtures)
+      checksFor(template, placement, fixtures, registry)
     )
   );
 }
