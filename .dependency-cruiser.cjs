@@ -97,7 +97,7 @@ module.exports = {
     {
       name: "services-do-not-import-each-other",
       comment:
-        "`gateway` and `models` deploy as separate containers. gateway reaches models over the Vercel service binding at runtime, and imports exactly one file to do it: `models/index.ts`, the client that holds the wire. Nothing else crosses, in either direction.",
+        "`gateway`, `models` and `front` deploy as separate services. gateway reaches models over the Vercel service binding at runtime, and imports exactly one file to do it: `models/index.ts`, the client that holds the wire; front reaches gateway over a binding and imports nothing. Nothing else crosses, in any direction.",
       severity: "error",
       from: { path: `^${R}/(gateway|models|front)/` },
       to: {

@@ -39,37 +39,87 @@ export interface ToolCall {
 
 /**
  * The `tools/call` in a POST body, or `null` for any other message — a body
- * that is not JSON included, which is forwarded for the gateway to refuse.
+ * that is not JSON, or a batch, included: both are forwarded for the gateway
+ * to answer as it sees fit. (The MCP spec dropped batching in 2025-06-18.)
  */
 export function toolCall(body: string): ToolCall | null {
-  let parsed: unknown;
+  let message: unknown;
   try {
-    parsed = JSON.parse(body);
+    message = JSON.parse(body);
   } catch {
     return null;
   }
-  const messages: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
-  for (const message of messages) {
-    if (typeof message !== "object" || message === null) continue;
-    const { method, id, params } = message as {
-      method?: unknown;
-      id?: unknown;
-      params?: { _meta?: { progressToken?: unknown } };
-    };
-    if (method !== "tools/call") continue;
-    const token = params?._meta?.progressToken;
-    return {
-      id: typeof id === "string" || typeof id === "number" ? id : null,
-      ...(typeof token === "string" || typeof token === "number"
-        ? { progressToken: token }
-        : {}),
-    };
-  }
-  return null;
+  if (typeof message !== "object" || message === null) return null;
+  const { method, id, params } = message as {
+    method?: unknown;
+    id?: unknown;
+    params?: { _meta?: { progressToken?: unknown } };
+  };
+  if (method !== "tools/call") return null;
+  const token = params?._meta?.progressToken;
+  return {
+    id: typeof id === "string" || typeof id === "number" ? id : null,
+    ...(typeof token === "string" || typeof token === "number"
+      ? { progressToken: token }
+      : {}),
+  };
 }
 
-const frame = (message: unknown): string =>
-  `event: message\ndata: ${JSON.stringify(message)}\n\n`;
+const frameRaw = (json: string): string => `event: message\ndata: ${json}\n\n`;
+const frame = (message: unknown): string => frameRaw(JSON.stringify(message));
+
+/**
+ * The same news for a client that shows no notification: prepended to the
+ * result's `content` as its first text block, as the ticket asks. Anything
+ * that is not a tool result with content — an error, a notification, a
+ * frame that is not JSON — passes as it came; `structuredContent` is never
+ * touched.
+ */
+export function withNews(message: unknown, news: string): unknown {
+  if (typeof message !== "object" || message === null) return message;
+  const { result } = message as { result?: { content?: unknown } };
+  if (result === undefined || !Array.isArray(result.content)) return message;
+  return {
+    ...message,
+    result: {
+      ...result,
+      content: [{ type: "text", text: news }, ...result.content],
+    },
+  };
+}
+
+/**
+ * The gateway's SSE stream, frame by frame, each `data:` message passed
+ * through `transform`. A frame whose data is not JSON is re-emitted as it
+ * came; whatever is left after the last blank line is flushed as it came.
+ */
+async function* reframed(
+  body: ReadableStream<Uint8Array>,
+  transform: (message: unknown) => unknown
+): AsyncGenerator<string> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for await (const chunk of body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let end = buffer.indexOf("\n\n");
+    while (end !== -1) {
+      const lines = buffer.slice(0, end).split("\n");
+      buffer = buffer.slice(end + 2);
+      const at = lines.findIndex((line) => line.startsWith("data:"));
+      if (at !== -1) {
+        try {
+          const message: unknown = JSON.parse(lines[at]!.slice(5));
+          lines[at] = `data: ${JSON.stringify(transform(message))}`;
+        } catch {
+          // not JSON: as it came
+        }
+      }
+      yield `${lines.join("\n")}\n\n`;
+      end = buffer.indexOf("\n\n");
+    }
+  }
+  if (buffer !== "") yield buffer;
+}
 
 /**
  * The news as `notifications/message` (level info), which every client may
@@ -112,9 +162,12 @@ export interface ColdStartStream {
  * The response for a cold `tools/call`: the stream opens at once with the
  * first notice, the confirmation follows when the gateway answers the call
  * that is already in flight, then whatever it answered. An SSE answer is
- * piped byte for byte; a JSON one becomes the stream's final frame; a refusal
- * or a failure becomes a JSON-RPC error with the call's id, because the
- * status line has already been sent.
+ * piped frame by frame, a JSON one becomes the stream's final frame, and in
+ * both the tool result's first content block carries the same news; a
+ * refusal or a failure becomes a JSON-RPC error with the call's id, because
+ * the status line has already been sent. The gateway's own response headers
+ * arrive after that status line and are not relayed here; it is stateless
+ * and issues no `Mcp-Session-Id`, so nothing is lost today.
  */
 export function coldStartStream(deps: ColdStartStream): Response {
   const { call, config } = deps;
@@ -161,15 +214,26 @@ export function coldStartStream(deps: ColdStartStream): Response {
       );
       return;
     }
+    const news = `meco was starting when this call arrived, about ${config.seconds} seconds; it is up now and this is the result.`;
     if (response.headers.get("content-type")?.includes("text/event-stream")) {
       if (response.body !== null) {
-        for await (const chunk of response.body) controller.enqueue(chunk);
+        for await (const text of reframed(response.body, (message) =>
+          withNews(message, news)
+        )) {
+          controller.enqueue(encoder.encode(text));
+        }
       }
       return;
     }
-    controller.enqueue(
-      encoder.encode(`event: message\ndata: ${await response.text()}\n\n`)
-    );
+    const text = await response.text();
+    let message: unknown;
+    try {
+      message = JSON.parse(text);
+    } catch {
+      controller.enqueue(encoder.encode(frameRaw(text)));
+      return;
+    }
+    send(withNews(message, news));
   };
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {

@@ -9,6 +9,29 @@ import { createFront } from "../index";
 const UPSTREAM = "http://gateway.internal";
 const KEY = "sk_test_the_key";
 
+/** What the fake gateway answers a message with: a tool result echoing the method. */
+const answerTo = (id: unknown, method: string) => ({
+  jsonrpc: "2.0",
+  id,
+  result: {
+    content: [{ type: "text", text: JSON.stringify({ echo: method }) }],
+  },
+});
+
+/** The same answer as a cold call gets it: the news first. */
+const NEWS =
+  "meco was starting when this call arrived, about 9 seconds; it is up now and this is the result.";
+const coldAnswerTo = (id: unknown, method: string) => {
+  const answer = answerTo(id, method);
+  return {
+    ...answer,
+    result: {
+      ...answer.result,
+      content: [{ type: "text", text: NEWS }, ...answer.result.content],
+    },
+  };
+};
+
 /**
  * The fake gateway. `up` says whether the container is listening right now;
  * while it is not, every request is held the way the platform holds one to
@@ -38,18 +61,17 @@ function gateway(
   app.all("/mcp", async (c) => {
     requests.push(c.req.raw.clone());
     if (c.req.method !== "POST") return c.body(null, 405);
-    if (!c.req.header("authorization") && !c.req.header("x-auth-token")) {
+    const key =
+      c.req.header("x-auth-token") ??
+      c.req.header("authorization")?.replace(/^Bearer /, "");
+    if (key !== KEY) {
       return c.json({ error: { code: "unauthorized" } }, 401);
     }
     const message = JSON.parse(await c.req.text()) as {
       id: unknown;
       method: string;
     };
-    const result = {
-      jsonrpc: "2.0",
-      id: message.id,
-      result: { echo: message.method },
-    };
+    const result = answerTo(message.id, message.method);
     const session = c.req.header("mcp-session-id");
     const headers: Record<string, string> =
       session === undefined ? {} : { "mcp-session-id": session };
@@ -136,7 +158,7 @@ describe("@meco/front", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("text/event-stream");
     expect(await res.text()).toBe(
-      `event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: 7, result: { echo: "tools/list" } })}\n\n`
+      `event: message\ndata: ${JSON.stringify(answerTo(7, "tools/list"))}\n\n`
     );
     // No probe on anything but a tools/call: one hop, nothing else.
     expect(upstream.hits).toEqual(["POST /mcp"]);
@@ -206,9 +228,7 @@ describe("@meco/front", () => {
     expect(res.status).toBe(200);
     const received = [];
     for await (const frame of frames(res)) received.push(frame);
-    expect(received).toEqual([
-      { jsonrpc: "2.0", id: 7, result: { echo: "tools/call" } },
-    ]);
+    expect(received).toEqual([answerTo(7, "tools/call")]);
   });
 
   it("answers a cold tools/call before the gateway is up, then confirms, then relays", async () => {
@@ -255,7 +275,7 @@ describe("@meco/front", () => {
           data: "meco is up, your request is now being processed",
         },
       },
-      { jsonrpc: "2.0", id: 7, result: { echo: "tools/call" } },
+      coldAnswerTo(7, "tools/call"),
     ]);
     expect(upstream.answered).toContain("POST /mcp");
     const call = upstream.requests.find((r) => r.method === "POST")!;
@@ -321,11 +341,7 @@ describe("@meco/front", () => {
     const rest = [];
     for await (const frame of stream) rest.push(frame);
 
-    expect(rest.at(-1)).toEqual({
-      jsonrpc: "2.0",
-      id: 7,
-      result: { echo: "tools/call" },
-    });
+    expect(rest.at(-1)).toEqual(coldAnswerTo(7, "tools/call"));
   });
 
   it("answers a JSON-RPC error with the call's id when the forwarded call is lost", async () => {
@@ -360,6 +376,29 @@ describe("@meco/front", () => {
     ]);
   });
 
+  it("relays a call with no credential as it is, so the gateway's 401 is the answer even cold", async () => {
+    let up = false;
+    const upstream = gateway({ up: () => up });
+    const front = createFront({
+      upstream: UPSTREAM,
+      fetch: upstream.fetch,
+      coldStart: COLD,
+    });
+    setTimeout(() => {
+      up = true;
+    }, COLD.probeTimeoutMs * 3);
+
+    const res = await post(
+      front,
+      message("tools/call", { name: "list_brands" }),
+      {}
+    );
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: { code: "unauthorized" } });
+    expect(upstream.hits).toEqual(["POST /mcp"]);
+  });
+
   it("turns a refusal on the cold path into a JSON-RPC error, the status line being sent", async () => {
     let up = false;
     const upstream = gateway({ up: () => up });
@@ -372,7 +411,7 @@ describe("@meco/front", () => {
     const res = await post(
       front,
       message("tools/call", { name: "list_brands" }),
-      {}
+      { "x-auth-token": "not-the-key" }
     );
     const stream = frames(res);
     await stream.next();

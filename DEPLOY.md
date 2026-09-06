@@ -70,8 +70,13 @@ configuration forces legacy deploy implementation`; it installed from the
   4.429 s  result                           {"items":[{"id":"hopefamily",…
   ```
 
-  The first byte is the network baseline, the Function's own cold start and
-  the 500 ms the probe is given, in that order. The container's cold start,
+  After 400 s idle, past production's five-minute scale-down: status line at
+  2.11 s, notice at about 2.3 s, confirmation at 5.06 s, result at 5.28 s
+  (the client stamped each line through `bc`, which drifts the later stamps
+  by about 0.1 s a line; the first is exact). The ticket asked for the notice
+  inside 1 s; from here it is not, and the budget below says where the time
+  goes. The first byte is the network baseline, the Function's own cold
+  start and the 500 ms the probe is given, in that order. The container's cold start,
   first byte to confirmation, was 2.4 s here and 4.8 s on the first build
   (notice at 2.19 s, confirmation at 6.95 s); the first `/health` after a
   deploy answered `200` after 7.25 s. **7 s** is what the notice promises
