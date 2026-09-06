@@ -11,9 +11,36 @@ import { Annotation, type ModelId, type Region } from "@meco/contracts";
 import modelsCatalogue from "./fixtures/models-catalogue.json";
 
 const FACES = fileURLToPath(new URL("../../../fixtures/faces/", import.meta.url));
+const KARTS = fileURLToPath(new URL("../../../fixtures/karts/", import.meta.url));
 
 const read = (name: string): unknown =>
   JSON.parse(readFileSync(`${FACES}${name}`, "utf8"));
+
+/**
+ * The one karting photograph the gateway tests use, and the Annotation the
+ * fake models host answers for it.
+ *
+ * `detected.json` beside it is faces alone, and YuNet finds none here — which
+ * is why this photograph exists. What frame needs is the `vehicle` Regions
+ * D-FINE found, so the fixture is a whole recorded Annotation rather than
+ * something assembled from the detection files: assembling one would put
+ * D-FINE's label-to-Kind rule in a test, where it would be a second copy of
+ * the adapter's.
+ *
+ * A copy of `packages/frame/tests/fixtures/on-track-dark-visor.json`, re-record
+ * both with `pnpm --filter @meco/frame record <models url>`. Copied because a
+ * package may not import another package's tests, and the two are held together
+ * by the hash check in {@link fixtureAnnotation}: a recording that is not of
+ * these bytes fails every test that reads it.
+ */
+export const KART_FILE = "on-track-dark-visor.jpg";
+const kartRecording = (): unknown =>
+  JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL("./fixtures/on-track-dark-visor.json", import.meta.url)),
+      "utf8"
+    )
+  );
 
 const detected = read("detected.json") as {
   readonly images: Record<
@@ -50,10 +77,13 @@ export const sha256 = (bytes: Uint8Array): string =>
 
 /** A fixture photograph's bytes. */
 export const fixtureBytes = (file: string): Uint8Array =>
-  new Uint8Array(readFileSync(`${FACES}${file}`));
+  new Uint8Array(readFileSync(`${file === KART_FILE ? KARTS : FACES}${file}`));
 
-/** Every photograph `detected.json` recorded faces for. */
-export const FIXTURE_FILES: readonly string[] = Object.keys(detected.images);
+/** Every photograph the fake hosts serve and answer for. */
+export const FIXTURE_FILES: readonly string[] = [
+  ...Object.keys(detected.images),
+  KART_FILE,
+];
 
 /**
  * The Annotation the fake models host answers for one fixture photograph:
@@ -61,6 +91,17 @@ export const FIXTURE_FILES: readonly string[] = Object.keys(detected.images);
  * `producedBy`, and the hash of the file's own bytes.
  */
 export function fixtureAnnotation(file: string): Annotation {
+  if (file === KART_FILE) {
+    const recorded = Annotation.parse(kartRecording());
+    const bytes = sha256(fixtureBytes(file));
+    if (recorded.hash !== bytes) {
+      throw new Error(
+        `the ${file} recording is of ${recorded.hash}, not of the committed bytes (${bytes})`
+      );
+    }
+    return recorded;
+  }
+
   const image = detected.images[file];
   if (image === undefined) throw new Error(`no recorded detection for ${file}`);
   const prints = printed.prints.filter((one) => one.file === file);

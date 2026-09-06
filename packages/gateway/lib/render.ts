@@ -1,34 +1,24 @@
 /**
- * The `render` pipeline: one photograph, one Template, one Placement, one
- * Render, in the order `docs/specs/gateway.md` gives under "The pipeline".
+ * The `render` Operation: one photograph, one Template, one Placement, one
+ * Render.
  *
- * Everything the gateway is for happens here and nowhere else. It fetches or
- * finds the bytes, answers a Replay off the Request Hash before any module
- * runs, gets the Annotation, asks identify who is in it, asks compose what the
- * Template leaves free, builds the FramingRequest and lets the contract refuse
- * it, asks frame for the window, decodes once, hides the strangers, renders,
- * files the bytes and writes the Call. It owns no arithmetic on a pixel beyond
- * the decode and no rule any module already holds.
+ * The order is `lib/pipeline.ts`, which every Output-producing kind shares.
+ * What is here is what only a Render knows: compose's Plan is the Layout, and
+ * compose's `render` is the paint.
  */
 import { plan as composePlan, render as composeRender } from "@meco/compose";
 import { placement as placementById } from "@meco/compose/placements";
-import {
-  type Annotation,
-  DEFAULT_PIN_TO,
-  FramingRequest,
-} from "@meco/contracts";
-import { type Framing, frameCrop, projectIntoFrame } from "@meco/frame";
-import type { FaceVerdict, Identification, Identify } from "@meco/identify";
-import { type RedactionRecord, redact } from "@meco/redact";
-import type { Caller, Records } from "@meco/records";
-import type { Store } from "@meco/store";
+import type { Framing } from "@meco/frame";
 import { z } from "zod";
-import { type AnnotateDeps, annotationOf } from "./annotate";
-import { decodeAt } from "./decode";
 import { Brand, FramingOptions } from "./inputs";
-import { requestHash } from "./request-hash";
-import { SourceReference, resolveSource } from "./source";
-import { type Trace, recorded } from "./trace";
+import {
+  type FaceReport,
+  type PipelineDeps,
+  type Stages,
+  pipeline,
+} from "./pipeline";
+import { SourceReference } from "./source";
+import { recorded } from "./trace";
 
 /** The `render_image` Operation's input, on both Doors. */
 export const RenderInput = z.object({
@@ -42,30 +32,7 @@ export const RenderInput = z.object({
 
 export type RenderInput = z.output<typeof RenderInput>;
 
-/** Everything the pipeline reaches. An `OperationContext` is one of these. */
-export interface RenderDeps extends AnnotateDeps {
-  readonly records: Records;
-  readonly store: Store;
-  readonly identify: Identify;
-  readonly fetch: typeof fetch;
-  readonly caller: Caller;
-  now(): Date;
-}
-
-/**
- * What the gateway says about one face Region of one output: identify's
- * verdict, whether redact hid it and whether frame's window kept it. Assembled
- * here because no single module knows all three, and never stored (`CONTEXT.md`,
- * Face Report).
- */
-export interface FaceReport {
-  readonly regionId: string;
-  readonly verdict: FaceVerdict["verdict"];
-  readonly personId?: string;
-  readonly similarity?: number;
-  readonly hidden: boolean;
-  readonly inFrame: boolean;
-}
+export type RenderDeps = PipelineDeps;
 
 /**
  * A type alias and not an interface: an Operation answers a
@@ -89,23 +56,44 @@ export type RenderAnswer = {
   readonly faces: readonly FaceReport[];
 };
 
-/** What one pass produced, before the Call row exists. */
-interface Produced {
-  readonly storeKey: string;
-  readonly mime: string;
-  readonly bytes: number;
-  readonly framing: Framing;
-  readonly faces: readonly FaceReport[];
-}
+/** The two stages a Render fills in. */
+const RENDER: Stages<RenderInput> = {
+  kind: "render",
+  namespace: "renders",
 
-/**
- * The two ways a Call ends, as one discriminated union rather than a flag: the
- * Request Hash is a fact of a render that happened and of nothing else, and a
- * Replay must not be able to carry one to `outputs.record`.
- */
-type Rendered =
-  | (Produced & { readonly replayed: false; readonly requestHash: string })
-  | (Produced & { readonly replayed: true });
+  async layout(input, trace) {
+    const plan = await trace.step("compose.plan", () =>
+      composePlan({
+        template: input.template,
+        placement: input.placement,
+        brand: input.brand,
+        fields: input.fields,
+      })
+    );
+    return {
+      target: plan.imageSlot,
+      occlusion: plan.occlusion,
+      ...(plan.subjectArea === undefined
+        ? {}
+        : { subjectArea: plan.subjectArea }),
+    };
+  },
+
+  paint(input, _layout, image, window, trace) {
+    return trace.step("compose.render", () =>
+      composeRender({
+        template: input.template,
+        placement: input.placement,
+        brand: input.brand,
+        fields: input.fields,
+        source: image,
+        window,
+        ...(input.format === undefined ? {} : { format: input.format }),
+        ...(input.quality === undefined ? {} : { quality: input.quality }),
+      })
+    );
+  },
+};
 
 export async function renderImage(
   deps: RenderDeps,
@@ -118,7 +106,7 @@ export async function renderImage(
     deps.caller,
     brand,
     "render",
-    (trace) => pipeline(deps, input, trace)
+    (trace) => pipeline(deps, input, RENDER, trace)
   );
 
   // Not a Step: the row cannot time its own write, and a Replay files no
@@ -158,196 +146,4 @@ export async function renderImage(
     framing: result.framing,
     faces: result.faces,
   };
-}
-
-async function pipeline(
-  deps: RenderDeps,
-  input: RenderInput,
-  trace: Trace
-): Promise<Rendered> {
-  const { brand } = input;
-
-  const source = await resolveSource(deps, brand, input.source, trace);
-  trace.sourceHash(source.hash);
-  const request = { ...input, source: { hash: source.hash } };
-  trace.request(request);
-  const hash = requestHash(request);
-
-  const replay = await replayOf(deps, brand, source.hash, hash, trace);
-  if (replay !== null) return replay;
-
-  const annotation = await annotationOf(deps, brand, source, trace);
-
-  const identification = await trace.step("identify.match", () =>
-    deps.identify.match({ annotation, brand })
-  );
-  trace.matches(identification);
-
-  const plan = await trace.step("compose.plan", () =>
-    composePlan({
-      template: input.template,
-      placement: input.placement,
-      brand,
-      fields: input.fields,
-    })
-  );
-
-  // The contract refuses the request, not the gateway: a 17th Occlusion Zone
-  // or a ladder naming a rung twice is a `400 invalid_request` from the same
-  // schema frame is written against, before frame runs.
-  const framingRequest = FramingRequest.parse({
-    brand,
-    source: { hash: source.hash },
-    target: {
-      ...plan.imageSlot,
-      ...(input.format === undefined ? {} : { format: input.format }),
-      ...(input.quality === undefined ? {} : { quality: input.quality }),
-    },
-    pinTo: input.pinTo ?? DEFAULT_PIN_TO,
-    ...(input.persons === undefined ? {} : { persons: input.persons }),
-    ...(input.anchor === undefined ? {} : { anchor: input.anchor }),
-    ...(plan.subjectArea === undefined
-      ? {}
-      : { subjectArea: plan.subjectArea }),
-    occlusion: [...plan.occlusion],
-    // The safe answer is the default one (ADR-0014, Decision 6).
-    redaction: {
-      blurUnknownFaces: input.redaction?.blurUnknownFaces ?? true,
-    },
-  });
-
-  const framing = await trace.step("frame.crop", async () =>
-    frameCrop({
-      annotation,
-      matches: [...identification.matches],
-      request: framingRequest,
-    })
-  );
-  trace.framing(framing);
-
-  const decoded = await trace.step("source.decode", async () =>
-    decodeAt(await source.bytes(), annotation)
-  );
-
-  const hidden = await trace.step("redact.blur", () =>
-    redact({
-      image: decoded,
-      regions: annotation.regions,
-      matches: identification.matches,
-      redaction: framingRequest.redaction,
-    })
-  );
-  trace.redactions(hidden.redactions);
-
-  const rendered = await trace.step("compose.render", () =>
-    composeRender({
-      template: input.template,
-      placement: input.placement,
-      brand,
-      fields: input.fields,
-      source: hidden.image,
-      window: framing.windowFraction,
-      ...(input.format === undefined ? {} : { format: input.format }),
-      ...(input.quality === undefined ? {} : { quality: input.quality }),
-    })
-  );
-
-  const put = await trace.step("store.put", () =>
-    deps.store.put("renders", rendered.bytes, rendered.mime)
-  );
-
-  return {
-    storeKey: put.key,
-    mime: rendered.mime,
-    bytes: rendered.bytes.byteLength,
-    requestHash: hash,
-    framing,
-    faces: faceReports(annotation, identification, hidden.redactions, framing),
-    replayed: false,
-  };
-}
-
-/**
- * The Replay: the Output an equal request already produced, with its Framing
- * and its Face Report read back off the Call that made it.
- *
- * One Step, because everything under it is records answering: the lookup, the
- * Call the Output points at, the Annotation the Report is drawn over and the
- * head of the stored bytes. A Replay that cannot assemble all four is a miss
- * and the pipeline renders again — after a Sweep the Annotation may be gone,
- * and a Brand asking twice deserves a picture rather than a 500.
- */
-async function replayOf(
-  deps: RenderDeps,
-  brand: string,
-  sourceHash: string,
-  hash: string,
-  trace: Trace
-): Promise<Rendered | null> {
-  return trace.step("records.replay", async () => {
-    const output = await deps.records.outputs.byRequest(brand, hash);
-    if (output === null) return null;
-
-    const [call, annotation, head] = await Promise.all([
-      deps.records.calls.get(output.callId),
-      deps.records.annotations.get(sourceHash),
-      deps.store.head(output.storeKey),
-    ]);
-    if (call === null || annotation === null || head === null) return null;
-
-    // Written by frame, identify and redact and stored unread, so this is the
-    // one place the three shapes are named again — and the one place a row an
-    // older shape wrote has to be survived rather than trusted. Anything that
-    // is not the shape this reads is a miss, and the pipeline renders again.
-    const framing = call.framing as Framing | null;
-    const identification = call.matches as Identification | null;
-    const redactions = (call.redactions ?? []) as readonly RedactionRecord[];
-    if (framing?.windowFraction === undefined) return null;
-    if (!Array.isArray(identification?.faces)) return null;
-    if (!Array.isArray(redactions)) return null;
-
-    return {
-      storeKey: output.storeKey,
-      mime: head.contentType,
-      bytes: head.size,
-      framing,
-      faces: faceReports(annotation, identification, redactions, framing),
-      replayed: true,
-    };
-  });
-}
-
-/** True when any part of the Box lands inside the frame frame cut out. */
-const intersectsFrame = (box: {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}): boolean =>
-  box.x < 1 && box.y < 1 && box.x + box.width > 0 && box.y + box.height > 0;
-
-function faceReports(
-  annotation: Annotation,
-  identification: Identification,
-  redactions: readonly RedactionRecord[],
-  framing: Framing
-): readonly FaceReport[] {
-  const hidden = new Set(redactions.map((one) => one.regionId));
-  const boxes = new Map(annotation.regions.map((one) => [one.id, one.box]));
-
-  return identification.faces.map((face) => {
-    const box = boxes.get(face.regionId);
-    return {
-      regionId: face.regionId,
-      verdict: face.verdict,
-      ...(face.verdict === "match"
-        ? { personId: face.personId, similarity: face.similarity }
-        : {}),
-      hidden: hidden.has(face.regionId),
-      // A face the window cut away maps outside the unit box, which is frame's
-      // answer to "is it still in the picture" and not a rounding of ours.
-      inFrame:
-        box !== undefined && intersectsFrame(projectIntoFrame(framing, box)),
-    };
-  });
 }

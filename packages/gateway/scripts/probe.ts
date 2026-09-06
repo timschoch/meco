@@ -485,4 +485,129 @@ if (template === undefined) {
   }
 }
 
+// --- the bare Crop (#184) ---------------------------------------------------
+//
+// The same photograph through `cut` instead of a Template: a size in, a Crop
+// out, framed on whatever the ladder finds. Rendered twice, so the second is a
+// Replay, and once more as a PNG, whose bytes are read back off the public URL
+// — a `mime` in the answer is a claim, and the signature is the fact.
+
+const cropSource =
+  process.env["MECO_CROP_URL"] ?? commons("Giuseppe_Gnazzo_-_Kart_driver.jpg");
+const CROP_SIZE = { width: 1080, height: 1350 };
+
+type CropAnswer = {
+  output?: {
+    url: string;
+    key: string;
+    kind: string;
+    width: number;
+    height: number;
+    mime: string;
+    bytes: number;
+  };
+  call?: { id: string; replayed: boolean };
+  framing?: { resolvedBy: string; leadRegionId?: string; fallback?: string };
+  faces?: {
+    regionId: string;
+    verdict: string;
+    hidden: boolean;
+    inFrame: boolean;
+  }[];
+  error?: { code: string; message: string };
+};
+
+console.log(`\n--- crop ${CROP_SIZE.width}x${CROP_SIZE.height} on ${cropSource}`);
+let firstCrop: CropAnswer | undefined;
+
+for (const round of ["first", "replay"] as const) {
+  const answer = await post("/v1/crop", {
+    brand: firstBrand,
+    source: { url: cropSource },
+    ...CROP_SIZE,
+  });
+  const body = answer.body as CropAnswer;
+  const replayed = body.call?.replayed === true;
+
+  line(
+    answer.status === 200 && (round === "first" || replayed),
+    `POST /v1/crop (${round}) -> ${answer.status} in ${answer.ms.toFixed(0)} ms, replayed ${String(replayed)}, call ${body.call?.id ?? "-"}${answer.served === "" ? "" : `, served by ${answer.served}`}`
+  );
+  if (answer.status !== 200) {
+    console.log(`     ${JSON.stringify(answer.body)}`);
+    break;
+  }
+
+  const output = body.output;
+  line(
+    output?.key.startsWith("crops/") === true &&
+      output.width === CROP_SIZE.width &&
+      output.height === CROP_SIZE.height,
+    `     output: ${output?.url ?? "-"} (${output?.width}x${output?.height} ${output?.mime}, ${output?.bytes} bytes)`
+  );
+  console.log(
+    `     framing: resolvedBy ${body.framing?.resolvedBy ?? "-"}, lead ${body.framing?.leadRegionId ?? "none"}, fallback ${body.framing?.fallback ?? "none"}`
+  );
+  console.log(
+    `     faces: ${body.faces?.length ?? 0} — ${(body.faces ?? []).map((f) => `${f.regionId} ${f.verdict}${f.hidden ? " hidden" : ""}${f.inFrame ? " inFrame" : " cut"}`).join("; ") || "none"}`
+  );
+
+  if (round === "first") {
+    firstCrop = body;
+  } else if (output?.key !== undefined) {
+    line(
+      output.key === firstCrop?.output?.key,
+      `     the Replay answers the same key: ${String(output.key === firstCrop?.output?.key)}`
+    );
+  }
+
+  if (body.call?.id !== undefined) {
+    const view = await get(`/ui/calls/${body.call.id}`, { Authorization: basic });
+    const steps = stepTimes(String(view.body));
+    line(
+      view.status === 200 && steps.length > 0,
+      `GET /ui/calls/${body.call.id} -> ${view.status}, steps: ${steps.join(" | ")}`
+    );
+  }
+}
+
+const asPng = await post("/v1/crop", {
+  brand: firstBrand,
+  source: { url: cropSource },
+  ...CROP_SIZE,
+  format: "png",
+});
+const pngBody = asPng.body as CropAnswer;
+line(
+  asPng.status === 200 && pngBody.output?.mime === "image/png",
+  `POST /v1/crop format png -> ${asPng.status}, mime ${pngBody.output?.mime ?? "-"}, ${pngBody.output?.url ?? "-"}`
+);
+if (pngBody.output?.url !== undefined) {
+  const fetched = await fetch(pngBody.output.url);
+  const head = new Uint8Array((await fetched.arrayBuffer()).slice(0, 8));
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  line(
+    fetched.ok && head.every((byte, i) => byte === signature[i]),
+    `     the bytes at that URL are a PNG: ${[...head].join(" ")}`
+  );
+}
+
+// The Crop itself, for whoever asked to see the picture. Written only when a
+// path is named, as the story block above does it.
+const saveCropTo = process.env["MECO_SAVE_DIR"];
+if (
+  saveCropTo !== undefined &&
+  saveCropTo !== "" &&
+  firstCrop?.output?.url !== undefined
+) {
+  const bytes = await fetch(firstCrop.output.url);
+  const name = firstCrop.output.key.split("/").pop() ?? "crop";
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(
+    `${saveCropTo}/${name}`,
+    new Uint8Array(await bytes.arrayBuffer())
+  );
+  console.log(`     saved ${saveCropTo}/${name}`);
+}
+
 process.exit(failed ? 1 : 0);

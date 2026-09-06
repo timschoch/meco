@@ -11,15 +11,16 @@
  */
 import { templates } from "@meco/compose";
 import { PLACEMENTS } from "@meco/compose/placements";
-import { type Annotation, Box, type ModelId } from "@meco/contracts";
+import type { Annotation, ModelId } from "@meco/contracts";
 import type { Identify } from "@meco/identify";
 import type { ModelsClient } from "@meco/models";
 import type { Caller, Records } from "@meco/records";
 import type { Store } from "@meco/store";
 import { z } from "zod";
 import { annotationOf } from "./annotate";
+import { CropInput, cropImage } from "./crop";
 import { GatewayError } from "./errors";
-import { Brand, FramingOptions } from "./inputs";
+import { Brand } from "./inputs";
 import {
   addPerson,
   addReferencePhoto,
@@ -76,13 +77,6 @@ export interface Operation<I extends z.ZodObject = z.ZodObject> {
 
 // --- The table ---------------------------------------------------------------
 
-const notImplemented = (name: string) => async (): Promise<never> => {
-  throw new GatewayError(
-    "not_implemented",
-    `${name} is in the table and its pipeline is not built yet`
-  );
-};
-
 /** The Annotation as the wire may carry it: no Face Print on any Region. */
 const withoutPrints = (annotation: Annotation): Annotation => ({
   ...annotation,
@@ -108,15 +102,8 @@ export const OPERATIONS: readonly Operation[] = [
       "Cut a photograph to a size, framed on its Subject, with no Template.",
     method: "POST",
     path: "/crop",
-    input: z.object({
-      brand: Brand,
-      source: SourceReference,
-      width: z.int().positive(),
-      height: z.int().positive(),
-      subjectArea: Box.optional(),
-      ...FramingOptions,
-    }),
-    handler: notImplemented("crop_image"),
+    input: CropInput,
+    handler: cropImage,
   }),
   define({
     name: "find_subjects",
