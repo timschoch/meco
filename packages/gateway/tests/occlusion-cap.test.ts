@@ -20,13 +20,15 @@ vi.mock("@meco/compose", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@meco/compose")>();
   return {
     ...actual,
-    plan: async (input: Parameters<typeof actual.plan>[0]) => ({
-      ...(await actual.plan(input)),
-      occlusion: Array.from(
-        { length: MAX_OCCLUSION_ZONES + 1 },
-        (_unused, i) => ({ x: i / 100, y: 0, width: 0.01, height: 0.01 })
-      ),
-    }),
+    // Every Plan, so the refusal cannot depend on which Variant is looked at.
+    plan: async (input: Parameters<typeof actual.plan>[0]) =>
+      (await actual.plan(input)).map((plan) => ({
+        ...plan,
+        occlusion: Array.from(
+          { length: MAX_OCCLUSION_ZONES + 1 },
+          (_unused, i) => ({ x: i / 100, y: 0, width: 0.01, height: 0.01 })
+        ),
+      })),
   };
 });
 

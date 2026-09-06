@@ -8,7 +8,7 @@ A caller has a photograph, a Brand and some text and wants a finished social ima
 
 ## Solution
 
-One package, `@meco/compose`, with two pure functions. `plan` says what a Template will cover at one Placement with these Fields, with no picture in hand: the Image Slot in pixels, the Occlusion Zones and the Subject Area in slot fractions. `render` takes the redacted Source Image and the window frame chose, cuts it, scales it into the slot, draws the Template over it in the Brand's Look, and encodes the final bytes. Templates are TSX modules in the package; Looks are code beside them.
+One package, `@meco/compose`, with two pure functions. `plan` says what a Template will cover at one Placement with these Fields, with no picture in hand: the Image Slot in pixels, the Occlusion Zones and the Subject Area in slot fractions — one Plan per Variant when the Template offers several layouts. `render` takes the redacted Source Image, the window frame chose and the Variant it chose, cuts it, scales it into the slot, draws the Template over it in the Brand's Look, and encodes the final bytes. Templates are TSX modules in the package; Looks are code beside them.
 
 ## User stories
 
@@ -28,6 +28,7 @@ One package, `@meco/compose`, with two pure functions. `plan` says what a Templa
 14. As a maintainer, I want one golden image per Template and Placement, so that a lost logo or a wrong colour is caught by the suite.
 15. As the owner, I want fonts committed with their licence text, so that a cold start makes no network call and a font cannot be added without its licence.
 16. As a future caller with my own TSX, I want the Template contract to be a plain module shape, so that a later loader can register it without changing compose.
+17. As a Template author, I want to offer the same design with its blocks somewhere else — the caption at the top for a Subject that sits low — so that a photograph whose Subject a full-height column cannot move out from under the type gets a layout that clears it instead ([#228](https://github.com/timschoch/meco/issues/228)).
 
 ## Implementation decisions
 
@@ -38,15 +39,15 @@ Four entry points, per `packages/README.md`.
 `index.ts`, what the gateway calls:
 
 ```ts
-plan({ template, placement, brand, fields }) → Promise<Plan>
-  Plan = { imageSlot: Size, occlusion: Box[], subjectArea?: Box }
-render({ template, placement, brand, fields, source: DecodedImage, window: Box, format?, quality? })
+plan({ template, placement, brand, fields }) → Promise<readonly Plan[]>   // one per Variant, most preferred first; one unnamed Plan for a Template that lays out one way
+  Plan = { imageSlot: Size, occlusion: Box[], subjectArea?: Box, variant?: string }
+render({ template, placement, brand, fields, source: DecodedImage, window: Box, variant?, format?, quality? })
   → Promise<{ bytes: Uint8Array, mime }>
 cut({ source: DecodedImage, window: Box, target: Size, format?, quality? })
   → Promise<{ bytes: Uint8Array, mime }>   // a bare Crop: no Template
-templates(brand?) → TemplateDescription[]       // id, brand, description, placements, fields as JSON Schema, example
+templates(brand?) → TemplateDescription[]       // id, brand, description, placements, variants?, fields as JSON Schema, example
 PLACEMENTS: readonly Placement[]                 // the closed catalogue
-ComposeError { code: "unknown_template" | "unknown_brand" | "placement_not_supported" | "invalid_fields" | "framing_mismatch" | "look_assets_missing" }
+ComposeError { code: "unknown_template" | "unknown_brand" | "placement_not_supported" | "invalid_fields" | "unknown_variant" | "framing_mismatch" | "look_assets_missing" }
 ```
 
 `template.ts`, the only import a Template author needs: the `Template` and `Look` types, `TemplateProps`, the Markers `ImageSlot` and `Occludes`, and the Building Blocks `PhotoCard`, `Scrim` and `TextBlock`.
@@ -57,24 +58,27 @@ ComposeError { code: "unknown_template" | "unknown_brand" | "placement_not_suppo
 
 ### The Template contract
 
-A Template is one TSX module default-exporting `{ id, brand, description, fields, placements, subjectArea?, example, render }`.
+A Template is one TSX module default-exporting `{ id, brand, description, fields, placements, subjectArea?, variants?, example, render }`.
 
 - `id` is `<brand>-<name>`.
 - `fields` is a zod object; the gateway turns it into the MCP input schema. Fields hold text and small values, never a URL to fetch: compose fetches nothing.
 - `placements` is closed. A Placement not in it is refused with `placement_not_supported`.
 - `subjectArea?` is static per Placement, in Image Slot fractions.
-- `render(props)` returns the element. `props = { fields, look, placement, image: { src, width, height } }`. The Template places `<ImageSlot src={image.src}>` exactly once and wraps what covers the picture in `<Occludes>`.
+- `variants?` names the Variants, most preferred first, each `{ name, subjectArea? }`: the same Fields and Look with the blocks somewhere else, and its own Subject Area per Placement where the clear part of the frame moved with them (the Template's is the fallback). A name declared twice or an empty list is refused at registration. A Template that declares none lays out one way.
+- `render(props)` returns the element. `props = { fields, look, placement, image: { src, width, height }, variant? }`; `variant` is one of the declared names and absent for a Template with none. The Template places `<ImageSlot src={image.src}>` exactly once and wraps what covers the picture in `<Occludes>`.
 - `example` is real data that renders, as in the prototype's catalogue.
 
 A Template must lay out identically whatever the image bytes are; the Plan depends on it.
 
+**Variants shipped.** `swisshutless-story` and `hopefamily-story` offer `caption-bottom` (the design, first) and `caption-top`: the block of type at the other end of the frame, the scrim turned to match, the wordmark swapped with it on Hope Family. The Look does not move. Why: a 3:2 photograph into a 9:16 story is a full-height column, so a Subject at the bottom sits under a bottom caption whatever the aim does; production Call `e0466f34` on the owner's race photograph (800x533) put the two front karts under the caption at `occlusionClear: false`, and no rung of frame's ladder can move a column vertically (#228). `hopefamily-post` and `laica-post` lay out one way: the wide Hope Family shape would need a mirrored column and its own Subject Areas, which is a design and not a flip.
+
 ### The Plan
 
-`plan` builds the tree with a blank image descriptor of the slot's size, lays it out with takumi's `measure()`, walks the measured tree in step with the source tree, and reads the `ImageSlot` box and every `Occludes` box off the absolute transform. Zones are translated from canvas pixels to Image Slot fractions and clipped to the slot; a zone wholly outside the slot is dropped rather than reported as a rectangle of no area, which no FramingRequest would accept. Only a Template a caller registered can produce one — the layout suite forbids a shipped Template a zone the slot's edge cuts. `imageSlot` is the slot box in pixels. `subjectArea` is copied from the Template for that Placement.
+`plan` answers one Plan per Variant, in the Template's order, and one unnamed Plan for a Template that declares none; each carries its `variant`. The gateway builds one FramingRequest from each and frame chooses among them, so a caller never picks a Variant and the Request Hash never sees one. For each, `plan` builds the tree with a blank image descriptor of the slot's size, lays it out with takumi's `measure()`, walks the measured tree in step with the source tree, and reads the `ImageSlot` box and every `Occludes` box off the absolute transform. Zones are translated from canvas pixels to Image Slot fractions and clipped to the slot; a zone wholly outside the slot is dropped rather than reported as a rectangle of no area, which no FramingRequest would accept. Only a Template a caller registered can produce one — the layout suite forbids a shipped Template a zone the slot's edge cuts. `imageSlot` is the slot box in pixels. `subjectArea` is copied from the Template for that Placement.
 
 ### The Render
 
-`render` re-plans (0.6–3.6 ms measured), then:
+`render` draws the Variant named, or the Template's first when none is; a name the Template does not declare, or any name on a Template that declares none, is `unknown_variant` — the Framing that named it was made off another Template's Plan, and drawing this one under that name would file a Render whose Framing lies. It re-plans that Variant (0.6–3.6 ms measured), then:
 
 1. Refuses with `framing_mismatch` when the window's aspect, in source pixels from the Decoded Image's size, differs from the Image Slot's by more than one pixel on either axis.
 2. Cuts `window` from `source` and scales it to the slot with sharp (`extract` + `resize`, lanczos3), yielding raw RGBA at slot size. Fill, never cover: frame's window already has the slot's shape up to one pixel of rounding, and a `cover` fit would crop it a second time and undo the framing.
@@ -115,7 +119,7 @@ takumi (`@takumi-rs/core`, `@takumi-rs/helpers`), one `Renderer` per process wit
 
 Tests cross the entry points only, enforced by dependency-cruiser. Prior art: contracts' `schemaConformance` for shapes; nothing in the repo for pictures yet.
 
-**Layout checks**, `layoutConformance` from `conformance.ts`, run by [`packages/compose/tests/layout.test.ts`](../../packages/compose/tests/layout.test.ts) for every Template x declared Placement with the Template's `example`:
+**Layout checks**, `layoutConformance` from `conformance.ts`, run by [`packages/compose/tests/layout.test.ts`](../../packages/compose/tests/layout.test.ts) for every Template x declared Placement x Variant with the Template's `example`:
 
 - exactly one `ImageSlot` in the measured tree, of a positive size;
 - every Occlusion Zone parses as a contracts `Box`, so its fractions are in `[0, 1]`;
@@ -130,11 +134,13 @@ Exact assertions. The Plan's own numbers carry no tolerance: `tests/plan.test.ts
 
 Each check names the mutation that turns it red: a `<div>` where `<Occludes>` belongs, a title three times longer than the box, a Template that reads `image.width` into its layout. The two halves of the clipping rule are separated by a pair of fixture Templates registered through `templates`, drawing the same frame and differing only in where the second zone sits.
 
-**Golden images**, one per Template x Placement, rendered from a fixture photo and the `example` Fields, compared by mean absolute pixel difference against a threshold set from a cross-platform measurement (takumi is byte-deterministic on one machine; Linux CI is the open question). Regenerated only by an explicit script, never by the suite.
+**Golden images**, one per Template x Placement under the Template's first Variant, plus one per further Variant at one Placement (what a Variant moves is the layout, not the Look), rendered from a fixture photo and the `example` Fields, compared by mean absolute pixel difference against a threshold set from a cross-platform measurement (takumi is byte-deterministic on one machine; Linux CI is the open question). Regenerated only by an explicit script, never by the suite.
 
 **The bare Crop**: its own golden at 1080x1920 on the kart fixture, at the same threshold, plus a byte-for-byte check that `cut` and `render` put the same pixels in the Image Slot. Read over the part of `swisshutless-story` that nothing covers — the band its scrim holds at alpha 0, less the brand stripe — because compose ships no empty Template and registering one for a test would put it in the catalogue every caller reads.
 
 **Interface checks**: `plan` and `render` refuse each error code with the named input; `cut` refuses `framing_mismatch` on the same rule; `render` with a window two pixels off the slot's aspect fails `framing_mismatch` and one pixel off passes; the default format is JPEG and `format: "png"` yields PNG bytes.
+
+**Variant checks**: `plan` answers the two `swisshutless-story` Plans in order, the block at `y = 92` under `caption-top` and at the bottom under `caption-bottom`, each with its own Subject Area; `render` unnamed is byte-identical to `variant: "caption-bottom"`; the two Variants' pictures differ by more than the golden threshold, so a Template that ignores `variant` cannot pass both goldens by drawing one layout twice; `registerTemplates` refuses a duplicated name and an empty list. Proved able to fail by a Template that ignores `variant`: the caption-top Plan numbers, its golden and the pair check go red.
 
 Every check is proved able to fail before it ships.
 

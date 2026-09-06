@@ -35,6 +35,9 @@ const MODULE_STATUS: Record<string, number> = {
   unknown_brand: 404,
   placement_not_supported: 400,
   invalid_fields: 400,
+  // The gateway hands compose the Variant frame chose off compose's own Plan,
+  // so a refusal is the two disagreeing about a name: ours, like the mismatch.
+  unknown_variant: 500,
   framing_mismatch: 500,
   // identify
   consent_required: 400,

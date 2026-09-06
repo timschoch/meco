@@ -295,6 +295,51 @@ describe("the Call View", () => {
   );
 
   it(
+    "names the Template Variant frame chose, and says nothing when the Framing names none",
+    async () => {
+      const { one, caller } = await openRecords();
+      const framing = {
+        window: { x: 0, y: 0, width: 300, height: 533 },
+        windowFraction: { x: 0, y: 0, width: 0.375, height: 1 },
+        resolvedBy: "kart",
+        keptRegionIds: [],
+        droppedRegionIds: [],
+        satisfied: false,
+        scale: 3.6,
+      };
+      const chosen = await one.calls.record({
+        callerId: caller.id,
+        brand: "laica",
+        kind: "render",
+        status: "ok",
+        framing: { ...framing, variant: "caption-top" },
+      });
+      const plain = await one.calls.record({
+        callerId: caller.id,
+        brand: "laica",
+        kind: "crop",
+        status: "ok",
+        framing,
+      });
+
+      const app = webui({
+        records: one,
+        store: memoryStore(),
+        caller: always(holding(caller, "laica")),
+      });
+
+      const named = await (await app.request(`/calls/${chosen.id}`)).text();
+      expect(named).toContain("<dt>variant</dt>");
+      expect(named).toContain("<code>caption-top</code>");
+
+      // A Crop, or a Template that lays out one way: no line, not an empty one.
+      const unnamed = await (await app.request(`/calls/${plain.id}`)).text();
+      expect(unnamed).not.toContain("<dt>variant</dt>");
+    },
+    TIMEOUT
+  );
+
+  it(
     "links the Gallery back from the Call View",
     async () => {
       const { one, caller } = await openRecords();
