@@ -5,21 +5,91 @@ Live: <https://meco-teal.vercel.app> — Vercel project
 
 ## The shape
 
-Two container services in one project, declared in `vercel.json`:
+Two container services and one Node Function in one project, declared in
+`vercel.json`:
 
-| Service   | Root | Entrypoint          | Public           |
-| --------- | ---- | ------------------- | ---------------- |
-| `gateway` | `.`  | `Containerfile`     | yes, all traffic |
-| `models`  | `.`  | `Dockerfile.vercel` | no               |
+| Service   | Root             | Entrypoint          | Public               |
+| --------- | ---------------- | ------------------- | -------------------- |
+| `front`   | `packages/front` | `server.ts`         | yes, `/mcp` only     |
+| `gateway` | `.`              | `Containerfile`     | yes, everything else |
+| `models`  | `.`              | `Dockerfile.vercel` | no                   |
 
-A service is private unless a top-level `rewrites` entry names it. Only
-`gateway` has one, so `models` is unreachable from the internet. `gateway`
-reaches it through a **service binding**, which injects `MODELS_URL` at
-runtime. The value is deployment-aware: a preview's `gateway` calls that same
-preview's `models`, never production.
+A service is private unless a top-level `rewrites` entry names it. `/mcp` is
+rewritten to `front` ahead of the catch-all to `gateway`, and `models` has no
+rewrite, so it is unreachable from the internet. `gateway` reaches `models`
+through a **service binding**, which injects `MODELS_URL` at runtime; `front`
+reaches `gateway` the same way, as `GATEWAY_URL`. A binding's value is
+deployment-aware: a preview's caller reaches that same preview's callee, never
+production.
 
 A binding grants access; it does not authenticate. Application-level
 authorisation between the two services is the services' own job.
+
+### The front
+
+`front` is a Node Function, not a container. `packages/front/server.ts`
+exports a Hono app; Vercel's Node-backends detection takes it as the
+entrypoint and bundles it with its one dependency, `hono`. `entrypoint:
+"server.ts"` pins that, because the detection order (`app`, `index`,
+`server`, `main`) would otherwise take `index.ts`, the package's factory,
+which exports no app. What it does is in `docs/specs/gateway.md`, "The
+Front": every MCP message goes to the container's `/mcp` over `GATEWAY_URL`
+as it came, and only a `tools/call` that finds the container scaled to zero
+is told so on the stream.
+
+**Measured** (6 Sep 2026, #205), all from Zürich, which enters Vercel at
+`iad1` and pays about 0.75 s per round trip before anything runs (an unknown
+path's `404` from the container: 0.75–0.85 s over eight hits).
+
+- **The shape builds.** Preview `meco-e6h0pvo9n`, commit `4a9c897`:
+  `+ hono 4.13.3`, `✓ Build complete — Using server.ts as the root
+entrypoint.` The log also says `Shared workspace lockfile detected but
+configuration forces legacy deploy implementation`; it installed from the
+  workspace lockfile regardless. The container fallback for the front was
+  not needed.
+- **Warm overhead.** Fifteen A/B rounds, each round the same message to the
+  front (preview `meco-lnfc5w04u`) and then to the previous preview's
+  container-direct `/mcp` (`meco-3giklictc`, `main` before this branch):
+
+  | Message                  | Front, median | Direct, median | Front, min | Direct, min |
+  | ------------------------ | ------------- | -------------- | ---------- | ----------- |
+  | `tools/list`             | 873 ms        | 824 ms         | 676 ms     | 668 ms      |
+  | `tools/call list_brands` | 836 ms        | 800 ms         | 780 ms     | 663 ms      |
+
+  The hop costs about 40–120 ms on a ~0.7 s baseline. The probe beside a
+  `tools/call` adds nothing the caller waits for: the call is already on its
+  way.
+
+- **Cold.** After 95 s idle (a preview scales down after 30 s), one
+  `tools/call list_brands` through the front, stamped at the client:
+
+  ```
+  1.811 s  HTTP/2 200                       content-type: text/event-stream
+  1.901 s  notifications/message            "meco is starting, about 7 seconds"
+  4.349 s  notifications/message            "meco is up, your request is now being processed"
+  4.429 s  result                           {"items":[{"id":"hopefamily",…
+  ```
+
+  After 400 s idle, past production's five-minute scale-down: status line at
+  2.11 s, notice at about 2.3 s, confirmation at 5.06 s, result at 5.28 s
+  (the client stamped each line through `bc`, which drifts the later stamps
+  by about 0.1 s a line; the first is exact). The ticket asked for the notice
+  inside 1 s; from here it is not, and the budget below says where the time
+  goes. The first byte is the network baseline, the Function's own cold
+  start and the 500 ms the probe is given, in that order. The container's cold start,
+  first byte to confirmation, was 2.4 s here and 4.8 s on the first build
+  (notice at 2.19 s, confirmation at 6.95 s); the first `/health` after a
+  deploy answered `200` after 7.25 s. **7 s** is what the notice promises
+  (`COLD_START.seconds` in `packages/front/lib/cold-start.ts`); re-measure
+  it when the gateway's boot changes.
+
+- **Why the probe is `GET /mcp` and not `/health`.** Eight alternating hits
+  on `meco-3giklictc`: `GET /health` answered in 0.81–1.10 s while its 30 s
+  cache was fresh and in 3.67–4.22 s when it was stale (the store and
+  records probes run), where the `404` above took 0.75–0.85 s. A probe on
+  `/health` would overrun any timeout every 30 s and call a warm container
+  cold. `GET /mcp` with no key is a `401` from the Caller middleware, with no
+  store or database behind it.
 
 ### The two entrypoint traps, re-measured
 
@@ -189,6 +259,7 @@ fixture: `fixtures/faces/artemis-2-crew.jpg`.
 | Var                             | Set by                                  | Purpose                                                                                                                                                                                                                                                            |
 | ------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `MODELS_URL`                    | the service binding in `vercel.json`    | base URL `gateway` uses to reach `models`. Runtime only — it does not resolve during a build, and Routing Middleware cannot read it.                                                                                                                               |
+| `GATEWAY_URL`                   | the service binding in `vercel.json`    | base URL `front` uses to reach `gateway`. Runtime only, like `MODELS_URL`; unset, the front fails its first request with the variable named.                                                                                                                       |
 | `PORT`                          | Vercel platform                         | container listen port, default 80. Do not set it.                                                                                                                                                                                                                  |
 | `VERCEL_GIT_COMMIT_SHA`         | Vercel platform                         | what `/health` reports as `version`.                                                                                                                                                                                                                               |
 | `RECORDS_DATABASE_URL_UNPOOLED` | the Neon integration, prefix `RECORDS_` | the direct connection string `records` pools on and migrates through. Unset is a failed boot with the variable named on stderr: every Operation starts with a Caller lookup, so a gateway with no database has no door.                                            |

@@ -22,7 +22,7 @@ rather than re-exporting a whole subtree through one index.
 
 ## The rules
 
-`.dependency-cruiser.cjs` enforces nine, all `error`:
+`.dependency-cruiser.cjs` enforces ten, all `error`:
 
 - **entrypoint-boundary-from-app** — code outside every package imports a
   package's entry points, never anything in its subfolders.
@@ -37,11 +37,16 @@ rather than re-exporting a whole subtree through one index.
   path, so it would slip past every rule above it.
 - **contracts-depends-on-nothing** — `contracts` is what the other modules
   agree on, so it depends on none of them.
-- **services-do-not-import-each-other** — `gateway` and `models` deploy as
-  separate containers. `gateway` reaches `models` over the Vercel service
-  binding at runtime, and imports exactly one file to do it:
-  `packages/models/index.ts`, the client that holds the wire. Nothing else
-  crosses, in either direction.
+- **services-do-not-import-each-other** — `gateway`, `models` and `front`
+  deploy as separate services. `gateway` reaches `models` over the Vercel
+  service binding at runtime, and imports exactly one file to do it:
+  `packages/models/index.ts`, the client that holds the wire; `front` reaches
+  `gateway` over a binding and imports nothing. Nothing else crosses, in any
+  direction.
+- **front-knows-no-tool** — `front` forwards every MCP message to the gateway
+  verbatim and stays in sync with its tools by construction. An import of any
+  meco package would be the first piece of tool knowledge, and the first thing
+  to drift.
 - **models-client-stays-thin** — a root file of `models` other than `app.ts`,
   `catalogue.ts` and `server.ts` is a client another package imports, so it may
   reach neither the ONNX Runtime, sharp, Hono nor those three host entry

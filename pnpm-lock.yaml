@@ -83,6 +83,12 @@ importers:
         specifier: ^0.28.2
         version: 0.28.2
 
+  packages/front:
+    dependencies:
+      hono:
+        specifier: ^4.10.7
+        version: 4.13.3
+
   packages/gateway:
     dependencies:
       '@hono/node-server':

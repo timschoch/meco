@@ -10,6 +10,7 @@ export const MODULE_NAMES = [
   "compose",
   "gateway",
   "webui",
+  "front",
 ] as const;
 
 /** The name of one module. */

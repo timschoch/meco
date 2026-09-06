@@ -19,6 +19,18 @@
       "root": ".",
       "runtime": "container",
       "entrypoint": "Dockerfile.vercel"
+    },
+    "front": {
+      "root": "packages/front",
+      "entrypoint": "server.ts",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "gateway",
+          "format": "url",
+          "env": "GATEWAY_URL"
+        }
+      ]
     }
   },
   "crons": [
@@ -28,6 +40,12 @@
     }
   ],
   "rewrites": [
+    {
+      "source": "/mcp",
+      "destination": {
+        "service": "front"
+      }
+    },
     {
       "source": "/(.*)",
       "destination": {

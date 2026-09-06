@@ -540,3 +540,7 @@ _Avoid_: face summary, faces blurred, face count, redaction summary
 **Fill**:
 What one output must fill and what will be drawn over it, as the gateway hands it to frame: the target size in whole pixels, the Occlusion Zones, and the Subject Area. A Render's Fill is compose's Plan; a Crop's is the request itself, with nothing occluded. The one part of the pipeline that differs per Call kind, beside the paint, which is why it has a name at all.
 _Avoid_: layout (reserved against Template and Plan), plan (a Plan is compose's and needs a Template), slot, canvas, frame
+
+**Front**:
+The light Function the public `/mcp` rewrite points at, one hop before the MCP Door. It knows no tool: every JSON-RPC message goes to the gateway as it came and every answer comes back as it was, so a tool added, renamed or reshaped in the gateway reaches a client with no change to the Front. It intercepts one case, a `tools/call` that arrives while the gateway container is scaled to zero, and says so on the stream within a second, then confirms and relays the real answer. Not a third Door: the Door is the gateway's, the Front stands in front of it.
+_Avoid_: proxy (what it does, not what it is), mirror (it holds no copy of anything), edge function, MCP server, keep-warm

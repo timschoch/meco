@@ -41,7 +41,8 @@ types disagree, the types win and the ADR records why.
 
 ## Deployment configuration
 
-Two container services, `gateway` and `models`, in one Vercel project.
+Two container services, `gateway` and `models`, and one Node Function, `front`,
+in one Vercel project.
 `DEPLOY.md` is the source of truth for the shape;
 `docs/research/vercel-two-services.md` is the primary-source research behind it,
 including the two build traps the prototype paid for.
@@ -88,17 +89,18 @@ decision lives, not in a chat.
 
 ## Modules
 
-| Module     | Its one job                                             |
-| ---------- | ------------------------------------------------------- |
-| `store`    | bytes by key, public or private                         |
-| `records`  | everything known about a file, in a DB                  |
-| `models`   | run named models over an image, return labelled regions |
-| `identify` | say who or what a region is                             |
-| `frame`    | choose the crop window — pure maths, no pixels          |
-| `redact`   | hide what must not be shown                             |
-| `compose`  | lay out a template, emit its occlusion zones            |
-| `gateway`  | one endpoint: auth, quota, pricing, routing             |
-| `webui`    | gallery and what-happened view. Second-class citizen    |
+| Module     | Its one job                                                 |
+| ---------- | ----------------------------------------------------------- |
+| `store`    | bytes by key, public or private                             |
+| `records`  | everything known about a file, in a DB                      |
+| `models`   | run named models over an image, return labelled regions     |
+| `identify` | say who or what a region is                                 |
+| `frame`    | choose the crop window — pure maths, no pixels              |
+| `redact`   | hide what must not be shown                                 |
+| `compose`  | lay out a template, emit its occlusion zones                |
+| `gateway`  | one endpoint: auth, quota, pricing, routing                 |
+| `webui`    | gallery and what-happened view. Second-class citizen        |
+| `front`    | the hop before the MCP Door: forward all, name a cold start |
 
 `models` is a **catalogue**, not a face service. Shared models only for now;
 per-consumer models are the direction, not the first step.
