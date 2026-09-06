@@ -5,18 +5,22 @@ Live: <https://meco-teal.vercel.app> — Vercel project
 
 ## The shape
 
-Two container services in one project, declared in `vercel.json`:
+Two container services and one Node Function in one project, declared in
+`vercel.json`:
 
-| Service   | Root | Entrypoint          | Public           |
-| --------- | ---- | ------------------- | ---------------- |
-| `gateway` | `.`  | `Containerfile`     | yes, all traffic |
-| `models`  | `.`  | `Dockerfile.vercel` | no               |
+| Service   | Root             | Entrypoint          | Public               |
+| --------- | ---------------- | ------------------- | -------------------- |
+| `front`   | `packages/front` | `server.ts`         | yes, `/mcp` only     |
+| `gateway` | `.`              | `Containerfile`     | yes, everything else |
+| `models`  | `.`              | `Dockerfile.vercel` | no                   |
 
-A service is private unless a top-level `rewrites` entry names it. Only
-`gateway` has one, so `models` is unreachable from the internet. `gateway`
-reaches it through a **service binding**, which injects `MODELS_URL` at
-runtime. The value is deployment-aware: a preview's `gateway` calls that same
-preview's `models`, never production.
+A service is private unless a top-level `rewrites` entry names it. `/mcp` is
+rewritten to `front` ahead of the catch-all to `gateway`, and `models` has no
+rewrite, so it is unreachable from the internet. `gateway` reaches `models`
+through a **service binding**, which injects `MODELS_URL` at runtime; `front`
+reaches `gateway` the same way, as `GATEWAY_URL`. A binding's value is
+deployment-aware: a preview's caller reaches that same preview's callee, never
+production.
 
 A binding grants access; it does not authenticate. Application-level
 authorisation between the two services is the services' own job.

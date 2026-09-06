@@ -32,6 +32,9 @@
       "path": "./packages/webui"
     },
     {
+      "path": "./packages/front"
+    },
+    {
       "path": "./tsconfig.tools.json"
     }
   ]

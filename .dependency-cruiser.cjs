@@ -99,11 +99,19 @@ module.exports = {
       comment:
         "`gateway` and `models` deploy as separate containers. gateway reaches models over the Vercel service binding at runtime, and imports exactly one file to do it: `models/index.ts`, the client that holds the wire. Nothing else crosses, in either direction.",
       severity: "error",
-      from: { path: `^${R}/(gateway|models)/` },
+      from: { path: `^${R}/(gateway|models|front)/` },
       to: {
-        path: `^${R}/(gateway|models)/`,
+        path: `^${R}/(gateway|models|front)/`,
         pathNot: [`^${R}/$1/`, `^${R}/models/index\\.ts$`],
       },
+    },
+    {
+      name: "front-knows-no-tool",
+      comment:
+        "`front` forwards every MCP message to the gateway verbatim and stays in sync with its tools by construction. An import of any meco package would be the first piece of tool knowledge, and the first thing to drift.",
+      severity: "error",
+      from: { path: `^${R}/front/` },
+      to: { path: `^${R}/(?!front/)` },
     },
     {
       name: "models-client-stays-thin",

@@ -243,6 +243,8 @@ The Call's `error` is `{ module, code, message }`; `module` is not on the wire. 
 
 `createMcpHandler(() => server)` from `@modelcontextprotocol/server`, mounted with `app.all("/mcp", (c) => handler.fetch(c.req.raw))` behind the Caller middleware, stateless (the SDK's default). The factory builds one `McpServer` named `meco` at the gateway's version and registers one tool per Operation from the table, the tool's `inputSchema` being the Operation's zod object and its description the Operation's. The Caller reaches the tool handler through the request context, so the Brand Wall is the same call as on HTTP. Two doors, one table, one wall.
 
+**The Front** ([#205](https://github.com/timschoch/meco/issues/205)). The public `/mcp` is not the container's: `vercel.json` rewrites it to `@meco/front`, a Node Function bound to the gateway as `GATEWAY_URL` (`DEPLOY.md`, "The front"). It knows no tool. Every JSON-RPC message is forwarded to the container's `/mcp` as it came — method, query, body, `Authorization`, `x-auth-token`, `Mcp-Session-Id` — and the answer relayed as it was, status, headers and body, so the front stays in sync with the Operation table by construction and a hand-maintained mirror cannot drift. One case is intercepted: a `tools/call` that arrives while `GET /health` on the container does not answer inside 800 ms. The front then opens the `text/event-stream` response at once and sends `notifications/message` (level `info`, "meco is starting, about N seconds", N the last measured cold start in `DEPLOY.md`), and `notifications/progress` too when the call carries a `progressToken`; polls `/health` every second up to 60 s; sends the confirmation; forwards the call and pipes the container's SSE answer through byte for byte, or wraps a JSON one as the final frame. The MCP spec lets a server send request-related notifications on the request's own stream before the final response. A refusal on that path — the status line already sent — becomes a JSON-RPC error with the call's id. `initialize` and `tools/list` are forwarded like everything else, cold or not: a client waits for them the way it would for any slow server, and only a tool call is told why.
+
 ### Health
 
 `GET /health` → `{ ok, service, version, probedAt, models: { bound, reachable, status, warm }, store: StoreHealth, records: RecordsReach }`. The three probes run behind one memoised promise with a 30 s TTL; `ok` is the gateway's own liveness and never depends on a probe. models: timeout 10 s; `warm` is true when models' `/health` lists every Model warm, `null` when it did not answer. Provenance for the cache: the store block costs 268 ms private and 246 ms public per request on the preview (#135), the records block one Neon round trip (#160), and the endpoint is unauthenticated.
@@ -303,6 +305,16 @@ Every test is `createApp(deps).request(...)`: the HTTP Door and, as JSON-RPC bod
 | `/health` answers from the cache within 30 s and probes again after; `models.warm` follows models' body                                                     | probe per request                            |
 | `/internal/sweep` is `401` without `CRON_SECRET`, `404` when none is configured, runs the Sweep on `GET` and on `POST` with it, and `404`s an unlisted verb | skip the header check; register `POST` alone |
 | `GET /ui` without a header is `401` with `WWW-Authenticate: Basic`; `/v1/brands` without one is `401` without it                                            | send the challenge everywhere                |
+
+The front's own suite (`packages/front/tests/`) runs `createFront(deps).request(...)` over a fake gateway behind an injected `fetch`, a Hono app that answers `/mcp` as the stateless SDK handler does and `/health` as the test says:
+
+| Check                                                                                                                              | Mutation that must turn it red |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `tools/list` reaches the container verbatim with its `Authorization` / `x-auth-token`, and the answer comes back byte for byte     | forward without the credential |
+| `Mcp-Session-Id` reaches the container and comes back on the answer                                                                | drop the session header        |
+| a warm `tools/call` is one probe and one hop, no notification                                                                      | probe on every message         |
+| a cold `tools/call` is told so before the container is asked anything, confirmed once it is up, then answered with the real result | skip the probe                 |
+| a container that never comes up is a JSON-RPC error with the call's id inside the cap                                              | wait forever                   |
 
 Every check is proved able to fail by its mutation before it ships. Commit the green state first, then mutate, then `git restore`.
 
