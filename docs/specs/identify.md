@@ -205,6 +205,8 @@ Vitest, through `packages/identify/index.ts` only, `tests-through-entrypoints` e
 
 The number rule is tested on the two Annotations at `fixtures/karts/annotations/`, recorded through the shipped Catalogue and shared with frame's and the gateway's suites. A recording and not a hand-built Annotation: every question the rule answers is a question about boxes a detector really drew, and a fixture somebody typed would answer them by construction.
 
+One question those recordings cannot ask, and it is the containment floor's own. In both of them every number that has a kart sits wholly inside it, so every floor in (0, 1] picks the same kart and dropping the floor altogether leaves the suite green. What the floor is for is a number that overhangs its kart or sits between two of them, which no committed photograph holds, so that geometry is built by hand — the right tool for asking what the rule does with a box already given, and the wrong one for asking where a detector draws one.
+
 Fixture Annotations are built from `fixtures/faces/detected.json` (YuNet boxes and landmarks) and `fixtures/faces/face-prints.json` (prints, 7 people lettered A to G), and from `fixtures/karts/face-prints.json` for the helmet, parsed with the contracts schema inside the test so a drift fails here.
 
 | Check                                                                                                       | Mutation that must turn it red         |
@@ -228,7 +230,8 @@ Fixture Annotations are built from `fixtures/faces/detected.json` (YuNet boxes a
 | the calibration file recomputes the table above from the committed prints and fails on a single false Match | raise a stranger pair over 0.50        |
 | the `24` on the recorded grid matches `vehicle-3`, not the number's own Region and not the largest `vehicle` | seed the number rule on the largest box |
 | the `21`, wholly inside three nested `vehicle` boxes, matches the smallest of them                          | break that tie on the id alone         |
-| the `227`, over no `vehicle` box at all, is no Match                                                        | drop the containment floor             |
+| the `227`, over no `vehicle` box at all, is no Match                                                        | take any `vehicle` that overlaps at all |
+| a number straddling two karts, neither holding a majority of it, is no Match                                | drop the containment floor             |
 | a number no Person of the Brand carries is no Match, and another Brand's list names nobody                  | look the label up across Brands        |
 | the target photograph, whose driver is in a helmet and has no face Region, still matches by its number      | require a face Region to be present    |
 

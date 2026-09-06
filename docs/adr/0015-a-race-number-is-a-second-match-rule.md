@@ -34,7 +34,7 @@ A `number` Region whose Label equals one of a Brand's Person's numbers matches t
 
 **No container is no Match.** The same photograph's `227` is read at 0.6345 and overlaps no `vehicle` box at all. There is no kart to frame, so the rule says nothing.
 
-The floor itself is **chosen, not measured**, and the measurement says why: over both committed recordings, every number that has a kart sits wholly inside it at a share of 1.0000, so every threshold in (0, 1] answers these five pairings identically. Half of the digits on the kart is the least that can honestly be called painted on it. A photograph landing inside that interval is what would let 0.5 be measured, and it gets its own ticket when one is found.
+The floor itself is **chosen, not measured**, and the measurement says why: over both committed recordings, every number that has a kart sits wholly inside it at a share of 1.0000, so every threshold in (0, 1] answers these five pairings identically. Dropping the floor from the code leaves both recordings' checks green, which is how that was found. Half of the digits on the kart is the least that can honestly be called painted on it, and what the floor refuses — a number straddling two karts with neither holding a majority — is proved on a hand-built geometry instead. A photograph landing inside that interval is what would let 0.5 itself be measured, and it gets its own ticket when one is found.
 
 Rejected: putting the driver's `person` Region in the Match too. Composing "the kart and whoever is on it" is the `kart` rung's rule and already exists; a second copy on the Match would be two places for it to disagree.
 

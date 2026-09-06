@@ -189,6 +189,94 @@ describe("the number Match Rule on the recorded grid", () => {
   });
 });
 
+/**
+ * The one question the two recordings cannot answer.
+ *
+ * In both of them every number that has a kart sits **wholly** inside it, at a
+ * share of 1.0000, so every containment floor in (0, 1] picks the same kart and
+ * nothing in the fixture set can tell 0.5 from 0.01. What the floor is really
+ * for is the number that overhangs its kart's box or sits between two of them,
+ * and no committed photograph holds one — so it is built here.
+ *
+ * A hand-built Annotation is the wrong tool for asking where a detector draws
+ * a box, and the right one for asking what the rule does with a box already
+ * given. This asks only the second.
+ */
+const straddling = (left: number, right: number): Annotation =>
+  Annotation.parse({
+    schema: 1,
+    hash: "5c".repeat(32),
+    mime: "image/jpeg",
+    width: 1200,
+    height: 675,
+    producedBy: [{ name: "sample", version: "1" }],
+    regions: [
+      {
+        id: "number-1",
+        kind: "number",
+        label: "24",
+        // Spans x 0.40 to 0.50, so a vehicle's right or left edge inside that
+        // span decides exactly what share of the digits it holds.
+        box: { x: 0.4, y: 0.5, width: 0.1, height: 0.1 },
+        score: 0.9,
+        model: { name: "sample", version: "1" },
+      },
+      {
+        id: "vehicle-1",
+        kind: "vehicle",
+        label: "motorbike",
+        box: { x: 0, y: 0.3, width: left, height: 0.6 },
+        score: 0.8,
+        model: { name: "sample", version: "1" },
+      },
+      {
+        id: "vehicle-2",
+        kind: "vehicle",
+        label: "motorbike",
+        box: { x: right, y: 0.3, width: 1 - right, height: 0.6 },
+        score: 0.8,
+        model: { name: "sample", version: "1" },
+      },
+    ],
+  });
+
+describe("the containment floor", () => {
+  it("says nothing about a number no kart holds a majority of", async () => {
+    const brand = "numbers-straddle";
+    await brandWith(brand, ["24"]);
+
+    // The digits sit between two karts: the left one holds 0.40 of them and
+    // the right one 0.40. Neither is the kart the number is painted on, and
+    // framing either would be a guess.
+    const { matches } = await identifier().match({
+      annotation: straddling(0.44, 0.46),
+      brand,
+    });
+    expect(matches).toEqual([]);
+  });
+
+  it("takes the kart once one of them holds most of the digits", async () => {
+    const brand = "numbers-majority";
+    const personId = await brandWith(brand, ["24"]);
+
+    // The same geometry with the right kart's edge moved to 0.44: it now holds
+    // 0.60 of the digits and the left one 0.40.
+    const { matches } = await identifier().match({
+      annotation: straddling(0.44, 0.44),
+      brand,
+    });
+    expect(matches).toEqual([
+      {
+        regionId: "vehicle-2",
+        personId,
+        brand,
+        by: "number",
+        numberRegionId: "number-1",
+      },
+    ]);
+  });
+});
+
 describe("the number Match Rule on the target photograph", () => {
   it("names the only kart, whose driver is in a helmet and has no face at all", async () => {
     const brand = "numbers-target";
