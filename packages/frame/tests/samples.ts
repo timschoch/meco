@@ -183,6 +183,10 @@ export const FACE_FIXTURES: {
  * is the regression target, so it is copied here rather than re-derived: a
  * mutation of the rule must not be able to mutate the expectation with it. The
  * same holds for `leadRegionId` and `keptRegionIds`.
+ *
+ * `keptRegionIds` is in tier order, so the seed leads and the Regions it joined
+ * follow by Region id. No Match names a `person` or a `vehicle`, so the kart
+ * rung has no middle tier and these are its two.
  */
 export const KART_FIXTURES: {
   name: string;
@@ -195,21 +199,21 @@ export const KART_FIXTURES: {
     name: "on-track-dark-visor.jpg",
     raw: onTrackDarkVisor,
     leadRegionId: "vehicle-1",
-    keptRegionIds: ["person-1", "person-2", "vehicle-1", "vehicle-2"],
+    keptRegionIds: ["vehicle-1", "person-1", "person-2", "vehicle-2"],
     subject: { x: 0.4008, y: 0.0973, width: 0.4337, height: 0.4956 },
   },
   {
     name: "on-track-rear-helmet.jpg",
     raw: onTrackRearHelmet,
     leadRegionId: "vehicle-1",
-    keptRegionIds: ["person-1", "vehicle-1"],
+    keptRegionIds: ["vehicle-1", "person-1"],
     subject: { x: 0.1408, y: 0.2578, width: 0.5878, height: 0.5205 },
   },
   {
     name: "on-track-visor-open.jpg",
     raw: onTrackVisorOpen,
     leadRegionId: "vehicle-2",
-    keptRegionIds: ["person-1", "person-2", "vehicle-2"],
+    keptRegionIds: ["vehicle-2", "person-1", "person-2"],
     subject: { x: 0.0077, y: 0.2626, width: 0.9481, height: 0.6218 },
   },
   {
@@ -217,6 +221,7 @@ export const KART_FIXTURES: {
     raw: paddockMixed,
     leadRegionId: "vehicle-1",
     keptRegionIds: [
+      "vehicle-1",
       "person-1",
       "person-6",
       "person-18",
@@ -225,7 +230,6 @@ export const KART_FIXTURES: {
       "person-23",
       "person-24",
       "person-25",
-      "vehicle-1",
       "vehicle-2",
     ],
     subject: { x: 0.2703, y: 0, width: 0.4951, height: 0.7614 },

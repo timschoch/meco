@@ -56,7 +56,7 @@ export interface Framing {
   resolvedBy: ResolvedBy;
   leadRegionId?: string; // absent when resolved by anchor or center
   subject?: Box; // the composed Subject, source fractions; absent when nothing was composed
-  keptRegionIds: string[];
+  keptRegionIds: string[]; // in tier order: the leader, matched non-leaders, the rest, each group by Region id
   droppedRegionIds: string[];
   satisfied: boolean;
   fallback?: FallbackRung;
@@ -102,9 +102,11 @@ Nothing composed → the Crop Anchor named in the request → the centre. `resol
 
 Ties: the highest `similarity`, then the lowest `regionId`. `similarity` and not the largest face, because it says who meco is surest of and does not move as people walk about — largest would let the framing wobble across a burst of photographs. "Lowest" is read off the id's own number, `<kind>-<n>` from the Region schema, and never off the position in `annotation.regions`: `assignRegionIds` does hand the Regions over in id order, but `Annotation.parse` promises nothing about the order they arrive in.
 
-Three tiers exist inside the answering rung, and only the drop rung consults them: the Leading Subject, a matched non-leading face, every other face. The prototype's cross-producer `PRIORITY` table is gone; with `pinTo` deciding which rung answers, it had nothing left to decide.
+Three tiers exist inside the answering rung, and only the drop rung consults them: the Leading Subject, a matched non-leading Region, every other kept Region. The prototype's cross-producer `PRIORITY` table is gone; with `pinTo` deciding which rung answers, it had nothing left to decide.
 
-**The tiers are the order of `keptRegionIds`**, cheapest last, so the drop rung sacrifices from the end and no field carries them that a caller could pair with another rung's Subject. Only `match` has a second tier to name; `face` and `kart` leave their kept Regions in Region id order. Shipped in [#104](https://github.com/timschoch/meco/issues/104).
+**The tiers are the order of `keptRegionIds`**, cheapest last, so the drop rung sacrifices from the end and no field carries them that a caller could pair with another rung's Subject. **The same order on every rung**, applied by the ladder rather than by a rung, so "cheapest last" is one promise instead of one per rung. Within a group the order is Region id — the id's own number, `<kind>-<n>` from the Region schema, never the position in `annotation.regions`, which `Annotation.parse` does not promise.
+
+A Match keeps its middle tier whichever rung answered: the `face` rung answers a request whose Matches `persons` all excluded, and those faces are still the ones worth keeping. `kart` keeps `person` and `vehicle` Regions, which no Match names, so its middle tier is always empty. Shipped in [#104](https://github.com/timschoch/meco/issues/104).
 
 A `face` Subject is the face box alone. frame never grows it to the `person` Region containing it: the Eye Line criterion was measured on face boxes, and framing on a body is a different composition with no measurement behind it.
 
