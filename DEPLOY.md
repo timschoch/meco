@@ -94,13 +94,20 @@ Both services answer `GET /health`.
 
 ```
 curl https://meco-teal.vercel.app/health
-{"ok":true,"service":"gateway","version":"<git sha>","models":{"bound":true,"reachable":true,"status":200}}
+{"ok":true,"service":"gateway","version":"<git sha>","probedAt":"<ISO 8601>","models":{"bound":true,"reachable":true,"status":200,"warm":true},"store":{…},"records":{…}}
 ```
 
 `ok` is the service's own liveness. On `gateway`, `models` carries the binding:
-`bound` says `MODELS_URL` was injected, `reachable` says the probe got a `2xx`.
-A `models` that is down does not make `gateway` unhealthy — it makes
-`models.reachable` false.
+`bound` says `MODELS_URL` was injected, `reachable` says the probe got a `2xx`
+within 10 s, `warm` says every Model on the answering instance has its session
+(`null` when models did not answer; `reachable: true, warm: false` is a cold
+start in progress). A `models` that is down does not make `gateway` unhealthy —
+it makes `models.reachable` false.
+
+The three blocks are probed together behind one 30 s cache, so polling
+`/health` costs no Blob or Neon round trip per hit; `probedAt` says when the
+body was measured. `/health` needs no key; every `/v1/*`, `/mcp` and `/ui`
+route does (`docs/specs/gateway.md`, "The door").
 
 `models` is private, so its `/health` is only observable through `gateway`'s
 report or from inside the deployment.
@@ -140,12 +147,14 @@ fixture: `fixtures/faces/artemis-2-crew.jpg`.
 
 ## Env vars
 
-| Var                             | Set by                                  | Purpose                                                                                                                                                                   |
-| ------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MODELS_URL`                    | the service binding in `vercel.json`    | base URL `gateway` uses to reach `models`. Runtime only — it does not resolve during a build, and Routing Middleware cannot read it.                                      |
-| `PORT`                          | Vercel platform                         | container listen port, default 80. Do not set it.                                                                                                                         |
-| `VERCEL_GIT_COMMIT_SHA`         | Vercel platform                         | what `/health` reports as `version`.                                                                                                                                      |
-| `RECORDS_DATABASE_URL_UNPOOLED` | the Neon integration, prefix `RECORDS_` | the direct connection string `records` pools on and migrates through. Unset means no database: `/health` reports `records.configured: false` and the gateway still boots. |
+| Var                             | Set by                                  | Purpose                                                                                                                                                                                                                                                  |
+| ------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MODELS_URL`                    | the service binding in `vercel.json`    | base URL `gateway` uses to reach `models`. Runtime only — it does not resolve during a build, and Routing Middleware cannot read it.                                                                                                                     |
+| `PORT`                          | Vercel platform                         | container listen port, default 80. Do not set it.                                                                                                                                                                                                        |
+| `VERCEL_GIT_COMMIT_SHA`         | Vercel platform                         | what `/health` reports as `version`.                                                                                                                                                                                                                     |
+| `RECORDS_DATABASE_URL_UNPOOLED` | the Neon integration, prefix `RECORDS_` | the direct connection string `records` pools on and migrates through. Unset is a failed boot with the variable named on stderr: every Operation starts with a Caller lookup, so a gateway with no database has no door.                                  |
+| `MECO_BOOTSTRAP_KEY`            | owner, Sensitive                        | read by `pnpm records:seed` only, never by the gateway. The seed stores its SHA-256 on the bootstrap Caller; the key itself is what a client sends as `Authorization: Bearer`, `Authorization: Basic` (any user, the key as password) or `x-auth-token`. |
+| `CRON_SECRET`                   | owner, Sensitive                        | reserved for `/internal/sweep` (the Sweep ticket, #187): Vercel sends it as `Authorization: Bearer` on a cron. Nothing reads it yet.                                                                                                                     |
 
 Env vars are scoped per Environment (Production / Preview / Development) at the
 project level, not per service: both services see the same set. Use distinct

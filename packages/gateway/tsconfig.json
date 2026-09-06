@@ -8,7 +8,13 @@
   "exclude": ["dist"],
   "references": [
     {
+      "path": "../compose"
+    },
+    {
       "path": "../contracts"
+    },
+    {
+      "path": "../models"
     },
     {
       "path": "../records"

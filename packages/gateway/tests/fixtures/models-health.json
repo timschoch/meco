@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "service": "models",
+  "version": "fixture",
+  "models": [
+    { "name": "yunet", "version": "2023mar-1", "warm": true },
+    { "name": "edgeface", "version": "xs-gamma-06-1", "warm": true },
+    { "name": "dfine", "version": "s-obj2coco-1", "warm": true }
+  ],
+  "onnxruntime": "1.29.0",
+  "rss": 314572800
+}

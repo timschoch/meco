@@ -1,0 +1,252 @@
+/**
+ * The Operation table. Every Operation is one entry here, and nothing is
+ * written twice: the HTTP router registers one route per entry with
+ * `input.parse` on the body or query, and the MCP factory registers one tool
+ * per entry with the same `input` as its schema (ADR-0014, Decision 1).
+ *
+ * `run` is the one path from a Door to a handler: parse, then the Brand Wall,
+ * then the handler. The wall stands before the handler on purpose, and a test
+ * on #181 proves it by watching for a module that must not have run.
+ */
+import { PLACEMENTS } from "@meco/compose/placements";
+import { Box, CropAnchor, PinTo } from "@meco/contracts";
+import type { ModelsClient } from "@meco/models";
+import type { Caller, Records } from "@meco/records";
+import type { Store } from "@meco/store";
+import { z } from "zod";
+import { GatewayError } from "./errors";
+
+/** What a handler may reach. The Caller is on it; a module never sees one. */
+export interface OperationContext {
+  readonly caller: Caller;
+  /**
+   * The Brands this request may touch: the one it named, once the wall let
+   * it through, or every Brand the Caller holds when it named none.
+   */
+  readonly brands: readonly string[];
+  readonly records: Records;
+  readonly store: Store;
+  readonly models: ModelsClient | null;
+}
+
+export interface Operation<I extends z.ZodObject = z.ZodObject> {
+  /** The tool name on the MCP Door. */
+  readonly name: string;
+  readonly description: string;
+  /** The HTTP face, under `/v1`. */
+  readonly method: "GET" | "POST" | "DELETE";
+  readonly path: string;
+  /** One object: the body or query is parsed with it and `tools/list` shows it. */
+  readonly input: I;
+  handler(ctx: OperationContext, input: z.output<I>): Promise<unknown>;
+}
+
+// --- Shared input pieces ----------------------------------------------------
+
+const Brand = z.string().min(1).describe("The Brand this request is for.");
+
+/** How a request names a Source Image: by URL, or by a Content Hash it already sent. */
+const SourceReference = z.union([
+  z.object({
+    url: z
+      .url({ protocol: /^https$/ })
+      .describe("An https URL the gateway fetches and files."),
+  }),
+  z.object({
+    hash: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .describe("The Content Hash of bytes this Brand already sent."),
+  }),
+]);
+
+/** What `render` and `crop` share. Every field optional at the door. */
+const FramingOptions = {
+  pinTo: z
+    .array(PinTo)
+    .min(1)
+    .optional()
+    .describe(
+      "The ladder frame walks to find the Subject. Default match, face, kart."
+    ),
+  persons: z
+    .array(z.string().min(1))
+    .optional()
+    .describe("Person ids that may lead."),
+  anchor: CropAnchor.optional(),
+  redaction: z
+    .object({
+      blurUnknownFaces: z
+        .boolean()
+        .optional()
+        .describe("Hide every face meco cannot name. Default true."),
+    })
+    .optional(),
+  format: z.enum(["png", "jpeg", "webp"]).optional(),
+  quality: z.int().min(1).max(100).optional(),
+};
+
+// --- The table ---------------------------------------------------------------
+
+const notImplemented = (name: string) => async (): Promise<never> => {
+  throw new GatewayError(
+    "not_implemented",
+    `${name} is in the table and its pipeline is not built yet`
+  );
+};
+
+/** A Reference Photo as the wire may carry it: no print, no Store Key. */
+const listPeople = async (ctx: OperationContext) => {
+  const perBrand = await Promise.all(
+    ctx.brands.map((brand) => ctx.records.people.list(brand))
+  );
+  return perBrand.flat().map((person) => ({
+    id: person.id,
+    brand: person.brand,
+    name: person.name,
+    createdAt: person.createdAt,
+    photos: person.photos.map((photo) => ({
+      id: photo.id,
+      hash: photo.hash,
+      regionId: photo.regionId,
+      consentAt: photo.consentAt,
+      createdAt: photo.createdAt,
+    })),
+  }));
+};
+
+const define = <I extends z.ZodObject>(operation: Operation<I>): Operation =>
+  operation as unknown as Operation;
+
+export const OPERATIONS: readonly Operation[] = [
+  define({
+    name: "render_image",
+    description:
+      "Render a Template over a photograph for one Placement and get the Render's URL.",
+    method: "POST",
+    path: "/render",
+    input: z.object({
+      brand: Brand,
+      template: z.string().min(1),
+      placement: z.string().min(1),
+      fields: z.record(z.string(), z.unknown()),
+      source: SourceReference,
+      ...FramingOptions,
+    }),
+    handler: notImplemented("render_image"),
+  }),
+  define({
+    name: "crop_image",
+    description:
+      "Cut a photograph to a size, framed on its Subject, with no Template.",
+    method: "POST",
+    path: "/crop",
+    input: z.object({
+      brand: Brand,
+      source: SourceReference,
+      width: z.int().positive(),
+      height: z.int().positive(),
+      subjectArea: Box.optional(),
+      ...FramingOptions,
+    }),
+    handler: notImplemented("crop_image"),
+  }),
+  define({
+    name: "find_subjects",
+    description:
+      "Say what is in a photograph and who, for this Brand, before rendering.",
+    method: "POST",
+    path: "/annotate",
+    input: z.object({ brand: Brand, source: SourceReference }),
+    handler: notImplemented("find_subjects"),
+  }),
+  define({
+    name: "list_templates",
+    description:
+      "The Templates a Brand offers, with their Fields as JSON Schema. Every Brand of yours when none is named.",
+    method: "GET",
+    path: "/templates",
+    input: z.object({ brand: Brand.optional() }),
+    async handler(ctx) {
+      // Lazy, because compose's index reads every Look's font files at
+      // import time and the gateway bundle does not carry them yet
+      // (blocker on #181). The suite reaches the real compose either way.
+      const { templates } = await import("@meco/compose");
+      return ctx.brands
+        .flatMap((brand) => templates(brand))
+        .sort((a, b) => a.id.localeCompare(b.id));
+    },
+  }),
+  define({
+    name: "list_placements",
+    description: "The output sizes meco knows, one per Channel.",
+    method: "GET",
+    path: "/placements",
+    input: z.object({}),
+    handler: async () => PLACEMENTS,
+  }),
+  define({
+    name: "list_brands",
+    description: "The Brands your key holds.",
+    method: "GET",
+    path: "/brands",
+    input: z.object({}),
+    async handler(ctx) {
+      const rows = await Promise.all(
+        ctx.brands.map((id) => ctx.records.brands.get(id))
+      );
+      // By id, as `brands.list` orders, so two keys holding the same Brands
+      // see the same list.
+      return ctx.brands
+        .map((id, i) => ({ id, name: rows[i]?.name ?? id }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+    },
+  }),
+  define({
+    name: "list_people",
+    description:
+      "The People a Brand enrolled, with their Reference Photo ids and consent dates. Every Brand of yours when none is named.",
+    method: "GET",
+    path: "/people",
+    input: z.object({ brand: Brand.optional() }),
+    handler: listPeople,
+  }),
+];
+
+// --- The wall and the one path through it ------------------------------------
+
+/**
+ * The Brand Wall. A named Brand the Caller does not hold is refused; a named
+ * Brand it holds is the one Brand this request may touch; no Brand means
+ * every Brand the Caller holds.
+ */
+export function heldBrands(
+  caller: Caller,
+  brand: string | undefined
+): readonly string[] {
+  if (brand === undefined) return caller.brands;
+  if (!caller.brands.includes(brand)) {
+    throw new GatewayError(
+      "brand_not_held",
+      `this key does not hold the brand ${brand}`
+    );
+  }
+  return [brand];
+}
+
+const brandOf = (input: unknown): string | undefined => {
+  const brand = (input as { brand?: unknown }).brand;
+  return typeof brand === "string" ? brand : undefined;
+};
+
+/** One Operation, from the raw input a Door received to what it answers. */
+export async function run(
+  operation: Operation,
+  deps: Pick<OperationContext, "records" | "store" | "models">,
+  caller: Caller,
+  raw: unknown
+): Promise<unknown> {
+  const input = operation.input.parse(raw);
+  const brands = heldBrands(caller, brandOf(input));
+  return operation.handler({ ...deps, caller, brands }, input);
+}

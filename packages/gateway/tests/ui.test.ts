@@ -1,41 +1,24 @@
-import { records, type Records } from "@meco/records";
-import { pgliteDatabase } from "@meco/records/pglite";
-import { memoryStore } from "@meco/store";
+import type { Records } from "@meco/records";
 import { afterEach, describe, expect, it } from "vitest";
-import { createApp } from "../app";
+import { KEY, TIMEOUT, basic, open, type Opened } from "./harness";
 
-const TIMEOUT = 30_000;
-
-const opened: Records[] = [];
-
+const opened: Opened[] = [];
 afterEach(async () => {
   await Promise.all(opened.splice(0).map((one) => one.close()));
 });
 
-const KEY = "sk_test_the_bootstrap_key";
-
-async function openRecords(): Promise<Records> {
-  const one = records({ database: pgliteDatabase(), store: memoryStore() });
+async function stack(): Promise<Opened> {
+  const one = await open();
   opened.push(one);
-  await one.migrate();
-  await one.brands.ensure({ id: "laica", name: "laica" });
-  await one.callers.create({ name: "test", key: KEY, brands: ["laica"] });
   return one;
 }
-
-const basic = (user: string, key: string): string =>
-  `Basic ${Buffer.from(`${user}:${key}`).toString("base64")}`;
 
 describe("the gateway's /ui mount", () => {
   it(
     "answers 401 with a Basic challenge when no credential is sent",
     async () => {
-      const one = await openRecords();
-
-      const res = await createApp({
-        records: one,
-        store: memoryStore(),
-      }).request("/ui");
+      const one = await stack();
+      const res = await one.app().request("/ui");
 
       expect(res.status).toBe(401);
       expect(res.headers.get("WWW-Authenticate")).toBe('Basic realm="meco"');
@@ -46,8 +29,8 @@ describe("the gateway's /ui mount", () => {
   it(
     "renders the Gallery for Basic, Bearer and x-auth-token alike",
     async () => {
-      const one = await openRecords();
-      const app = createApp({ records: one, store: memoryStore() });
+      const one = await stack();
+      const app = one.app();
 
       // Any user name: the key is the password and the user is ignored.
       const withBasic = await app.request("/ui", {
@@ -70,12 +53,8 @@ describe("the gateway's /ui mount", () => {
   it(
     "refuses a key no Caller holds",
     async () => {
-      const one = await openRecords();
-
-      const res = await createApp({
-        records: one,
-        store: memoryStore(),
-      }).request("/ui", {
+      const one = await stack();
+      const res = await one.app().request("/ui", {
         headers: { Authorization: `Bearer not-${KEY}` },
       });
 
@@ -87,23 +66,22 @@ describe("the gateway's /ui mount", () => {
   it(
     "takes the key from the Basic password and hands it over whole",
     async () => {
-      const one = await openRecords();
+      const one = await stack();
       const seen: string[] = [];
       const watched: Records = {
-        ...one,
+        ...one.records,
         callers: {
-          ...one.callers,
+          ...one.records.callers,
           byKey: async (key) => {
             seen.push(key);
-            return one.callers.byKey(key);
+            return one.records.callers.byKey(key);
           },
         },
       };
 
-      await createApp({ records: watched, store: memoryStore() }).request(
-        "/ui",
-        { headers: { Authorization: basic("ignored-user", KEY) } }
-      );
+      await one.app({ records: watched }).request("/ui", {
+        headers: { Authorization: basic("ignored-user", KEY) },
+      });
 
       // The user name is ignored and the password is the key, handed over
       // whole: `callers.byKey` is what hashes it, so a gateway that hashed
