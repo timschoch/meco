@@ -5,6 +5,7 @@ import { ComposeError, render, type RenderInput } from "../index";
 import { GOLDEN_CASES, inputFor, STORY_CASE } from "./cases";
 import { GOLDENS } from "./goldens";
 import { centredWindow, decode, widenBy } from "./fixture";
+import { PLACEMENTS } from "../placements";
 import { meanAbsoluteDifference, raster } from "./pixels";
 
 /**
@@ -98,6 +99,24 @@ describe("render", () => {
       true
     );
   });
+});
+
+describe("every Template at every Placement it declares", () => {
+  it.each(GOLDEN_CASES)(
+    "$template renders $placement at the Placement's own size",
+    async (test) => {
+      const placement = PLACEMENTS.find((p) => p.id === test.placement)!;
+      const { bytes, mime } = await render(await inputFor(test));
+
+      expect(mime).toBe("image/jpeg");
+      expect(bytes.length).toBeGreaterThan(SMALLEST_PLAUSIBLE_RENDER);
+      const decoded = await raster(bytes);
+      expect([decoded.width, decoded.height]).toEqual([
+        placement.width,
+        placement.height,
+      ]);
+    }
+  );
 });
 
 describe("golden images", () => {

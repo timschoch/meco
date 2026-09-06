@@ -1,6 +1,23 @@
 import type { PlanInput, RenderInput } from "../index";
-import { centredWindow, decode, KART_FIXTURE } from "./fixture";
+import { centredWindow, decode, FACE_FIXTURE, KART_FIXTURE } from "./fixture";
 import { PLACEMENTS } from "../placements";
+
+/**
+ * Every Template that ships, with the Placements it declares, in registry
+ * order. One list, so a Template added without its catalogue entry, its layout
+ * Checks or its goldens shows up as a count that no longer matches.
+ */
+export const SHIPPED: readonly {
+  readonly id: string;
+  readonly placements: readonly string[];
+}[] = [
+  {
+    id: "swisshutless-story",
+    placements: ["instagram/story", "facebook/story"],
+  },
+  { id: "hopefamily-story", placements: ["instagram/story", "facebook/story"] },
+  { id: "hopefamily-post", placements: ["instagram/post", "facebook/post"] },
+];
 
 /** One golden: a Template at a Placement, with the Fields and the photograph it is rendered from. */
 export interface GoldenCase {
@@ -11,6 +28,34 @@ export interface GoldenCase {
   readonly fields: Record<string, unknown>;
   /** The file under `tests/goldens/`. PNG, so the comparison is not reading JPEG noise. */
   readonly golden: string;
+}
+
+/**
+ * The Fields both Hope Family Templates are rendered from. One set, because the
+ * two Templates carry the same blog post at two shapes and a golden pair is only
+ * worth comparing by eye when nothing but the shape differs.
+ */
+export const HOPE_FIELDS = {
+  title: "Vier Wochen Vanlife durch Norwegen",
+  kicker: "Neuer Blogpost",
+  excerpt:
+    "Fjorde, Regen und ein Kocher, der nie funktioniert hat — was wir unterwegs gelernt haben.",
+  date: "6. September 2026",
+};
+
+/** A Hope Family Template's golden at each Placement it declares. */
+function hopeFamily(
+  template: string,
+  placements: readonly string[]
+): GoldenCase[] {
+  return placements.map((placement) => ({
+    template,
+    placement,
+    brand: "hopefamily",
+    fixture: FACE_FIXTURE,
+    fields: HOPE_FIELDS,
+    golden: `${template}--${placement.replace("/", "-")}.png`,
+  }));
 }
 
 export const GOLDEN_CASES: readonly GoldenCase[] = [
@@ -27,6 +72,8 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     },
     golden: "swisshutless-story--instagram-story.png",
   },
+  ...hopeFamily("hopefamily-story", ["instagram/story", "facebook/story"]),
+  ...hopeFamily("hopefamily-post", ["instagram/post", "facebook/post"]),
 ];
 
 /** The story every test starts from, so one edit moves the golden and the tests together. */

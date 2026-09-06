@@ -1,5 +1,7 @@
 import type { Template } from "../../template";
 import { LOOKS } from "../looks/registry";
+import hopefamilyPost from "./hopefamily-post";
+import hopefamilyStory from "./hopefamily-story";
 import { registerTemplates } from "./register";
 import swisshutlessStory from "./swisshutless-story";
 
@@ -11,6 +13,6 @@ import swisshutlessStory from "./swisshutless-story";
  * the same rule holds for whatever that loader brings.
  */
 export const TEMPLATES: ReadonlyMap<string, Template> = registerTemplates(
-  [swisshutlessStory],
+  [swisshutlessStory, hopefamilyStory, hopefamilyPost],
   LOOKS
 );

@@ -1,0 +1,49 @@
+Eina 02 — licence and provenance
+================================
+
+Files
+-----
+
+Eina02-Regular.otf
+    sha256 302b265e624e8a449add717a32591982d255d3cdf6945a548bcb69988fa1c731
+Eina02-SemiBold.otf
+    sha256 823d2f8ab110abe00801e5636fa984dc7a980bd395b01af1a2f026ae82a7ab5b
+
+Both files are the bytes committed to this repository in 4981af0, unmodified.
+
+
+Notices, read out of the fonts' own name table
+----------------------------------------------
+
+    Copyright (c) 2013 Textaxis. v 1.0 by Iñigo Jerez. Barcelona.
+    All rights reserved.
+
+    Eina is a trademark of Textaxis.
+
+    Textaxis. Iñigo Jerez — http://www.textaxis.com
+
+    Version 1.000; hotconv 1.0.109; makeotfexe 2.5.65596
+
+That is every licensing statement the binaries carry. There is no embedded
+licence text and no licence URL.
+
+
+Terms
+-----
+
+PLACEHOLDER — the terms below are not the foundry's and do not grant anything.
+
+Eina 02 is a proprietary typeface. It is not an open-source face: it carries no
+OFL, no Apache or MIT grant, and "All rights reserved" above is the only
+statement of rights in the files. Whatever right this repository has to ship
+these two files therefore comes from an agreement between the owner of this
+repository and Textaxis, and that agreement is not in the repository.
+
+The owner supplies the real terms — a foundry licence, an invoice, or a link to
+the offer the fonts were downloaded under — and they replace this section. Until
+then, treat the two files as redistributable only inside this repository and its
+own deployments, and not as something a reader of this repository may take and
+use.
+
+Recorded by the ticket that moved these files under packages/compose:
+https://github.com/timschoch/meco/issues/116

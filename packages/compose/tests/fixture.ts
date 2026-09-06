@@ -10,6 +10,13 @@ const REPO_FIXTURES = new URL("../../../fixtures/", import.meta.url);
 export const KART_FIXTURE = "karts/on-track-dark-visor.jpg";
 
 /**
+ * The portrait the Hope Family goldens start from: 1280x1600, one face, filling
+ * much of the frame. A Template whose job is to keep type off a face is worth
+ * looking at over a photograph that has one.
+ */
+export const FACE_FIXTURE = "faces/astronaut-portrait.jpg";
+
+/**
  * A repo fixture as the host would hand it to compose: raw RGB, no alpha, at
  * its own resolution. The Annotation's resolution in production; here the
  * file's own, which is what makes the window fractions below exact.

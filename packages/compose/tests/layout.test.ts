@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { layoutConformance, type LayoutFixtures } from "../conformance";
+import { SHIPPED } from "./cases";
 import { decode, KART_FIXTURE } from "./fixture";
 
 /**
@@ -28,6 +29,7 @@ const RULES = [
   "keeps every text run inside its own box",
   "plans the same whatever the image bytes are",
   "declares a valid Subject Area or none",
+  "keeps the Subject Area clear of every Occlusion Zone",
   "declares no more Occlusion Zones than a FramingRequest holds",
 ];
 
@@ -35,15 +37,17 @@ const checks = layoutConformance(fixtures);
 
 describe("the layout suite", () => {
   it("covers every Template at every Placement it declares", () => {
-    // One entry per Template x declared Placement x rule. `swisshutless-story`
-    // declares two Placements, so a Template added without its checks running
-    // shows up here as a wrong count.
-    expect(checks.length).toBe(2 * RULES.length);
-    expect(checks.map((check) => check.name)).toEqual(
-      ["instagram/story", "facebook/story"].flatMap((placement) =>
-        RULES.map((rule) => `swisshutless-story at ${placement} ${rule}`)
+    // One entry per Template x declared Placement x rule, driven off the list of
+    // what ships, so a Template added without its checks running shows up here
+    // as a wrong count.
+    const expected = SHIPPED.flatMap((template) =>
+      template.placements.flatMap((placement) =>
+        RULES.map((rule) => `${template.id} at ${placement} ${rule}`)
       )
     );
+
+    expect(checks.length).toBe(expected.length);
+    expect(checks.map((check) => check.name)).toEqual(expected);
   });
 
   it.each(checks)("$name", async (check) => {
