@@ -63,9 +63,9 @@ describe("the Caller at the HTTP Door", () => {
       );
       for (const answer of answers) {
         expect(answer.status).toBe(200);
-        expect(answer.body).toEqual(
-          heldRows.map(({ id, name }) => ({ id, name }))
-        );
+        expect(answer.body).toEqual({
+          items: heldRows.map(({ id, name }) => ({ id, name })),
+        });
       }
     },
     TIMEOUT
