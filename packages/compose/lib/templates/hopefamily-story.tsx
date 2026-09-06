@@ -15,11 +15,13 @@
  */
 import { z } from "zod";
 import {
-  ImageSlot,
   LOGO_SRC,
   Occludes,
+  PhotoCard,
+  TextBlock,
   type Template,
   type TemplateProps,
+  type TextBlockScale,
 } from "../../template";
 
 const Fields = z.strictObject({
@@ -47,146 +49,45 @@ const PAD = 84;
 /** The site, on every card, so a screenshot still says where the post is. */
 const HOME = "hope-family.com";
 
+const SCRIM =
+  "linear-gradient(to bottom, rgba(0,80,124,0.80) 0%, rgba(0,80,124,0.30) 20%, rgba(0,80,124,0.08) 40%, rgba(11,18,23,0.78) 72%, rgba(11,18,23,0.96) 100%)";
+
+/** A story is read at arm's length on a phone: the largest type the Brand sets. */
+const SCALE: TextBlockScale = {
+  kicker: 28,
+  title: 78,
+  excerpt: 30,
+  meta: 26,
+  rule: { width: 52, height: 6, gap: 18 },
+  gaps: { kicker: 26, excerpt: 24, meta: 34, date: 20 },
+  excerptLineHeight: 1.45,
+};
+
 function render({ fields, look, image }: TemplateProps<Fields>) {
   const c = look.colors;
 
   return (
-    <div
-      style={{
-        position: "relative",
-        display: "flex",
-        flexDirection: "column",
-        width: "100%",
-        height: "100%",
-        backgroundColor: c.blue,
-      }}
-    >
-      <ImageSlot
-        src={image.src}
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
+    <PhotoCard background={c.blue} src={image.src} scrim={SCRIM} padding={PAD}>
+      <Occludes style={{ width: LOGO_WIDTH, height: LOGO_HEIGHT }}>
+        <img src={LOGO_SRC} width={LOGO_WIDTH} height={LOGO_HEIGHT} />
+      </Occludes>
+
+      <TextBlock
+        fonts={{ heading: look.headingFamily, body: look.bodyFamily }}
+        colors={{
+          accent: c.banana,
+          title: c.white,
+          excerpt: c.latte,
+          meta: "rgba(255,255,255,0.75)",
         }}
+        scale={SCALE}
+        kicker={(fields.kicker ?? DEFAULT_KICKER).toUpperCase()}
+        title={fields.title}
+        excerpt={fields.excerpt}
+        date={fields.date}
+        home={HOME}
       />
-
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          backgroundImage:
-            "linear-gradient(to bottom, rgba(0,80,124,0.80) 0%, rgba(0,80,124,0.30) 20%, rgba(0,80,124,0.08) 40%, rgba(11,18,23,0.78) 72%, rgba(11,18,23,0.96) 100%)",
-        }}
-      />
-
-      <div
-        style={{
-          position: "relative",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          width: "100%",
-          height: "100%",
-          padding: PAD,
-        }}
-      >
-        <Occludes style={{ width: LOGO_WIDTH, height: LOGO_HEIGHT }}>
-          <img src={LOGO_SRC} width={LOGO_WIDTH} height={LOGO_HEIGHT} />
-        </Occludes>
-
-        <Occludes style={{ flexDirection: "column" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              marginBottom: 26,
-            }}
-          >
-            <div
-              style={{
-                width: 52,
-                height: 6,
-                backgroundColor: c.banana,
-                marginRight: 18,
-              }}
-            />
-            <div
-              style={{
-                fontFamily: look.bodyFamily,
-                fontSize: 28,
-                fontWeight: 600,
-                letterSpacing: 2,
-                color: c.banana,
-              }}
-            >
-              {(fields.kicker ?? DEFAULT_KICKER).toUpperCase()}
-            </div>
-          </div>
-
-          <div
-            style={{
-              fontFamily: look.headingFamily,
-              fontSize: 78,
-              fontWeight: 600,
-              lineHeight: 1.12,
-              color: c.white,
-            }}
-          >
-            {fields.title}
-          </div>
-
-          {fields.excerpt ? (
-            <div
-              style={{
-                fontFamily: look.bodyFamily,
-                fontSize: 30,
-                fontWeight: 400,
-                lineHeight: 1.45,
-                color: c.latte,
-                marginTop: 24,
-              }}
-            >
-              {fields.excerpt}
-            </div>
-          ) : null}
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              marginTop: 34,
-            }}
-          >
-            {fields.date ? (
-              <div
-                style={{
-                  fontFamily: look.bodyFamily,
-                  fontSize: 26,
-                  color: c.banana,
-                  marginRight: 20,
-                }}
-              >
-                {fields.date}
-              </div>
-            ) : null}
-            <div
-              style={{
-                fontFamily: look.bodyFamily,
-                fontSize: 26,
-                color: "rgba(255,255,255,0.75)",
-              }}
-            >
-              {HOME}
-            </div>
-          </div>
-        </Occludes>
-      </div>
-    </div>
+    </PhotoCard>
   );
 }
 
