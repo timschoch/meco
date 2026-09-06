@@ -62,6 +62,15 @@ export function fakeModels(
   } = {}
 ) {
   const seen: string[] = [];
+  /** Every Signed URL the fake host was handed, so a test can read the key. */
+  const fetched: string[] = [];
+  /**
+   * Where the fake host reads a `{ url }` body from: the same in-memory store
+   * the gateway minted the Signed URL against, whose URLs are
+   * `https://private.memory.store.invalid/<key>?validUntil=…`. Set by `open`.
+   */
+  let store: Store | undefined;
+
   const fetch = async (request: Request): Promise<Response> => {
     const { pathname } = new URL(request.url);
     seen.push(`${request.method} ${pathname}`);
@@ -71,7 +80,18 @@ export function fakeModels(
     if (pathname === "/models") return Response.json(modelsCatalogue);
     if (pathname === "/annotate" && request.method === "POST") {
       if (options.annotate) return options.annotate(request);
-      const body = new Uint8Array(await request.arrayBuffer());
+      const body = await sourceBytes(request);
+      if (body === null) {
+        return Response.json(
+          {
+            error: {
+              code: "source_unfetchable",
+              message: "the Signed URL hands over nothing",
+            },
+          },
+          { status: 502 }
+        );
+      }
       const annotation = annotationByHash(sha256(body));
       if (annotation === null) {
         return Response.json(
@@ -88,7 +108,33 @@ export function fakeModels(
       { status: 404 }
     );
   };
-  return { seen, fetch };
+
+  /**
+   * The photograph one `POST /annotate` names, whichever of the two carriers
+   * it used: the bytes in the body, or the object a Signed URL hands over.
+   * `null` when the URL names nothing the store holds, which is what an
+   * expired or mistyped URL looks like from here.
+   */
+  async function sourceBytes(request: Request): Promise<Uint8Array | null> {
+    const type = request.headers.get("content-type") ?? "";
+    if (!type.startsWith("application/json")) {
+      return new Uint8Array(await request.arrayBuffer());
+    }
+    const { url } = (await request.json()) as { url: string };
+    fetched.push(url);
+    const key = new URL(url).pathname.slice(1);
+    return (await store?.get(key)) ?? null;
+  }
+
+  return {
+    seen,
+    fetched,
+    fetch,
+    /** The store the Signed URLs in a `{ url }` body are read from. */
+    reads(from: Store) {
+      store = from;
+    },
+  };
 }
 
 /** Where the fake photograph host serves the fixtures from. */
@@ -125,6 +171,8 @@ export interface Opened {
   readonly store: Store;
   readonly models: ModelsClient;
   readonly modelsSeen: string[];
+  /** Every Signed URL the gateway handed models in a `{ url }` body. */
+  readonly modelsFetched: string[];
   /** Every URL the gateway fetched a Source Reference from. */
   readonly photosSeen: string[];
   readonly deps: GatewayDeps;
@@ -146,6 +194,9 @@ export async function open(
   await opened.callers.create({ name: "test", key: KEY, brands: [...HELD] });
 
   const wire = options.models ?? fakeModels();
+  // The fake host fetches a `{ url }` body from the same store the gateway
+  // minted the URL against, as the real one fetches from Blob.
+  wire.reads(store);
   const photos = options.photos ?? fakePhotos();
   const models = createModelsClient({ baseUrl: MODELS_URL, fetch: wire.fetch });
   const deps: GatewayDeps = {
@@ -160,6 +211,7 @@ export async function open(
     store,
     models,
     modelsSeen: wire.seen,
+    modelsFetched: wire.fetched,
     photosSeen: photos.seen,
     deps,
     app: (overrides = {}) => createApp({ ...deps, ...overrides }),

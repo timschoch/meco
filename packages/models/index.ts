@@ -6,6 +6,7 @@ export {
   createModelsClient,
   ModelsError,
   type Annotated,
+  type AnnotateSource,
   type FetchLike,
   type ServerTimingEntry,
   type ModelsClient,

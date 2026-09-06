@@ -59,6 +59,15 @@ const MODELS_UNAVAILABLE = new Set([
   "unreachable",
   "timeout",
   "model_unavailable",
+  /**
+   * models could not fetch the Signed URL the gateway minted for it (#201).
+   * That carrier is meco's own and nothing a caller chose or can repair, so
+   * the caller is told what it can act on — try again later, against a URL
+   * the next call mints fresh — while the Call record keeps the real message.
+   * It is also why this code is not answered as the gateway's own
+   * `source_unfetchable`, which means the URL **the caller** gave.
+   */
+  "source_unfetchable",
 ]);
 
 /**

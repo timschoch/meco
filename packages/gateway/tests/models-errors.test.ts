@@ -167,6 +167,7 @@ describe("the pipeline without a Catalogue", () => {
       let cold = true;
       const seen: string[] = [];
       const wire = {
+        ...inner,
         seen,
         fetch: async (request: Request) => {
           const { pathname } = new URL(request.url);

@@ -60,11 +60,33 @@ export interface Annotated {
   readonly serverTiming: readonly ServerTimingEntry[];
 }
 
+/**
+ * Which of the two carriers a call uses: the photograph's bytes in the body,
+ * or a Signed URL the models host fetches for itself.
+ *
+ * The URL form exists because the platform refuses a body over 4.5 MB between
+ * two container services (#201), so a 12 MP photograph cannot cross as bytes.
+ * The caller chooses: bytes when it holds them and nothing else does, a URL
+ * whenever they are already filed, which is cheaper at every size because
+ * neither side has to move them twice.
+ */
+export type AnnotateSource = Uint8Array | { readonly url: string };
+
 export interface ModelsClient {
-  /** Annotate the bytes. The Annotation is parsed before it is returned. */
-  annotate(bytes: Uint8Array, options?: AnnotateOptions): Promise<Annotation>;
+  /**
+   * Annotate the bytes, or the photograph a Signed URL hands over. The
+   * Annotation is parsed before it is returned, and `hash` is checked against
+   * it whichever carrier was used.
+   */
+  annotate(
+    source: AnnotateSource,
+    options?: AnnotateOptions
+  ): Promise<Annotation>;
   /** The same call, with the host's `Server-Timing` beside the Annotation. */
-  annotateTimed(bytes: Uint8Array, options?: AnnotateOptions): Promise<Annotated>;
+  annotateTimed(
+    source: AnnotateSource,
+    options?: AnnotateOptions
+  ): Promise<Annotated>;
   /** The Catalogue this deployment holds. */
   catalogue(): Promise<CatalogueEntry[]>;
   /** The answering instance's liveness, warmth and memory. */
@@ -211,22 +233,32 @@ export function createModelsClient(options: ModelsClientOptions): ModelsClient {
   }
 
   const annotateTimed = async (
-    bytes: Uint8Array,
+    source: AnnotateSource,
     annotateOptions: AnnotateOptions = {}
   ): Promise<Annotated> => {
     const query = annotateOptions.models
       ? `?models=${encodeURIComponent(annotateOptions.models.join(","))}`
       : "";
+    // The content type is what tells the two carriers apart on the host: a
+    // photograph is never JSON, so neither can be read for the other.
+    const init: RequestInit =
+      source instanceof Uint8Array
+        ? {
+            method: "POST",
+            // A copy, so a caller that reuses its buffer cannot change the
+            // body out from under an in-flight request.
+            body: new Uint8Array(source),
+          }
+        : {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ url: source.url }),
+          };
     const {
       body: annotation,
       status,
       headers,
-    } = await send(`/annotate${query}`, Annotation, {
-      method: "POST",
-      // A copy, so a caller that reuses its buffer cannot change the body
-      // out from under an in-flight request.
-      body: new Uint8Array(bytes),
-    });
+    } = await send(`/annotate${query}`, Annotation, init);
 
     const { hash } = annotateOptions;
     if (hash !== undefined && annotation.hash !== hash) {
@@ -243,8 +275,8 @@ export function createModelsClient(options: ModelsClientOptions): ModelsClient {
   };
 
   return {
-    annotate: async (bytes, annotateOptions) =>
-      (await annotateTimed(bytes, annotateOptions)).annotation,
+    annotate: async (source, annotateOptions) =>
+      (await annotateTimed(source, annotateOptions)).annotation,
 
     annotateTimed,
 
