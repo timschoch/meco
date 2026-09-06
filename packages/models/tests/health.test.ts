@@ -38,19 +38,32 @@ describe("models GET /models", () => {
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as CatalogueEntry[];
-    expect(body).toEqual(
-      catalogue.detectors.map((d) => ({
+    expect(body).toEqual([
+      ...catalogue.detectors.map((d) => ({
         name: d.model.name,
         version: d.model.version,
         kinds: d.kinds,
         licence: d.licenceId,
         warm: d.isWarm(),
-      }))
-    );
-    expect(body.map((entry) => entry.name)).toEqual(["yunet", "dfine"]);
-    expect(body.find((entry) => entry.name === "yunet")?.licence).toBe("MIT");
-    expect(body.find((entry) => entry.name === "dfine")?.licence).toBe(
-      "Apache-2.0"
-    );
+      })),
+      // An Enricher draws no Region of its own, so it lists no Kind.
+      ...catalogue.enrichers.map((e) => ({
+        name: e.model.name,
+        version: e.model.version,
+        kinds: [],
+        licence: e.licenceId,
+        warm: e.isWarm(),
+      })),
+    ]);
+    expect(body.map((entry) => entry.name)).toEqual([
+      "yunet",
+      "dfine",
+      "edgeface",
+    ]);
+    const licenceOf = (name: string) =>
+      body.find((entry) => entry.name === name)?.licence;
+    expect(licenceOf("yunet")).toBe("MIT");
+    expect(licenceOf("dfine")).toBe("Apache-2.0");
+    expect(licenceOf("edgeface")).toBe("CC-BY-NC-SA-4.0");
   });
 });

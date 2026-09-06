@@ -1,0 +1,61 @@
+EdgeFace's licence is split, and the two halves do not say the same thing.
+This file records both, because `edgeface_xs_gamma_06.onnx` beside it is
+derived from the weights and governed by whichever of the two applies.
+
+Declared id: CC-BY-NC-SA-4.0 — the stricter of the two, so what `GET /models`
+shows is the obligation a reader has to honour.
+
+Weights: the official Idiap model cards, huggingface.co/idiap/EdgeFace-XS-GAMMA
+and huggingface.co/idiap/EdgeFace-S-GAMMA, both declare
+
+  license: cc-by-nc-sa-4.0
+
+which permits use for NonCommercial purposes only. meco produces marketing
+images, which is commercial by intention, so the two do not sit comfortably
+together. That is an accepted risk, not an oversight: ADR-0003, Decision 1
+records it, bounds it, and names the trigger that reopens it — another
+operator, or a paid tier. The resolution path is to ask Idiap directly, with
+ONNX Model Zoo ArcFace R100 (Apache-2.0) as the licence-clean fallback.
+
+Provenance of the file in this folder: exported from the pinned PyTorch
+checkpoint `edgeface_xs_gamma_06.pt` (sha256
+5ae7504cd9aee0a5d52c2115fd2eb66b0985dd1730f40134b5854e0cb658ce16) of
+github.com/otroshi/edgeface at commit
+ce86851cfc37979a9cd2558598d0e9bc592cbba3, torch 2.14.0, ONNX opset 17. Its own
+sha256 is pinned in `weights.sha256` beside it.
+
+Code: github.com/otroshi/edgeface, the same commit. The repository LICENSE file
+is verbatim BSD 3-Clause and is reproduced below.
+
+----------------------------------------------------------------------------
+
+BSD 3-Clause License
+
+Copyright (c) 2024, Anjith George, Christophe Ecabert, Hatef Otroshi Shahreza,
+Ketan Kotwal, Sébastien Marcel
+Idiap Research Institute, Martigny 1920, Switzerland.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

@@ -1,29 +1,23 @@
 import type { ModelAdapter } from "@meco/contracts";
+import type { Enricher } from "./enricher";
+import type { CatalogueModel } from "./model";
 
 /**
  * A Detector as the Catalogue holds it: contracts' Model Adapter, plus what
  * the host needs to warm it and to list it. Everything a request reads goes
  * through the adapter half; the rest is the operator's.
  */
-export interface Detector extends ModelAdapter {
-  /**
-   * The SPDX id of `licence`, what `GET /models` shows. The text itself stays
-   * in the repository and the image, read into `licence` at construction.
-   */
-  licenceId: string;
-  /** Create the session now, so a request pays inference and not the load. */
-  warm(): Promise<void>;
-  /** Whether the session exists on this instance. Per instance, never per deployment. */
-  isWarm(): boolean;
-}
+export interface Detector extends ModelAdapter, CatalogueModel {}
 
 /**
  * The fixed list of Models this service holds, in the order they run and are
- * listed. Built once by `lib/catalogue.ts` from the real adapters; a test
- * hands `createApp` one with in-memory Detectors instead.
+ * listed: every Detector, then every Enricher. Built once by
+ * `lib/catalogue.ts` from the real adapters; a test hands `createApp` one with
+ * in-memory adapters instead.
  */
 export interface Catalogue {
   readonly detectors: readonly Detector[];
+  readonly enrichers: readonly Enricher[];
   /** The inference runtime's version, reported on `/health`. */
   readonly onnxruntime: string;
 }

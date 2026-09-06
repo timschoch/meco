@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Annotation, type Region } from "@meco/contracts";
 import { createApp, ERROR_STATUS, type ErrorCode } from "../app";
 import { catalogue, DECODE_BOUND, decode } from "../catalogue";
-import { fakeCatalogue, fakeDetector, fakeFace } from "./fakes";
+import { fakeCatalogue, fakeDetector, fakeEnricher, fakeFace } from "./fakes";
 import { expectedFaces, fixture, matchGolden, MIN_IOU } from "./fixtures";
 
 const app = createApp(catalogue);
@@ -21,12 +21,13 @@ const sha256 = (bytes: Uint8Array) =>
 const wireError = async (res: Response) =>
   ((await res.json()) as { error: { code: ErrorCode; message: string } }).error;
 
-// `?models=yunet` and not the whole Catalogue: this block asserts the faces
-// and the timing of one named Detector, and dfine finds the crew's bodies too.
-// That the default runs every entry is `?models= selects Catalogue entries`.
+// `?models=yunet,edgeface` and not the whole Catalogue: this block asserts the
+// faces, their prints and the timing of the two stages that serve them, and
+// dfine finds the crew's bodies too. That the default runs every entry is
+// `?models= selects Catalogue entries`.
 describe("POST /annotate on the crew fixture", async () => {
   const bytes = await fixture("artemis-2-crew.jpg");
-  const res = await annotate(bytes, "?models=yunet");
+  const res = await annotate(bytes, "?models=yunet,edgeface");
   const body: unknown = await res.json();
 
   it("answers 200 with a contracts Annotation", () => {
@@ -48,9 +49,12 @@ describe("POST /annotate on the crew fixture", async () => {
     });
   });
 
-  it("names yunet in producedBy and one face Region per crew member, numbered", () => {
+  it("names both roles in producedBy and one printed face Region per crew member, numbered", () => {
     const annotation = Annotation.parse(body);
-    expect(annotation.producedBy).toEqual([{ name: "yunet", version: "1" }]);
+    expect(annotation.producedBy).toEqual([
+      { name: "yunet", version: "1" },
+      { name: "edgeface", version: "1" },
+    ]);
     expect(annotation.regions.map((r) => r.id)).toEqual([
       "face-1",
       "face-2",
@@ -61,12 +65,17 @@ describe("POST /annotate on the crew fixture", async () => {
       expect(region.kind).toBe("face");
       expect(region.landmarks).toBeDefined();
       expect(region.model).toEqual({ name: "yunet", version: "1" });
+      expect(region.facePrint?.model).toEqual({
+        name: "edgeface",
+        version: "1",
+      });
+      expect(region.facePrint?.vector).toHaveLength(512);
     }
   });
 
   it("times each stage in Server-Timing", () => {
     expect(res.headers.get("server-timing")).toMatch(
-      /^decode;dur=\d+(\.\d+)?, yunet;dur=\d+(\.\d+)?$/
+      /^decode;dur=[\d.]+, yunet;dur=[\d.]+, edgeface;dur=[\d.]+$/
     );
   });
 });
@@ -266,6 +275,44 @@ describe("POST /annotate refuses", () => {
   });
 });
 
+describe("the two stages", () => {
+  const detector = fakeDetector("d");
+  const enricher = fakeEnricher({ name: "e", version: "1" });
+  const app = createApp(fakeCatalogue(detector, enricher));
+  const post = async (query = "") =>
+    Annotation.parse(
+      await (
+        await app.request(`/annotate${query}`, {
+          method: "POST",
+          body: await fixture("jezero-crater.jpg"),
+        })
+      ).json()
+    );
+
+  it("runs Detectors first and Enrichers over what they found", async () => {
+    const { regions } = await post();
+    expect(regions).toHaveLength(1);
+    expect(regions[0]!.facePrint?.model).toEqual({ name: "e", version: "1" });
+  });
+
+  it("lists both roles in producedBy, Detectors first", async () => {
+    expect((await post()).producedBy).toEqual([
+      { name: "d", version: "1" },
+      { name: "e", version: "1" },
+    ]);
+  });
+
+  it("times each adapter of both roles", async () => {
+    const res = await app.request("/annotate", {
+      method: "POST",
+      body: await fixture("jezero-crater.jpg"),
+    });
+    expect(res.headers.get("server-timing")).toMatch(
+      /^decode;dur=[\d.]+, d;dur=[\d.]+, e;dur=[\d.]+$/
+    );
+  });
+});
+
 describe("?models= selects Catalogue entries", () => {
   const a = fakeDetector("a");
   const b = fakeDetector("b", { found: () => [] });
@@ -293,6 +340,22 @@ describe("?models= selects Catalogue entries", () => {
     const only = await post("?models=b");
     expect(only.producedBy.map((m) => m.name)).toEqual(["b"]);
     expect(only.regions).toEqual([]);
+  });
+
+  it("runs an Enricher named without its Detector, and still lists it", async () => {
+    const alone = createApp(
+      fakeCatalogue(a, fakeEnricher({ name: "e", version: "1" }))
+    );
+    const { producedBy, regions } = Annotation.parse(
+      await (
+        await alone.request("/annotate?models=e", {
+          method: "POST",
+          body: await fixture("jezero-crater.jpg"),
+        })
+      ).json()
+    );
+    expect(producedBy).toEqual([{ name: "e", version: "1" }]);
+    expect(regions).toEqual([]);
   });
 
   it("numbers the union of every adapter's Regions", async () => {

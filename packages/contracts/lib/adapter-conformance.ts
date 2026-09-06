@@ -27,8 +27,12 @@ export interface AdapterFixtures {
  */
 const ROUNDING = 1e-4;
 
-/** How alike two runs' Face Prints must be, as a cosine. */
-const PRINT_COSINE = 0.9999;
+/**
+ * How alike two runs' Face Prints must be, as a cosine. Exported because
+ * models' Enricher suite holds the same rule over the same vectors, and two
+ * copies of a threshold are two thresholds.
+ */
+export const PRINT_COSINE = 0.9999;
 
 const round = (value: number) => Math.round(value / ROUNDING) * ROUNDING;
 
@@ -61,7 +65,7 @@ const comparable = (region: AdapterRegion) => ({
 });
 
 /** Cosine of two vectors. Two of different lengths are as unalike as can be. */
-const cosine = (a: number[], b: number[]): number => {
+export const cosine = (a: number[], b: number[]): number => {
   if (a.length !== b.length) return -1;
   let dot = 0;
   let squaredA = 0;

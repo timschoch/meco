@@ -165,8 +165,15 @@ describe("?models= names dfine on the real Catalogue", async () => {
     expect(marked.faces).toEqual([]);
 
     const { producedBy, regions } = await post("");
-    expect(producedBy.map((m) => m.name)).toEqual(["yunet", "dfine"]);
+    expect(producedBy.map((m) => m.name)).toEqual([
+      "yunet",
+      "dfine",
+      "edgeface",
+    ]);
     expect(regions.filter((r) => r.kind === "face")).toEqual([]);
+    // The Enricher ran over what the Detectors found and printed nothing:
+    // there is no face here, and it touches no other Kind.
+    expect(regions.filter((r) => r.facePrint)).toEqual([]);
     expect(regions.some((r) => r.kind === "vehicle")).toBe(true);
     expect(regions.some((r) => r.kind === "person")).toBe(true);
   });
