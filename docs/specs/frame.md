@@ -90,11 +90,11 @@ export const MAX_OCCLUSION_ZONES: 16;
 
 `pinTo` is walked in order. The first entry that composes a Subject wins and decides `resolvedBy`.
 
-| `pinTo` entry | Composes                                                                                                                                                 | Leading Subject                          |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `match`       | the face Regions, when at least one has a Match                                                                                                          | the Match with the highest `similarity`  |
-| `face`        | the face Regions, when there are any                                                                                                                     | the largest face box                     |
-| `kart`        | largest `vehicle` Region ∪ every `person` or `vehicle` Region overlapping it > 0.25 of the smaller box; largest `person` Region when there is no vehicle | the composed union, which is one Subject |
+| `pinTo` entry | Composes                                                                                                                                                                                | Leading Subject                          |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `match`       | the face Regions, when at least one has a Match                                                                                                                                         | the Match with the highest `similarity`  |
+| `face`        | the face Regions, when there are any                                                                                                                                                    | the largest face box                     |
+| `kart`        | largest `vehicle` Region ∪ every `person` or `vehicle` Region overlapping it > 0.25 of the smaller box. No `vehicle` Region, no Subject: the rung declines and the ladder walks past it | the composed union, which is one Subject |
 
 Nothing composed → the Crop Anchor named in the request → the centre. `resolvedBy` is `anchor` or `center`, and `leadRegionId` and `subject` are both absent: no Region led and no Subject was composed. A window standing in for the Subject it does not have would be held by every rung of the fallback ladder without meaning it, and the point the anchor stands at is not a `Box`, whose sides are above zero. Decided on [#82](https://github.com/timschoch/meco/issues/82), shipped in [#101](https://github.com/timschoch/meco/issues/101).
 

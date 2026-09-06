@@ -190,7 +190,7 @@ function score(
 }
 
 function sweep(recorded: Map<string, Annotation>): void {
-  console.log("\noverlap sweep, six karting fixtures");
+  console.log(`\noverlap sweep, ${KART_FIXTURES.length} karting fixtures`);
   console.log("threshold  reproduced  worst IoU  worst fixture");
   for (let i = 1; i < 20; i++) {
     const threshold = i / 20;
@@ -201,8 +201,8 @@ function sweep(recorded: Map<string, Annotation>): void {
   }
 
   // The grid above is for reading; this is the finding. Every threshold that
-  // reproduces all six, at the resolution the recordings carry, so the
-  // constant can be judged by where it sits in that band rather than by
+  // reproduces every one of them, at the resolution the recordings carry, so
+  // the constant can be judged by where it sits in that band rather than by
   // whether one grid point happened to land on it.
   const all = [];
   for (let i = 1; i < 1000; i++) {
@@ -213,8 +213,8 @@ function sweep(recorded: Map<string, Annotation>): void {
   }
   console.log(
     all.length === 0
-      ? "\nno threshold reproduces all six"
-      : `\nall six reproduced for ${all[0]!.toFixed(3)} <= t <= ${all.at(-1)!.toFixed(3)}`
+      ? "\nno threshold reproduces every one of them"
+      : `\nall ${KART_FIXTURES.length} reproduced for ${all[0]!.toFixed(3)} <= t <= ${all.at(-1)!.toFixed(3)}`
   );
 }
 

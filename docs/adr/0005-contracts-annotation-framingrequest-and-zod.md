@@ -30,14 +30,14 @@ Consequences that follow from the rule and are easy to get wrong:
 
 Measured 6 Sep 2026 in `.temp/schema-bench` on this machine (Node 26.7.0, pnpm 11.0.8, esbuild 0.28.2; zod 4.5.4, valibot 1.4.2, arktype 2.2.3, effect 3.22.1, `@modelcontextprotocol/server` 2.0.0):
 
-| | zod | zod/mini | valibot | arktype | effect Schema |
-|---|---|---|---|---|---|
-| one nested schema + a parse, esbuild min, gzip -9 | 87.0 KB | 5.3 KB | 1.7 KB | 47.0 KB | 97.1 KB |
-| 100k parses of a 1 KB object, best of 3 | 6.1 ms | 32.6 ms | 32.8 ms | 1.0 ms | 50.4 ms |
-| installed size | 7.7 MB | same | 1.8 MB | 1.6 MB with deps | 33 MB |
-| Standard Schema (`~standard`) | yes | yes | yes | **no** | yes |
-| JSON Schema | `z.toJSONSchema` | same | separate package | `.toJsonSchema()` | `JSONSchema.make` |
-| Hono validator | `@hono/zod-validator` | same | `@hono/valibot-validator` | `@hono/arktype-validator` | `@hono/effect-validator` |
+|                                                   | zod                   | zod/mini | valibot                   | arktype                   | effect Schema            |
+| ------------------------------------------------- | --------------------- | -------- | ------------------------- | ------------------------- | ------------------------ |
+| one nested schema + a parse, esbuild min, gzip -9 | 87.0 KB               | 5.3 KB   | 1.7 KB                    | 47.0 KB                   | 97.1 KB                  |
+| 100k parses of a 1 KB object, best of 3           | 6.1 ms                | 32.6 ms  | 32.8 ms                   | 1.0 ms                    | 50.4 ms                  |
+| installed size                                    | 7.7 MB                | same     | 1.8 MB                    | 1.6 MB with deps          | 33 MB                    |
+| Standard Schema (`~standard`)                     | yes                   | yes      | yes                       | **no**                    | yes                      |
+| JSON Schema                                       | `z.toJSONSchema`      | same     | separate package          | `.toJsonSchema()`         | `JSONSchema.make`        |
+| Hono validator                                    | `@hono/zod-validator` | same     | `@hono/valibot-validator` | `@hono/arktype-validator` | `@hono/effect-validator` |
 
 The deciding fact is not in the numbers. `@modelcontextprotocol/server` 2.0.0 depends on `zod ^4.2` itself, and its `registerTool` accepts either a zod raw shape or a Standard Schema object that also carries JSON Schema. zod is the one candidate where the contract schema, the MCP tool input schema and the Hono validator are the same object. Bundle size is not a criterion for two server containers. arktype's 6x speed lead is on a 6 ms baseline per 100k parses and it lacks Standard Schema, so the gateway would convert on every tool registration. The microbenchmark covers one shape; unions and refinements would move it, and nothing here depends on it.
 

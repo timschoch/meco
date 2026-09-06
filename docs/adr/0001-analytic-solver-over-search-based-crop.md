@@ -46,13 +46,13 @@ Issue #23 asked whether a bare Crop — no face, no `anchor`, no `strategy` — 
 
 `subjectBoxes` in `src/crop.ts` is the ladder. It returns at the first rung that has an answer:
 
-| Rung | Answers when | Skipped when |
-|---|---|---|
-| **face** — Matches lead if `pinTo` is `person` | any face was detected | `pinTo` is `attention` or `kart` |
-| **kart** — `kartSubjectBox` over the detected objects | any `motorbike` or `person` object was detected | `pinTo` is `attention` |
-| **saliency** — sharp's attention point | `strategy` was given, **or** `pinTo` is `attention` or `kart` | otherwise — including every bare request |
-| **anchor** — one of the nine Crop Anchors | `anchor` was given | otherwise |
-| **centre** | always | never |
+| Rung                                                  | Answers when                                                  | Skipped when                             |
+| ----------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------- |
+| **face** — Matches lead if `pinTo` is `person`        | any face was detected                                         | `pinTo` is `attention` or `kart`         |
+| **kart** — `kartSubjectBox` over the detected objects | any `motorbike` or `person` object was detected               | `pinTo` is `attention`                   |
+| **saliency** — sharp's attention point                | `strategy` was given, **or** `pinTo` is `attention` or `kart` | otherwise — including every bare request |
+| **anchor** — one of the nine Crop Anchors             | `anchor` was given                                            | otherwise                                |
+| **centre**                                            | always                                                        | never                                    |
 
 **So a bare request resolves by `centre`**, which is what #23 decided and what `pnpm test:http` pins. `pinTo` defaults to `person`, no `strategy` is set, and a photograph with no faces and no objects falls past face, kart and saliency to the bottom.
 
@@ -62,4 +62,4 @@ Issue #23 asked whether a bare Crop — no face, no `anchor`, no `strategy` — 
 
 `pinTo: "kart"` **selects saliency by itself** when no kart is found. Saliency is opt-in for a bare request, not opt-in everywhere: the research measured it framing the on-track photographs the detector misses, so falling past it to a Crop Anchor would throw away the rung that covers exactly that case.
 
-**Rung order is not priority order.** `PRIORITY` in `src/crop.ts` ranks Subject Boxes *inside* the solver — `person` 50, `kart` 45, `face` 40, `saliency` 30, `anchor` 20, `centre` 10 — and `kart` outranks `face` there. The ladder is the separate question of which producer gets to answer at all, and faces are asked first. A photograph with both a face and a kart is framed on the face; the priority number only matters when one producer yields several boxes at once.
+**Rung order is not priority order.** `PRIORITY` in `src/crop.ts` ranks Subject Boxes _inside_ the solver — `person` 50, `kart` 45, `face` 40, `saliency` 30, `anchor` 20, `centre` 10 — and `kart` outranks `face` there. The ladder is the separate question of which producer gets to answer at all, and faces are asked first. A photograph with both a face and a kart is framed on the face; the priority number only matters when one producer yields several boxes at once.

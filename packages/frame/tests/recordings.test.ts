@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { Annotation, isComplete, type ModelId } from "@meco/contracts";
-import { FACE_FIXTURES, KART_FIXTURES, RECORDED_MODELS } from "./samples";
+import {
+  FACE_FIXTURES,
+  KART_FIXTURES,
+  PODIUM_FIXTURES,
+  RECORDED_MODELS,
+} from "./samples";
 
 /**
  * Every fixture under `fixtures/` is a recording of one photograph through the
@@ -13,7 +18,7 @@ import { FACE_FIXTURES, KART_FIXTURES, RECORDED_MODELS } from "./samples";
  * geometry — the rung tests do that — only that the numbers the rung tests
  * stand on came from the Models this build actually ships.
  */
-const RECORDINGS = [...FACE_FIXTURES, ...KART_FIXTURES];
+const RECORDINGS = [...FACE_FIXTURES, ...PODIUM_FIXTURES, ...KART_FIXTURES];
 
 /** One string per `{ name, version }`, so two Models compare as a whole. */
 const modelKey = (model: ModelId) => `${model.name}@${model.version}`;

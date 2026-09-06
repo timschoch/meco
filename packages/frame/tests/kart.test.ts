@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { Annotation, assignRegionIds, type Box } from "@meco/contracts";
 import { frameCrop } from "../index";
-import { KART_FIXTURES, oneFaceAnnotation, requestFor } from "./samples";
+import {
+  KART_FIXTURES,
+  PODIUM_FIXTURES,
+  oneFaceAnnotation,
+  requestFor,
+} from "./samples";
 
 const SQUARE_TARGET = { width: 1080, height: 1080 };
 const KART_ONLY = { pinTo: ["kart"] };
@@ -131,35 +136,74 @@ describe("overlap measured against the smaller box", () => {
 });
 
 /**
- * With no vehicle in the photograph the largest `person` box seeds instead —
- * the largest, not the highest-scoring. On `podium-trophy.jpg` a press
- * photographer outscores the driver and is the smaller of the two, so a score
- * seed would frame the wrong person.
+ * The seed is the largest `vehicle` box, not the highest-scoring one.
+ * `paddock-mixed.jpg` is where the two disagree: `vehicle-2` outscores
+ * `vehicle-1` while covering half the frame area it does, so a score seed
+ * would compose the union around the wrong kart.
  */
-describe("no vehicle Region", () => {
+describe("the seed is the largest box and not the best score", () => {
   const { raw, leadRegionId } = KART_FIXTURES.find(
-    (f) => f.name === "podium-trophy.jpg"
+    (f) => f.name === "paddock-mixed.jpg"
   )!;
   const annotation = Annotation.parse(raw);
 
-  it("holds no vehicle, and the photographer outscores the driver", () => {
-    const driver = annotation.regions.find((r) => r.id === "person-1")!;
-    const photographer = annotation.regions.find((r) => r.id === "person-2")!;
+  it("holds two vehicles, and the smaller one scores higher", () => {
+    const largest = annotation.regions.find((r) => r.id === "vehicle-1")!;
+    const best = annotation.regions.find((r) => r.id === "vehicle-2")!;
 
-    expect(annotation.regions.filter((r) => r.kind === "vehicle")).toEqual([]);
-    expect(photographer.score).toBeGreaterThan(driver.score);
-    expect(photographer.score).toBeCloseTo(0.9429, 4);
-    expect(driver.score).toBeCloseTo(0.9401, 4);
-    expect(photographer.box.width * photographer.box.height).toBeLessThan(
-      driver.box.width * driver.box.height
+    expect(best.score).toBeGreaterThan(largest.score);
+    expect(best.score).toBeCloseTo(0.4453, 4);
+    expect(largest.score).toBeCloseTo(0.3451, 4);
+    expect(best.box.width * best.box.height).toBeLessThan(
+      largest.box.width * largest.box.height
     );
   });
 
-  it("seeds on the driver, who has the largest box", () => {
+  it("seeds on the largest", () => {
     const framing = frameOnKart(raw);
 
     expect(framing.leadRegionId).toBe(leadRegionId);
-    expect(framing.leadRegionId).toBe("person-1");
+    expect(framing.leadRegionId).toBe("vehicle-1");
+  });
+});
+
+/**
+ * No vehicle, no kart. The rung composes nothing on a photograph that holds
+ * only people, so the ladder walks past it to whatever `pinTo` names next.
+ *
+ * It used to seed on the largest `person` instead, which framed a body and
+ * still called itself `kart`. That was the wrong shape, and #109's re-record
+ * is what proved it: with `kart` ahead of `face` in `DEFAULT_PIN_TO`, the
+ * fallback caught every portrait D-FINE draws a body on — five of the nine
+ * recordings — and the Eye Line never ran on any of them.
+ */
+describe("no vehicle Region", () => {
+  const { raw } = PODIUM_FIXTURES.find((f) => f.name === "podium-trophy.jpg")!;
+  const annotation = Annotation.parse(raw);
+
+  it("holds people and no vehicle at all", () => {
+    expect(annotation.regions.filter((r) => r.kind === "vehicle")).toEqual([]);
+    expect(
+      annotation.regions.filter((r) => r.kind === "person").length
+    ).toBeGreaterThan(0);
+  });
+
+  it("composes nothing, and the ladder falls through to the centre", () => {
+    const framing = frameOnKart(raw);
+
+    expect(framing.resolvedBy).toBe("center");
+    expect(framing.leadRegionId).toBeUndefined();
+    expect(framing.subject).toBeUndefined();
+    expect(framing.keptRegionIds).toEqual([]);
+  });
+
+  it("lets the face rung answer it under the default ladder", () => {
+    const framing = frameCrop({
+      annotation,
+      request: requestFor(SQUARE_TARGET),
+    });
+
+    expect(framing.resolvedBy).toBe("face");
   });
 });
 

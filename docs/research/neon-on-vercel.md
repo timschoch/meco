@@ -34,7 +34,7 @@ This means the prefix is applied to the whole injected set (e.g. `PRIMARY_DATABA
 
 General Vercel behavior backing this: env vars are scoped per Environment (Production / Preview / Development / custom), and "Integrations can automatically add environment variables to your Project Settings" — shown attributed to the integration in Project Settings once added. Source: https://vercel.com/docs/environment-variables
 
-Could not verify from a primary source: an explicit Vercel mechanism to *rename* an integration-injected variable after the fact (as opposed to setting a prefix at connect time). The general env-vars doc (https://vercel.com/docs/environment-variables) describes creation/scoping but documents no rename/alias feature for integration-managed variables. Treat "rename after injection" as unconfirmed — the documented lever is the connect-time prefix only.
+Could not verify from a primary source: an explicit Vercel mechanism to _rename_ an integration-injected variable after the fact (as opposed to setting a prefix at connect time). The general env-vars doc (https://vercel.com/docs/environment-variables) describes creation/scoping but documents no rename/alias feature for integration-managed variables. Treat "rename after injection" as unconfirmed — the documented lever is the connect-time prefix only.
 
 ## 3. Branch-per-preview-deployment
 
@@ -43,9 +43,10 @@ Supported, but the exact wiring differs between the two integration types, and o
 - **Neon-Managed Integration**: branch scope is **per git branch**, not per individual deployment. "The integration receives a webhook from Vercel and creates a new Neon branch named `preview/<git-branch>`." Flow: push to a feature branch → "Vercel triggers a preview deployment" → the Neon-side integration (webhook-driven) creates/reuses the branch for that git branch. Automatic cleanup is available and recommended: it "remove[s] preview branches automatically when the corresponding Git branch is deleted." Source: https://neon.com/docs/guides/vercel-previews-integration
 - **Vercel-Managed (Native) Integration**: the marketplace overview states both integration paths "auto-provision Lakebase Postgres database branches for Vercel preview deployments," and separately describes the Neon-Managed path's Preview Branching as "Automatic (Git-branch-based)" cleanup. Source: https://vercel.com/marketplace/neon
 
-**Cost, limits, plan tier**: not documented on the branching/previews integration pages themselves. Source: https://neon.com/docs/guides/vercel-previews-integration and https://neon.com/docs/introduction/branching (neither states per-branch creation cost or plan gating for the *preview integration* specifically).
+**Cost, limits, plan tier**: not documented on the branching/previews integration pages themselves. Source: https://neon.com/docs/guides/vercel-previews-integration and https://neon.com/docs/introduction/branching (neither states per-branch creation cost or plan gating for the _preview integration_ specifically).
 
 Pulled from Neon's plans page instead (https://neon.com/docs/introduction/plans — general branch limits, not preview-integration-specific):
+
 - Free: 10 branches/project, no paid overage (capped at 10).
 - Launch: 10 branches/project included; extra branches at $1.50/branch-month.
 - Scale: 25 branches/project included; extra branches at $1.50/branch-month.
@@ -53,7 +54,7 @@ Pulled from Neon's plans page instead (https://neon.com/docs/introduction/plans 
 
 History-window retention referenced alongside branching: "Neon retains a history of changes for your branches, with defaults of 6 hours on Free plan and 1 day on paid plans." Source: https://neon.com/docs/introduction/branching
 
-**Not verifiable from primary sources in this pass**: an explicit statement that the Vercel preview-branching integration requires a specific paid Neon plan tier (e.g. "Preview Branching requires Launch or above"). Flagging this as unconfirmed — plan-gating for the *integration feature itself* (as opposed to general branch-count limits) was not found on the pages fetched.
+**Not verifiable from primary sources in this pass**: an explicit statement that the Vercel preview-branching integration requires a specific paid Neon plan tier (e.g. "Preview Branching requires Launch or above"). Flagging this as unconfirmed — plan-gating for the _integration feature itself_ (as opposed to general branch-count limits) was not found on the pages fetched.
 
 ## 4. Migration tooling
 
@@ -80,13 +81,14 @@ Drizzle frames `generate` + `migrate` as the SQL-file-based, version-controlled 
 
 **Connection string**: use the **direct (unpooled)** connection string (`DATABASE_URL_UNPOOLED` as injected, or `PRIMARY_DATABASE_URL_UNPOOLED` if a prefix is used) for the app's own `pg.Pool`, and reserve the pooled string only for anything Neon or Drizzle explicitly say needs PgBouncer transaction-mode behavior (nothing in `records`'s design currently does). Reason: `records` holds its own pool, so PgBouncer's connection-multiplexing buys nothing, while going through PgBouncer's transaction mode would forbid `SET`, `LISTEN/NOTIFY`, and prepared statements if `records` ever needs them (source: https://neon.com/docs/connect/connection-pooling). Migrations must use the direct string regardless — that part is unambiguous and Neon-documented (https://neon.com/docs/guides/drizzle-migrations).
 
-**Env var naming**: the Neon-on-Vercel integration lets you set a connect-time prefix (documented example: `PRIMARY_`) that prefixes the *entire* injected variable set — there is no way to get a single bespoke name like `RECORDS_DATABASE_URL` without the rest of the `RECORDS_*` set coming along (`RECORDS_DATABASE_URL_UNPOOLED`, `RECORDS_PGHOST`, etc.). For ticket #72: when linking the Neon database to the Vercel project, set the prefix to `RECORDS_`, so the app reads `RECORDS_DATABASE_URL_UNPOOLED` for its pool. Do not rely on a post-injection rename feature — none is documented (checked https://vercel.com/docs/environment-variables). Select **Production only** at link time; add Preview explicitly only once the preview-branch decision below is revisited.
+**Env var naming**: the Neon-on-Vercel integration lets you set a connect-time prefix (documented example: `PRIMARY_`) that prefixes the _entire_ injected variable set — there is no way to get a single bespoke name like `RECORDS_DATABASE_URL` without the rest of the `RECORDS_*` set coming along (`RECORDS_DATABASE_URL_UNPOOLED`, `RECORDS_PGHOST`, etc.). For ticket #72: when linking the Neon database to the Vercel project, set the prefix to `RECORDS_`, so the app reads `RECORDS_DATABASE_URL_UNPOOLED` for its pool. Do not rely on a post-injection rename feature — none is documented (checked https://vercel.com/docs/environment-variables). Select **Production only** at link time; add Preview explicitly only once the preview-branch decision below is revisited.
 
 **Preview-branch wiring: no, not now.** Reason: the mechanism is real and well-documented (webhook-driven, per-git-branch Neon branches via the Neon-Managed integration, https://neon.com/docs/guides/vercel-previews-integration), but two things are unresolved from primary sources — whether it needs a paid Neon plan tier beyond Free, and its branch-count interaction with the 10-branches-on-Free cap. `records` has no production users yet and a small, fast-iterating schema; the value of per-preview isolated data is low right now, and wiring cost (installing the Neon-Managed integration, webhook config, cleanup policy) isn't justified before the schema and container setup exist at all. Revisit once `records` has a stable schema and multiple concurrent preview PRs actually collide over shared dev-branch state.
 
 **Migration tool: drizzle-kit, `generate` + `migrate` (not `push`).** Reason: Neon's own Drizzle guide documents `generate`+`migrate` for Neon and doesn't mention `push` (https://neon.com/docs/guides/drizzle-migrations). Drizzle's own docs say `push` is fine for prototyping and even some production teams (https://orm.drizzle.team/docs/migrations), so either would be defensible given no production data yet — but `generate`+`migrate` costs nothing extra (schema is small) and leaves a SQL migration history from day one instead of retrofitting one later when `records` does get users. Run migrations over the direct connection string, per Neon's explicit instruction (https://neon.com/docs/guides/drizzle-migrations).
 
 **Provisioning steps for ticket #72**:
+
 1. Create (or select) the Neon project for `records` via the Neon Console or `neon projects create --name records`.
 2. Install the Neon Marketplace integration on the Vercel project (Vercel-Managed/Native path is sufficient — Neon-Managed only needed if/when preview branching is adopted): https://vercel.com/marketplace/neon → "Link Existing Neon Account" (or create-new) → connect the `records` Neon project.
 3. At the connect step, set variable prefix to `RECORDS_` and select environment scope = Production (per the recommendation above). This yields `RECORDS_DATABASE_URL`, `RECORDS_DATABASE_URL_UNPOOLED`, `RECORDS_PGHOST`, `RECORDS_PGHOST_UNPOOLED`, `RECORDS_PGUSER`, `RECORDS_PGDATABASE`, `RECORDS_PGPASSWORD` (source for the variable set: https://neon.com/docs/guides/vercel-native-integration).
@@ -95,6 +97,7 @@ Drizzle frames `generate` + `migrate` as the SQL-file-based, version-controlled 
 6. Pull vars locally with `vercel env pull` (or `neon env pull` — either documented) rather than hand-copying secrets.
 
 ### Not verified against a primary source (flagged explicitly)
+
 - Whether the Vercel preview-branching integration (either Native or Neon-Managed) requires a specific paid Neon plan tier beyond Free — not stated on https://neon.com/docs/guides/vercel-previews-integration or https://vercel.com/marketplace/neon.
 - Whether branch creation via the Vercel preview integration is billed any differently from a manually created branch — not stated on the pages checked; general branch-slot/overage pricing from https://neon.com/docs/introduction/plans is the closest documented number.
 - Any Vercel-native mechanism to rename an integration-injected env var after creation (as distinct from setting a prefix at connect time) — not found in https://vercel.com/docs/environment-variables.

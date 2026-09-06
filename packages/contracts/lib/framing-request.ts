@@ -12,8 +12,16 @@ export const PinTo = z.enum(["match", "face", "kart"]);
 /**
  * The ladder frame walks when the caller names none. A constant and not a
  * schema default, so the stored call record shows what the caller sent.
+ *
+ * `kart` before `face`, decided on #109. The shipped YuNet finds a helmeted
+ * driver's head through a visor — 0.6488 on `on-track-rear-helmet.jpg`, 0.8080
+ * on `on-track-visor-open.jpg` — so `face` first turned a karting photograph
+ * into a visor close-up and lost the livery it was taken for. `kart` yields
+ * only on a `vehicle` Region, so a photograph without one still falls to
+ * `face`. Ordered by how specific the answer is, not by how good the detector
+ * is.
  */
-export const DEFAULT_PIN_TO: PinTo[] = ["match", "face", "kart"];
+export const DEFAULT_PIN_TO: PinTo[] = ["match", "kart", "face"];
 
 /** Where frame falls back to when nothing on the ladder yields. */
 export const CropAnchor = z.enum([

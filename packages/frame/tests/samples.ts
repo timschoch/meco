@@ -184,6 +184,12 @@ export const vehicleAnnotation = (
  * neither; a recording that held only what frame reads would be a fiction
  * about the Model that made it.
  *
+ * These three and no more. `eye-line.test.ts` and `occlusion.test.ts` sweep
+ * this list, and the percentages they assert — 34.2, 38.2, 29.0 — were
+ * measured on exactly these photographs at exactly these shapes (ADR-0001's
+ * amendment, ADR-0006). Growing the list would move a measured population.
+ * {@link PODIUM_FIXTURES} is where a face-led recording goes instead.
+ *
  * `leadRegionId` is the largest face box, written out rather than re-derived:
  * a mutation of the largest-face rule must not be able to mutate the
  * expectation with it.
@@ -203,8 +209,29 @@ export const FACE_FIXTURES: {
 ];
 
 /**
- * The six karting photographs, recorded from the shipped Catalogue by
- * `tests/record.ts`. D-FINE draws the `person` and `vehicle` Regions by the
+ * The two podium photographs: karting, helmets off, and no kart in the frame.
+ *
+ * Their own list because they belong to neither of the others. The kart rung
+ * declines them — since #109 no `vehicle` Region means no kart, rather than a
+ * seed on the largest body — so under the default ladder a face leads them,
+ * which is what {@link FACE_FIXTURES} holds. They are not in that list because
+ * it is a measured population (see above) and these two were not in it.
+ *
+ * What they are for: a recording where the `kart` rung must compose nothing,
+ * and the ladder must walk past it to `face`.
+ */
+export const PODIUM_FIXTURES: {
+  name: string;
+  raw: unknown;
+  leadRegionId: string;
+}[] = [
+  { name: "podium-trophy.jpg", raw: podiumTrophy, leadRegionId: "face-1" },
+  { name: "podium-trophy-2.jpg", raw: podiumTrophy2, leadRegionId: "face-1" },
+];
+
+/**
+ * The four karting photographs that hold a kart, recorded from the shipped
+ * Catalogue by `tests/record.ts`. D-FINE draws the `person` and `vehicle` Regions by the
  * Region Kind table in `CONTEXT.md`, models: `motorbike` becomes `vehicle`,
  * and `boat`, `aeroplane` and `train` draw no Region at all — which is what
  * keeps a spurious wide `boat` box off the kart seed on
@@ -221,6 +248,10 @@ export const FACE_FIXTURES: {
  * `keptRegionIds` is in tier order, so the seed leads and the Regions it joined
  * follow by Region id. No Match names a `person` or a `vehicle`, so the kart
  * rung has no middle tier and these are its two.
+ *
+ * Four and not six: `podium-trophy.jpg` and `podium-trophy-2.jpg` hold no
+ * `vehicle` Region, and since #109 the rung declines a photograph without one
+ * rather than seeding on the largest body. They are in {@link FACE_FIXTURES}.
  */
 export const KART_FIXTURES: {
   name: string;
@@ -267,20 +298,6 @@ export const KART_FIXTURES: {
       "vehicle-2",
     ],
     subject: { x: 0.2703, y: 0, width: 0.4951, height: 0.7614 },
-  },
-  {
-    name: "podium-trophy.jpg",
-    raw: podiumTrophy,
-    leadRegionId: "person-1",
-    keptRegionIds: ["person-1"],
-    subject: { x: 0.237, y: 0.0908, width: 0.4067, height: 0.8969 },
-  },
-  {
-    name: "podium-trophy-2.jpg",
-    raw: podiumTrophy2,
-    leadRegionId: "person-1",
-    keptRegionIds: ["person-1", "person-2"],
-    subject: { x: 0.1465, y: 0.1108, width: 0.6732, height: 0.8823 },
   },
 ];
 

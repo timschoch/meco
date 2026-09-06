@@ -4,6 +4,7 @@ import { frameCrop } from "../index";
 import {
   FACE_FIXTURES,
   KART_FIXTURES,
+  PODIUM_FIXTURES,
   SOURCES,
   TARGETS,
   facesAnnotation,
@@ -292,7 +293,11 @@ describe("what a rung reports", () => {
  * window is a window whatever rung answered.
  */
 describe("the window, whichever rung ran", () => {
-  const ANNOTATIONS = [...FACE_FIXTURES, ...KART_FIXTURES].map((f) => ({
+  const ANNOTATIONS = [
+    ...FACE_FIXTURES,
+    ...PODIUM_FIXTURES,
+    ...KART_FIXTURES,
+  ].map((f) => ({
     name: f.name,
     annotation: Annotation.parse(f.raw),
   }));
@@ -329,35 +334,45 @@ describe("the window, whichever rung ran", () => {
 const rungsReached = (extra: Record<string, unknown>): string[] =>
   [
     ...new Set(
-      [...FACE_FIXTURES, ...KART_FIXTURES].flatMap((fixture) => {
-        const annotation = Annotation.parse(fixture.raw);
+      [...FACE_FIXTURES, ...PODIUM_FIXTURES, ...KART_FIXTURES].flatMap(
+        (fixture) => {
+          const annotation = Annotation.parse(fixture.raw);
 
-        return TARGETS.map(
-          ({ target }) =>
-            frameCrop({ annotation, request: requestFor(target, extra) })
-              .fallback ?? "none"
-        );
-      })
+          return TARGETS.map(
+            ({ target }) =>
+              frameCrop({ annotation, request: requestFor(target, extra) })
+                .fallback ?? "none"
+          );
+        }
+      )
     ),
   ].sort();
 
 /**
  * Each ladder's own set, asserted whole rather than unioned. A union would
- * pass on one ladder reaching everything and the other reaching nothing, and
- * these two reach different rungs on purpose.
+ * pass on one ladder reaching everything and the other reaching nothing.
  *
- * `clip` is only reached by a Subject no window of the target shape can hold,
- * and on these nine photographs that is the kart union — which the default
- * ladder does not compose, because the face rung answers first on a recording
- * that carries faces. `zoom-out` is the other way round: only the default
- * ladder reaches it.
+ * The default ladder reaches all five, which is what `kart` before `face`
+ * bought: `clip` is only reached by a Subject no window of the target shape
+ * can hold, and on these nine photographs that is the kart union. With `face`
+ * first the kart rung never answered a recording carrying a face, and the
+ * default ladder reached four.
+ *
+ * The kart rung alone reaches four of the five and not the same four: nothing
+ * it composes needs `zoom-out`.
  */
 describe("the recordings reach every rung", () => {
-  it("reaches four of the five on the default ladder", () => {
-    expect(rungsReached({})).toEqual(["drop", "none", "relax", "zoom-out"]);
+  it("reaches all five on the default ladder", () => {
+    expect(rungsReached({})).toEqual([
+      "clip",
+      "drop",
+      "none",
+      "relax",
+      "zoom-out",
+    ]);
   });
 
-  it("reaches the fifth, `clip`, on the kart rung", () => {
+  it("reaches four of them on the kart rung alone", () => {
     expect(rungsReached(KART_ONLY)).toEqual(["clip", "drop", "none", "relax"]);
   });
 });
@@ -370,16 +385,13 @@ describe("the recordings reach every rung", () => {
  * This is the other half of the partition. Uniqueness alone would pass a
  * Framing that quietly lost a Region from both lists.
  *
- * The kart entries name their rung. Five of the six karting photographs carry
- * a face since #109 re-recorded them through the whole Catalogue — YuNet finds
- * the driver's head through a visor at 0.65 and 0.81 — and `face` precedes
- * `kart` in `DEFAULT_PIN_TO`, so the default ladder answers them on the face
- * rung. Which rung the default reaches is `pinTo`'s promise and is asserted in
- * `face.test.ts` and `kart.test.ts`; this check is about the partition, so it
- * asks each fixture the rung whose composition it wrote down.
+ * The kart entries name their rung, and under `DEFAULT_PIN_TO` they would get
+ * it anyway since #109 put `kart` ahead of `face`. Naming it keeps the check
+ * about the partition rather than about the ladder's order, which is
+ * `pinTo`'s promise and is asserted in `kart.test.ts`.
  */
 const COMPOSED_ON = [
-  ...FACE_FIXTURES.map((fixture) => {
+  ...[...FACE_FIXTURES, ...PODIUM_FIXTURES].map((fixture) => {
     const annotation = Annotation.parse(fixture.raw);
     const faces = annotation.regions
       .filter((region) => region.kind === "face")
