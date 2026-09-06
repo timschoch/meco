@@ -253,7 +253,7 @@ export function webui(options: WebuiOptions): Hono {
    * itself never holds a URL that hands over a photograph.
    */
   app.get("/calls/:id/source", async (c) => {
-    const caller = await seen(c);
+    const caller = await callerOf(c);
     if (caller instanceof Response) return caller;
 
     let url;
@@ -273,7 +273,7 @@ export function webui(options: WebuiOptions): Hono {
   });
 
   app.get("/calls/:id", async (c) => {
-    const caller = await seen(c);
+    const caller = await callerOf(c);
     if (caller instanceof Response) return caller;
 
     // Only what records is asked for is inside the guard. A fault in the page
