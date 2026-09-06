@@ -7,6 +7,8 @@ export { plan } from "./lib/plan";
 export type { Plan, PlanInput } from "./lib/plan";
 export { render } from "./lib/render";
 export type { RenderFormat, RenderInput, RenderResult } from "./lib/render";
+export { templates } from "./lib/templates/catalogue";
+export type { TemplateDescription } from "./lib/templates/catalogue";
 export { ComposeError, COMPOSE_ERROR_CODES } from "./lib/errors";
 export type { ComposeErrorCode } from "./lib/errors";
 // Re-exported so a caller of `render` needs one import, not two. The type is

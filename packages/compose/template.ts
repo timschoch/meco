@@ -7,6 +7,7 @@ import type { Box } from "@meco/contracts";
 import type { Placement, PlacementId } from "./placements";
 
 export { ImageSlot, Occludes } from "./lib/markers";
+export { registerTemplates } from "./lib/templates/register";
 
 /**
  * What a Template writes in `<img src=...>` to draw its Look's wordmark.
