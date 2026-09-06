@@ -90,6 +90,9 @@ importers:
       '@meco/store':
         specifier: workspace:*
         version: link:../store
+      '@meco/webui':
+        specifier: workspace:*
+        version: link:../webui
       hono:
         specifier: ^4.10.7
         version: 4.13.3
@@ -177,9 +180,15 @@ importers:
 
   packages/webui:
     dependencies:
-      '@meco/contracts':
+      '@meco/records':
         specifier: workspace:*
-        version: link:../contracts
+        version: link:../records
+      '@meco/store':
+        specifier: workspace:*
+        version: link:../store
+      hono:
+        specifier: ^4.10.7
+        version: 4.13.3
 
 packages:
 
