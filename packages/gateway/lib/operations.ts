@@ -10,16 +10,27 @@
  * #181 proves it by watching for a module that must not have run.
  */
 import { PLACEMENTS } from "@meco/compose/placements";
-import { Box, CropAnchor, PinTo } from "@meco/contracts";
+import { Box, CropAnchor, type ModelId, PinTo } from "@meco/contracts";
 import type { ModelsClient } from "@meco/models";
 import type { Caller, Records } from "@meco/records";
+import type { Store } from "@meco/store";
 import { z } from "zod";
+import { annotationOf, withoutPrints } from "./annotate";
 import { GatewayError } from "./errors";
+import { resolveSource } from "./source";
+import { recorded } from "./trace";
 
 /** The adapters a handler may reach. A module never sees the Caller. */
 export interface OperationDeps {
   readonly records: Records;
+  readonly store: Store;
   readonly models: ModelsClient | null;
+  /** Fetches a `{ url }` Source Reference. */
+  readonly fetch: typeof fetch;
+  /** The `{ name, version }` pairs a cached Annotation must be complete for. */
+  catalogue(): Promise<readonly ModelId[]>;
+  /** The clock a Call's `startedAt` is read from. */
+  now(): Date;
 }
 
 export interface OperationContext extends OperationDeps {
@@ -189,7 +200,23 @@ export const OPERATIONS: readonly Operation[] = [
     method: "POST",
     path: "/annotate",
     input: z.object({ brand: Brand, source: SourceReference }),
-    handler: notImplemented("find_subjects"),
+    async handler(ctx, { brand, source }) {
+      const { call, result } = await recorded(
+        ctx,
+        ctx.caller,
+        brand,
+        "annotate",
+        async (trace) => {
+          const resolved = await resolveSource(ctx, brand, source, trace);
+          trace.sourceHash(resolved.hash);
+          trace.request({ brand, source: { hash: resolved.hash } });
+          return annotationOf(ctx, brand, resolved, trace);
+        }
+      );
+      // `identification` arrives with the render ticket (#183), which wires
+      // identify in; until then the Call's `matches` stays empty.
+      return { call: { id: call.id }, annotation: withoutPrints(result) };
+    },
   }),
   define({
     name: "list_templates",

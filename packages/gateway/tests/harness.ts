@@ -2,15 +2,22 @@
 // confirmed on #88 has it. records on PGlite, the in-memory store, and the
 // real models client over a `fetch` that answers from committed fixtures, so
 // no test reaches Neon, Blob or a model.
-import { createHash } from "node:crypto";
 import { afterEach } from "vitest";
 import { records, type Records } from "@meco/records";
 import { pgliteDatabase } from "@meco/records/pglite";
 import { memoryStore, type Store } from "@meco/store";
 import { createModelsClient, type ModelsClient } from "@meco/models";
 import { createApp, type GatewayDeps } from "../app";
+import {
+  FIXTURE_FILES,
+  annotationByHash,
+  fixtureBytes,
+  sha256,
+} from "./annotations";
 import modelsCatalogue from "./fixtures/models-catalogue.json";
 import modelsHealth from "./fixtures/models-health.json";
+
+export { sha256 } from "./annotations";
 
 /** Booting PGlite costs more than Vitest's default five seconds under `pnpm check`. */
 export const TIMEOUT = 30_000;
@@ -30,15 +37,24 @@ export const MODELS_URL = "http://models.internal";
 export const basic = (user: string, key: string): string =>
   `Basic ${Buffer.from(`${user}:${key}`).toString("base64")}`;
 
-export const sha256 = (bytes: Uint8Array): string =>
-  createHash("sha256").update(bytes).digest("hex");
+/** What the fake host puts on `Server-Timing`: its own clock, as it would. */
+export const SERVER_TIMING =
+  "decode;dur=12.0, yunet;dur=43.6, dfine;dur=180.2, edgeface;dur=50.1";
 
 /**
  * models' wire from fixtures. `/health` and `/models` answer the committed
- * bodies; anything else is a 404 the client reports as `bad_response`. Every
- * call is counted, so a test can prove how often the gateway crossed it.
+ * bodies; `/annotate` answers the fixture Annotation whose bytes hash to the
+ * body's sha256, or `undecodable` as the host would for bytes it cannot read;
+ * anything else is a 404 the client reports as `bad_response`. Every call is
+ * counted, so a test can prove how often the gateway crossed it.
  */
-export function fakeModels(options: { health?: unknown } = {}) {
+export function fakeModels(
+  options: {
+    health?: unknown;
+    /** Answers `/annotate` instead of the fixtures, for an error a test wants. */
+    annotate?: (request: Request) => Promise<Response>;
+  } = {}
+) {
   const seen: string[] = [];
   const fetch = async (request: Request): Promise<Response> => {
     const { pathname } = new URL(request.url);
@@ -47,10 +63,53 @@ export function fakeModels(options: { health?: unknown } = {}) {
       return Response.json(options.health ?? modelsHealth);
     }
     if (pathname === "/models") return Response.json(modelsCatalogue);
+    if (pathname === "/annotate" && request.method === "POST") {
+      if (options.annotate) return options.annotate(request);
+      const body = new Uint8Array(await request.arrayBuffer());
+      const annotation = annotationByHash(sha256(body));
+      if (annotation === null) {
+        return Response.json(
+          { error: { code: "undecodable", message: "not a fixture" } },
+          { status: 400 }
+        );
+      }
+      return Response.json(annotation, {
+        headers: { "server-timing": SERVER_TIMING },
+      });
+    }
     return Response.json(
       { error: { code: "not_found", message: pathname } },
       { status: 404 }
     );
+  };
+  return { seen, fetch };
+}
+
+/** Where the fake photograph host serves the fixtures from. */
+export const PHOTOS = "https://photos.test";
+
+/**
+ * The `fetch` the gateway resolves a `{ url }` Source Reference with: the
+ * fixture photographs under `PHOTOS`, and 404 for any other path. A test that
+ * wants a slow, oversized or refusing host hands `open` its own.
+ */
+export function fakePhotos() {
+  const seen: string[] = [];
+  const fetch = async (
+    input: string | URL | Request,
+    init?: RequestInit
+  ): Promise<Response> => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    seen.push(url.href);
+    init?.signal?.throwIfAborted();
+    if (url.origin !== PHOTOS) return new Response("no such host", { status: 502 });
+    const file = url.pathname.slice(1);
+    if (!FIXTURE_FILES.includes(file)) {
+      return new Response("no such photograph", { status: 404 });
+    }
+    return new Response(fixtureBytes(file), {
+      headers: { "content-type": "image/jpeg" },
+    });
   };
   return { seen, fetch };
 }
@@ -60,6 +119,8 @@ export interface Opened {
   readonly store: Store;
   readonly models: ModelsClient;
   readonly modelsSeen: string[];
+  /** Every URL the gateway fetched a Source Reference from. */
+  readonly photosSeen: string[];
   readonly deps: GatewayDeps;
   app(overrides?: Partial<GatewayDeps>): ReturnType<typeof createApp>;
   close(): Promise<void>;
@@ -67,7 +128,10 @@ export interface Opened {
 
 /** A migrated, seeded stack. Callers close it; `tests/*.test.ts` do so in `afterEach`. */
 export async function open(
-  options: { models?: ReturnType<typeof fakeModels> } = {}
+  options: {
+    models?: ReturnType<typeof fakeModels>;
+    photos?: ReturnType<typeof fakePhotos>;
+  } = {}
 ): Promise<Opened> {
   const store = memoryStore();
   const opened = records({ database: pgliteDatabase(), store });
@@ -76,13 +140,21 @@ export async function open(
   await opened.callers.create({ name: "test", key: KEY, brands: [...HELD] });
 
   const wire = options.models ?? fakeModels();
+  const photos = options.photos ?? fakePhotos();
   const models = createModelsClient({ baseUrl: MODELS_URL, fetch: wire.fetch });
-  const deps: GatewayDeps = { records: opened, store, models, version: "test" };
+  const deps: GatewayDeps = {
+    records: opened,
+    store,
+    models,
+    fetch: photos.fetch,
+    version: "test",
+  };
   return {
     records: opened,
     store,
     models,
     modelsSeen: wire.seen,
+    photosSeen: photos.seen,
     deps,
     app: (overrides = {}) => createApp({ ...deps, ...overrides }),
     close: () => opened.close(),
