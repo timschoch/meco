@@ -12,6 +12,7 @@
     "@meco/contracts": "workspace:*",
     "@meco/records": "workspace:*",
     "@meco/store": "workspace:*",
+    "@meco/webui": "workspace:*",
     "hono": "^4.10.7"
   },
   "scripts": {

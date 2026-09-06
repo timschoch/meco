@@ -1,6 +1,7 @@
 // Entry point: the container's process. Applies the migrations, then binds the
 // socket.
 import { serve } from "@hono/node-server";
+import { blobStore } from "@meco/store";
 import { createApp } from "./lib/app";
 import { CONNECTION_STRING_VAR, openRecords } from "./lib/records";
 
@@ -26,6 +27,8 @@ if (records !== null) {
   );
 }
 
-serve({ fetch: createApp({ records }).fetch, port }, (info) => {
+const store = blobStore();
+
+serve({ fetch: createApp({ records, store }).fetch, port }, (info) => {
   console.log(`gateway listening on ${info.port}`);
 });

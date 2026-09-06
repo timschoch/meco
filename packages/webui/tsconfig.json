@@ -2,13 +2,18 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": ".",
-    "declarationDir": "dist/types"
+    "declarationDir": "dist/types",
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx"
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["dist"],
   "references": [
     {
-      "path": "../contracts"
+      "path": "../records"
+    },
+    {
+      "path": "../store"
     }
   ]
 }
