@@ -201,10 +201,11 @@ for (const round of ["first", "second"] as const) {
     const view = await get(`/ui/calls/${body.call.id}`, { Authorization: basic });
     const steps = stepsOn(String(view.body));
     const modelsRan = steps.some((s) => s.startsWith("models."));
+    // The first round may already be a hit: the deployment's database keeps
+    // every photograph it has seen. The second round must be one.
     line(
-      view.status === 200 &&
-        (round === "first" ? modelsRan : !modelsRan),
-      `GET /ui/calls/${body.call.id} -> ${view.status}, steps: ${steps.join(", ")}`
+      view.status === 200 && (round === "first" || !modelsRan),
+      `GET /ui/calls/${body.call.id} -> ${view.status}, ${modelsRan ? "models ran" : "cache hit"}, steps: ${steps.join(", ")}`
     );
   }
 }
