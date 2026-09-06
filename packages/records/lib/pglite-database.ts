@@ -9,10 +9,9 @@
  * image, and an export it never calls would pull PGlite's WebAssembly in
  * behind it.
  */
-import type { SQL } from "drizzle-orm";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { type Database, type DatabaseDriver, asDatabase } from "./database";
+import { type Database, asDatabase, driverOver } from "./database";
 
 /**
  * PGlite is one Postgres session driving one in-process instance, so
@@ -39,22 +38,9 @@ export function pgliteDatabase(): Database {
   const withMigrationLock = serialiser();
   let closed = false;
 
-  const driver: DatabaseDriver = {
+  const driver = driverOver({
     kind: "pglite",
     orm,
-    async query<Row>(statement: SQL): Promise<Row[]> {
-      const result = await orm.execute(statement);
-      return result.rows as Row[];
-    },
-    async transaction<T>(
-      run: (exec: (statement: SQL) => Promise<void>) => Promise<T>
-    ): Promise<T> {
-      return orm.transaction(async (tx) =>
-        run(async (statement) => {
-          await tx.execute(statement);
-        })
-      );
-    },
     withMigrationLock,
     async close() {
       // Idempotent: a check closes the database it opened and the suite closes
@@ -63,7 +49,7 @@ export function pgliteDatabase(): Database {
       closed = true;
       await client.close();
     },
-  };
+  });
 
   return asDatabase(driver);
 }

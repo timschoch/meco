@@ -5,7 +5,7 @@
 // `@meco/records/pglite`, so the gateway's bundle never pulls PGlite's
 // WebAssembly in behind an export it does not call.
 export { type Database, type DatabaseKind } from "./lib/database";
-export { neonDatabase } from "./lib/neon";
+export { neonDatabase } from "./lib/neon-database";
 export {
   type FileRecord,
   type NewFile,

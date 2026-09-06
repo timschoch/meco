@@ -11,14 +11,13 @@
  * `@neondatabase/serverless` is out for the same reason: its pool "can't
  * outlive a single request", which is the opposite of this runtime model.
  */
-import type { SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
   type Database,
-  type DatabaseDriver,
   MIGRATION_LOCK_KEY,
   asDatabase,
+  driverOver,
 } from "./database";
 
 /**
@@ -28,16 +27,47 @@ import {
 const POOL_SIZE = 5;
 
 /**
- * `sslmode=require` in `pg` 8.23 verifies nothing and says so on stderr on
- * every connect: "sslmode=require is treated as sslmode=no-verify". Neon
- * serves a certificate from a public CA that Node already trusts, so the
- * answer is to verify rather than to silence the warning — anything else keeps
- * a connection carrying personal data open to a machine in the middle.
+ * The SSL mode records pins, written into the connection string because that is
+ * where `pg` reads it and where the warning below says to put it.
+ *
+ * `pg` 8.23 already verifies the certificate for the `sslmode=require` Neon
+ * injects — it aliases `prefer`, `require` and `verify-ca` to `verify-full` —
+ * but it warns on every connect that pg 9 will give those modes libpq
+ * semantics instead, which verify nothing. Naming the mode is what keeps this
+ * connection verified across that change, and it is the fix the warning itself
+ * names:
+ *
+ *     SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are
+ *     treated as aliases for 'verify-full'. In the next major version … these
+ *     modes will adopt standard libpq semantics, which have weaker security
+ *     guarantees. If you want the current behavior, explicitly use
+ *     'sslmode=verify-full'.
+ *
+ * Neon serves a certificate from a public CA that Node already trusts, so no
+ * root has to be supplied with it.
  */
-export function verifyingConnectionString(connectionString: string): string {
-  const url = new URL(connectionString);
-  url.searchParams.set("sslmode", "verify-full");
-  return url.toString();
+const SSL_MODE = "verify-full";
+
+/**
+ * The same connection string with `sslmode=verify-full`, edited in the query
+ * and nowhere else.
+ *
+ * Not `new URL(…).toString()`: that re-serialises every part it parsed, the
+ * userinfo included, so a password Neon rotated to one carrying a reserved
+ * character could come back encoded differently and no longer be the password.
+ * Only the query is touched here; everything before the `?` is copied through.
+ */
+export function verifying(connectionString: string): string {
+  const at = connectionString.indexOf("?");
+  const base = at === -1 ? connectionString : connectionString.slice(0, at);
+  const query = at === -1 ? "" : connectionString.slice(at + 1);
+
+  const kept = query
+    .split("&")
+    .filter((one) => one !== "" && !/^sslmode=/i.test(one));
+  kept.push(`sslmode=${SSL_MODE}`);
+
+  return `${base}?${kept.join("&")}`;
 }
 
 export function neonDatabase(connectionString: string): Database {
@@ -46,28 +76,15 @@ export function neonDatabase(connectionString: string): Database {
   }
 
   const pool = new pg.Pool({
-    connectionString: verifyingConnectionString(connectionString),
+    connectionString: verifying(connectionString),
     max: POOL_SIZE,
   });
   const orm = drizzle(pool);
   let closed = false;
 
-  const driver: DatabaseDriver = {
+  const driver = driverOver({
     kind: "neon",
     orm,
-    async query<Row>(statement: SQL): Promise<Row[]> {
-      const result = await orm.execute(statement);
-      return result.rows as Row[];
-    },
-    async transaction<T>(
-      run: (exec: (statement: SQL) => Promise<void>) => Promise<T>
-    ): Promise<T> {
-      return orm.transaction(async (tx) =>
-        run(async (statement) => {
-          await tx.execute(statement);
-        })
-      );
-    },
     async withMigrationLock<T>(run: () => Promise<T>): Promise<T> {
       // One dedicated connection: a session-level advisory lock belongs to the
       // session that took it, so taking and releasing it on two different
@@ -94,7 +111,7 @@ export function neonDatabase(connectionString: string): Database {
       closed = true;
       await pool.end();
     },
-  };
+  });
 
   return asDatabase(driver);
 }

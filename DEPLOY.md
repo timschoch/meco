@@ -129,13 +129,20 @@ one above and no other. It is the **direct** string, not the pooled one: the
 container holds its own pool, and the migration takes a session-level advisory
 lock that PgBouncer's transaction mode would not keep.
 
-`records` rewrites its `sslmode` to `verify-full` before connecting. `pg` 8.23
-treats `sslmode=require` — what Neon injects — as `no-verify` and warns on every
-connect that it verifies nothing; the answer is to verify, not to silence the
-warning, on a connection that carries personal data. Neon serves a certificate
-from a public CA that Node already trusts, so nothing else has to be configured.
-Measured on `meco-records-eu`, 6 Sep 2026: `verify-full` connects, and one
-`/health` round trip from Zürich to `eu-central-1` took 241 ms.
+`records` pins `sslmode=verify-full` in the query of that string before
+connecting. Neon injects `sslmode=require`, which `pg` 8.23 already treats as
+`verify-full` — but it warns on every connect that pg 9 will give `prefer`,
+`require` and `verify-ca` libpq semantics, which verify nothing. Naming the mode
+is what keeps this connection verified across that change, and it is the fix the
+warning itself names. Neon's certificate comes from a public CA Node already
+trusts, so no root has to be supplied.
+
+The pin edits the query and nothing else. Parsing the string with `new URL` and
+re-serialising it would rewrite the userinfo too, and a rotated password with a
+reserved character in it would come back encoded differently.
+
+Measured on `meco-records-eu`, 6 Sep 2026: `verify-full` connects with no
+warning, and one `/health` round trip from Zürich to `eu-central-1` took 241 ms.
 
 The prototype's `BLOB_READ_WRITE_TOKEN`, `BLOB_PEOPLE_READ_WRITE_TOKEN` and
 `MECO_TOKEN` are still set on the project. Nothing in this repo reads them yet;

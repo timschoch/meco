@@ -94,6 +94,9 @@ importers:
         specifier: ^4.10.7
         version: 4.13.3
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.8
+        version: 0.5.8
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2

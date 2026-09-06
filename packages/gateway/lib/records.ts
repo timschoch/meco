@@ -12,7 +12,7 @@ import { blobStore } from "@meco/store";
  * own pool, and the migration takes a session-level advisory lock that
  * PgBouncer's transaction mode would not keep.
  */
-export const CONNECTION_STRING = "RECORDS_DATABASE_URL_UNPOOLED";
+export const CONNECTION_STRING_VAR = "RECORDS_DATABASE_URL_UNPOOLED";
 
 /**
  * A `Records` for this process, or `null` when the database is not configured.
@@ -23,7 +23,7 @@ export const CONNECTION_STRING = "RECORDS_DATABASE_URL_UNPOOLED";
 export function openRecords(
   env: NodeJS.ProcessEnv = process.env
 ): Records | null {
-  const connectionString = env[CONNECTION_STRING];
+  const connectionString = env[CONNECTION_STRING_VAR];
   if (connectionString === undefined || connectionString === "") return null;
 
   return records({

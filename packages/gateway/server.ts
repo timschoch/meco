@@ -2,7 +2,7 @@
 // socket.
 import { serve } from "@hono/node-server";
 import { createApp } from "./lib/app";
-import { CONNECTION_STRING, openRecords } from "./lib/records";
+import { CONNECTION_STRING_VAR, openRecords } from "./lib/records";
 
 const port = Number(process.env["PORT"] ?? 80);
 
@@ -21,7 +21,9 @@ if (records !== null) {
     process.exit(1);
   }
 } else {
-  console.log(`gateway has no records database: ${CONNECTION_STRING} is unset`);
+  console.log(
+    `gateway has no records database: ${CONNECTION_STRING_VAR} is unset`
+  );
 }
 
 serve({ fetch: createApp({ records }).fetch, port }, (info) => {

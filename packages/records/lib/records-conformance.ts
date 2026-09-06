@@ -19,8 +19,8 @@ import { createHash } from "node:crypto";
 import type { Annotation } from "@meco/contracts";
 import type { Check } from "@meco/contracts/conformance";
 import { reachRecords, recordsTables } from "./health";
+import { verifying } from "./neon-database";
 import type { Records } from "./records";
-import { TABLE_NAMES } from "./schema";
 
 /** A database with no tables, and however many Records over that one database. */
 export interface EmptyDatabase {
@@ -39,6 +39,24 @@ export interface RecordsFixtures {
    */
   empty(): Promise<EmptyDatabase>;
 }
+
+/**
+ * The tables `docs/specs/records.md` says the schema holds, written out here
+ * rather than read off the schema module: an expectation taken from the code it
+ * checks agrees with that code by construction, and would stay green when a
+ * table went missing from both.
+ */
+const TABLES = [
+  "annotations",
+  "brands",
+  "callers",
+  "calls",
+  "files",
+  "outputs",
+  "people",
+  "reference_photos",
+  "sources",
+] as const;
 
 /** Distinct bytes per check, so one check's row is never another's. */
 const hashOf = (label: string): string =>
@@ -113,7 +131,7 @@ export function recordsConformance(
           const second = await records.migrate();
 
           ok(first.applied > 0, "the first migrate applied nothing");
-          for (const table of TABLE_NAMES) {
+          for (const table of TABLES) {
             ok(tables.includes(table), `no table "${table}" after migrate`);
           }
           strictEqual(second.applied, 0);
@@ -169,6 +187,35 @@ export function recordsConformance(
         } finally {
           await database.dispose();
         }
+      },
+    },
+    {
+      name: "the connection string is pinned to sslmode=verify-full, credentials untouched",
+      async run() {
+        // Not a database check — it needs no connection — but it belongs with
+        // the others because it is the one thing about reaching Neon that no
+        // round trip can prove: a string that connected says nothing about
+        // what pg 9 will do with `sslmode=require`, and a password mangled on
+        // the way in fails long after this ticket.
+        // A reserved character in a password reaches records already
+        // percent-encoded, because that is the only way it can be in a URI at
+        // all. What must not happen is that it comes out encoded differently:
+        // `new URL(...).toString()` re-serialises every part it parsed, and the
+        // password is one of them.
+        const password = "npg_7Kd%2Fq%3AZ%40x1";
+        const dsn = `postgresql://neondb_owner:${password}@ep-x.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require`;
+
+        const pinned = verifying(dsn);
+
+        ok(pinned.includes("sslmode=verify-full"), pinned);
+        ok(!pinned.includes("sslmode=require"), pinned);
+        ok(pinned.includes("channel_binding=require"), pinned);
+        ok(pinned.includes(`:${password}@`), "the password was rewritten");
+        // And a string with no query at all still gets the mode.
+        strictEqual(
+          verifying("postgresql://u:p@host/db"),
+          "postgresql://u:p@host/db?sslmode=verify-full"
+        );
       },
     },
     {

@@ -204,16 +204,3 @@ export const outputs = pgTable(
     index().on(t.createdAt, t.storeKey),
   ]
 );
-
-/** Every table above, by the name Postgres knows it. */
-export const TABLE_NAMES = [
-  "annotations",
-  "brands",
-  "callers",
-  "calls",
-  "files",
-  "outputs",
-  "people",
-  "reference_photos",
-  "sources",
-] as const;

@@ -57,6 +57,33 @@ export interface DatabaseDriver {
   close(): Promise<void>;
 }
 
+/**
+ * The two adapters differ in three things: which backend they are, how they
+ * serialise a migration, and how they let go. Everything else is drizzle over
+ * whatever handle they built, so it is written once here rather than twice.
+ */
+export function driverOver(
+  parts: Pick<DatabaseDriver, "kind" | "orm" | "withMigrationLock" | "close">
+): DatabaseDriver {
+  const { orm } = parts;
+  return {
+    ...parts,
+    async query<Row>(statement: SQL): Promise<Row[]> {
+      const result = await orm.execute(statement);
+      return result.rows as Row[];
+    },
+    async transaction<T>(
+      run: (exec: (statement: SQL) => Promise<void>) => Promise<T>
+    ): Promise<T> {
+      return orm.transaction(async (tx) =>
+        run(async (statement) => {
+          await tx.execute(statement);
+        })
+      );
+    },
+  };
+}
+
 const drivers = new WeakMap<Database, DatabaseDriver>();
 
 /** Wraps a driver in the opaque handle a caller passes to `records()`. */

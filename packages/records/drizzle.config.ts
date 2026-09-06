@@ -1,7 +1,7 @@
 /**
  * `drizzle-kit generate` only. The SQL it writes under `drizzle/` is the
- * reviewable artefact; `scripts/build-migrations.mjs` then embeds it in
- * `lib/migrations.generated.ts`, which is what actually runs. Both steps are
+ * reviewable artefact; `migrations.ts` then embeds it in
+ * `migrations.generated.ts`, which is what actually runs. Both steps are
  * `pnpm --filter @meco/records migrations`.
  *
  * There is no `dbCredentials` here on purpose: records never applies a
