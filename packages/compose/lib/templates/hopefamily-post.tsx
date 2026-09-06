@@ -18,11 +18,13 @@
  */
 import { z } from "zod";
 import {
-  ImageSlot,
   LOGO_SRC,
   Occludes,
+  PhotoCard,
+  TextBlock,
   type Template,
   type TemplateProps,
+  type TextBlockScale,
 } from "../../template";
 
 const Fields = z.strictObject({
@@ -47,6 +49,13 @@ const HOME = "hope-family.com";
 /** The wordmark ships at 900x506. */
 const LOGO_RATIO = 506 / 900;
 
+/** What both shapes set type at, whichever way the frame runs. */
+const RHYTHM = {
+  rule: { width: 40, height: 5, gap: 14 },
+  gaps: { kicker: 20, excerpt: 18, meta: 26, date: 16 },
+  excerptLineHeight: 1.4,
+} as const;
+
 /**
  * The two shapes this Template draws. Read off the Placement, never off the
  * picture: the Plan is measured before any picture exists, so a Template that
@@ -58,23 +67,29 @@ const SHAPES = {
     logoWidth: 220,
     /** The type stays in a column so the other side of the frame is the Subject's. */
     columnWidth: "58%",
-    kickerSize: 22,
-    titleSize: 52,
-    excerptSize: 24,
-    metaSize: 20,
     scrim:
       "linear-gradient(to right, rgba(11,18,23,0.94) 0%, rgba(0,80,124,0.74) 44%, rgba(0,80,124,0.20) 76%, rgba(0,80,124,0.06) 100%)",
+    scale: {
+      ...RHYTHM,
+      kicker: 22,
+      title: 52,
+      excerpt: 24,
+      meta: 20,
+    } satisfies TextBlockScale,
   },
   tall: {
     pad: 76,
     logoWidth: 280,
     columnWidth: "100%",
-    kickerSize: 26,
-    titleSize: 68,
-    excerptSize: 30,
-    metaSize: 24,
     scrim:
       "linear-gradient(to bottom, rgba(0,80,124,0.80) 0%, rgba(0,80,124,0.28) 20%, rgba(0,80,124,0.08) 40%, rgba(11,18,23,0.80) 74%, rgba(11,18,23,0.96) 100%)",
+    scale: {
+      ...RHYTHM,
+      kicker: 26,
+      title: 68,
+      excerpt: 30,
+      meta: 24,
+    } satisfies TextBlockScale,
   },
 } as const;
 
@@ -84,131 +99,33 @@ function render({ fields, look, placement, image }: TemplateProps<Fields>) {
   const logoHeight = Math.round(shape.logoWidth * LOGO_RATIO);
 
   return (
-    <div
-      style={{
-        position: "relative",
-        display: "flex",
-        flexDirection: "column",
-        width: "100%",
-        height: "100%",
-        backgroundColor: c.blue,
-      }}
+    <PhotoCard
+      background={c.blue}
+      src={image.src}
+      scrim={shape.scrim}
+      padding={shape.pad}
+      columnWidth={shape.columnWidth}
     >
-      <ImageSlot
-        src={image.src}
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
+      <Occludes style={{ width: shape.logoWidth, height: logoHeight }}>
+        <img src={LOGO_SRC} width={shape.logoWidth} height={logoHeight} />
+      </Occludes>
+
+      <TextBlock
+        fonts={{ heading: look.headingFamily, body: look.bodyFamily }}
+        colors={{
+          accent: c.banana,
+          title: c.white,
+          excerpt: c.latte,
+          meta: "rgba(255,255,255,0.75)",
         }}
+        scale={shape.scale}
+        kicker={(fields.kicker ?? DEFAULT_KICKER).toUpperCase()}
+        title={fields.title}
+        excerpt={fields.excerpt}
+        date={fields.date}
+        home={HOME}
       />
-
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          backgroundImage: shape.scrim,
-        }}
-      />
-
-      <div
-        style={{
-          position: "relative",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          width: shape.columnWidth,
-          height: "100%",
-          padding: shape.pad,
-        }}
-      >
-        <Occludes style={{ width: shape.logoWidth, height: logoHeight }}>
-          <img src={LOGO_SRC} width={shape.logoWidth} height={logoHeight} />
-        </Occludes>
-
-        <Occludes style={{ flexDirection: "column" }}>
-          <div
-            style={{ display: "flex", alignItems: "center", marginBottom: 20 }}
-          >
-            <div
-              style={{
-                width: 40,
-                height: 5,
-                backgroundColor: c.banana,
-                marginRight: 14,
-              }}
-            />
-            <div
-              style={{
-                fontFamily: look.bodyFamily,
-                fontSize: shape.kickerSize,
-                fontWeight: 600,
-                letterSpacing: 2,
-                color: c.banana,
-              }}
-            >
-              {(fields.kicker ?? DEFAULT_KICKER).toUpperCase()}
-            </div>
-          </div>
-
-          <div
-            style={{
-              fontFamily: look.headingFamily,
-              fontSize: shape.titleSize,
-              fontWeight: 600,
-              lineHeight: 1.12,
-              color: c.white,
-            }}
-          >
-            {fields.title}
-          </div>
-
-          {fields.excerpt ? (
-            <div
-              style={{
-                fontFamily: look.bodyFamily,
-                fontSize: shape.excerptSize,
-                fontWeight: 400,
-                lineHeight: 1.4,
-                color: c.latte,
-                marginTop: 18,
-              }}
-            >
-              {fields.excerpt}
-            </div>
-          ) : null}
-
-          <div style={{ display: "flex", alignItems: "center", marginTop: 26 }}>
-            {fields.date ? (
-              <div
-                style={{
-                  fontFamily: look.bodyFamily,
-                  fontSize: shape.metaSize,
-                  color: c.banana,
-                  marginRight: 16,
-                }}
-              >
-                {fields.date}
-              </div>
-            ) : null}
-            <div
-              style={{
-                fontFamily: look.bodyFamily,
-                fontSize: shape.metaSize,
-                color: "rgba(255,255,255,0.75)",
-              }}
-            >
-              {HOME}
-            </div>
-          </div>
-        </Occludes>
-      </div>
-    </div>
+    </PhotoCard>
   );
 }
 

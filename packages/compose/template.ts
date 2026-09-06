@@ -7,6 +7,8 @@ import type { Box } from "@meco/contracts";
 import type { Placement, PlacementId } from "./placements";
 
 export { ImageSlot, Occludes } from "./lib/markers";
+export { PhotoCard, Scrim, TextBlock } from "./lib/blocks";
+export type { TextBlockColors, TextBlockScale } from "./lib/blocks";
 export { registerTemplates } from "./lib/templates/register";
 
 /**

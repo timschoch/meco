@@ -3,49 +3,15 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposeError, render, type RenderInput } from "../index";
 import { GOLDEN_CASES, inputFor, LAICA_CASES, STORY_CASE } from "./cases";
-import { GOLDENS } from "./goldens";
+import { GOLDEN_THRESHOLD, GOLDENS } from "./goldens";
 import { centredWindow, decode, widenBy } from "./fixture";
 import { PLACEMENTS } from "../placements";
-import { meanAbsoluteDifference, raster } from "./pixels";
-
-/**
- * How far a fresh render may sit from its golden, in mean absolute 8-bit levels
- * per channel.
- *
- * Measured, not guessed. Every number below is this check's own output on the
- * committed golden, which was generated on darwin-arm64.
- *
- * - darwin-arm64 (Apple M4, Node 22.22, takumi 2.13.6, sharp 0.35.4): 0.0000.
- *   takumi is byte-deterministic within a process (ADR-0009) and, as the
- *   determinism check below shows, across calls too.
- * - linux-x64 (GitHub Actions ubuntu-latest, Node 22): 0.0000, run 33998908844.
- *
- * The threshold has to sit under what a wrong Look makes, and that difference
- * is small because a wordmark is 0.5 % of a story's area: swapping in the Hope
- * Family logo scores 0.3558, and `fit: "cover"` for `fit: "fill"` scores
- * 0.5592. At 0.02 the check clears both platforms by their full margin and
- * still catches the weaker of those two mutations by 18x. Should the two
- * platforms ever stop agreeing exactly, a whole-image mean can no longer tell
- * drift from a wrong Look and this has to become a per-tile comparison.
- *
- * `laica-post` (#117) holds to the same number on the same measurements. Both
- * its goldens score 0.0000 on darwin-arm64 and 0.0000 on linux-x64 (Actions run
- * 34004148270), and its weakest Look mutation — the Swiss Hutless wordmark in
- * laica's place — scores 0.3695 at `linkedin/post` and 0.7072 at
- * `linkedin/wide`, so 0.02 clears it by 18x too.
- */
-const GOLDEN_THRESHOLD = 0.02;
-
-/** JPEG q90 of a rendered story is ~200 KB; anything tiny is an empty frame. */
-const SMALLEST_PLAUSIBLE_RENDER = 10_000;
-
-const MAGIC: Record<string, (b: Uint8Array) => boolean> = {
-  jpeg: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-  png: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
-  webp: (b) =>
-    String.fromCharCode(...b.slice(0, 4)) === "RIFF" &&
-    String.fromCharCode(...b.slice(8, 12)) === "WEBP",
-};
+import {
+  MAGIC,
+  meanAbsoluteDifference,
+  raster,
+  SMALLEST_PLAUSIBLE_OUTPUT,
+} from "./pixels";
 
 /** The golden's own call, so the tests and the committed picture cannot drift. */
 const story = (overrides: Partial<RenderInput> = {}) =>
@@ -61,7 +27,7 @@ describe("render", () => {
 
     expect(mime).toBe("image/jpeg");
     expect(MAGIC.jpeg?.(bytes)).toBe(true);
-    expect(bytes.length).toBeGreaterThan(SMALLEST_PLAUSIBLE_RENDER);
+    expect(bytes.length).toBeGreaterThan(SMALLEST_PLAUSIBLE_OUTPUT);
 
     const decoded = await raster(bytes);
     expect([decoded.width, decoded.height]).toEqual([1080, 1920]);
@@ -115,7 +81,7 @@ describe("every Template at every Placement it declares", () => {
       const { bytes, mime } = await render(await inputFor(test));
 
       expect(mime).toBe("image/jpeg");
-      expect(bytes.length).toBeGreaterThan(SMALLEST_PLAUSIBLE_RENDER);
+      expect(bytes.length).toBeGreaterThan(SMALLEST_PLAUSIBLE_OUTPUT);
       const decoded = await raster(bytes);
       expect([decoded.width, decoded.height]).toEqual([
         placement.width,

@@ -5,8 +5,13 @@
 // fetches nothing, stores nothing, and chooses no crop.
 export { plan } from "./lib/plan";
 export type { Plan, PlanInput } from "./lib/plan";
-export { render } from "./lib/render";
-export type { RenderFormat, RenderInput, RenderResult } from "./lib/render";
+export { render, cut } from "./lib/render";
+export type {
+  CutInput,
+  RenderFormat,
+  RenderInput,
+  RenderResult,
+} from "./lib/render";
 export { templates } from "./lib/templates/catalogue";
 export type { TemplateDescription } from "./lib/templates/catalogue";
 export { ComposeError, COMPOSE_ERROR_CODES } from "./lib/errors";

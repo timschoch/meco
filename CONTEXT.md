@@ -255,6 +255,10 @@ _Avoid_: layout, dry run, preflight, manifest, preview
 One of the two components a Template uses to name what compose must find in its layout: `ImageSlot`, exactly one, where the picture goes; `Occludes`, any number, around what will cover the picture. A Marker draws nothing of its own.
 _Avoid_: annotation, tag, hint, decorator, region
 
+**Building Block**:
+A component on compose's Template entry that Templates compose their layout from, beside the Markers: `PhotoCard`, `Scrim`, `TextBlock`. Layout and never Look — every colour, family and size is a prop — so no Brand's palette is inside one and a second Brand uses it unchanged. It exists because a Template may import only that entry, which is what made two Templates for one Brand the same file twice.
+_Avoid_: component, partial, widget, primitive, snippet
+
 ## models
 
 The catalogue of vision Models and the one container that runs them. In: a Source Image's bytes. Out: its Annotation. It knows nothing of Brands, Persons, templates or crops.

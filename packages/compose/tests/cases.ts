@@ -1,4 +1,10 @@
-import { plan, templates, type PlanInput, type RenderInput } from "../index";
+import {
+  plan,
+  templates,
+  type CutInput,
+  type PlanInput,
+  type RenderInput,
+} from "../index";
 import {
   centredWindow,
   CREW_FIXTURE,
@@ -147,6 +153,37 @@ export async function inputFor(
     ...planFor(test),
     source,
     window: centredWindow(source, imageSlot),
+    ...overrides,
+  };
+}
+
+/**
+ * The bare Crop golden: the kart photograph cut to a story, with no Template
+ * over it.
+ *
+ * The same fixture and the same 1080x1920 as `STORY_CASE`, so the two goldens
+ * sit side by side and the picture in the Template's Image Slot is the picture
+ * `cut` returns on its own.
+ */
+export const CUT_CASE = {
+  fixture: KART_FIXTURE,
+  target: { width: 1080, height: 1920 },
+  golden: "cut--1080x1920.png",
+} as const;
+
+/**
+ * The exact `cut` call the bare Crop golden stands for, with anything a test
+ * wants to vary laid over the top. The window is the tallest centred one of the
+ * target's own aspect, which is what frame would have chosen.
+ */
+export async function cutInputFor(
+  overrides: Partial<CutInput> = {}
+): Promise<CutInput> {
+  const source = await decode(CUT_CASE.fixture);
+  return {
+    source,
+    window: centredWindow(source, CUT_CASE.target),
+    target: CUT_CASE.target,
     ...overrides,
   };
 }
