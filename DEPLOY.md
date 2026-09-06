@@ -233,9 +233,17 @@ variable working, not a bug.
 
 ## Crons
 
-`vercel.json` carries one, and one only: `POST /internal/sweep` at `0 4 * * *`.
-The free plan allows a daily schedule and refused neither the entry nor the
-path. A cron runs against the **production** deployment, so a `crons` entry
+`vercel.json` carries one, and one only: `/internal/sweep` at `0 4 * * *`. The
+free plan allows a daily schedule and refused neither the entry nor the path.
+
+**A cron reaches a container behind the catch-all rewrite, and it invokes with
+`GET`.** Measured on production, 2026-09-06: `vercel crons run /internal/sweep`
+at 13:11:05Z reached `dpl_942v6K3KN7mbTxGNbfQ2s2ovGANX` and the runtime log read
+`requestMethod: "GET"`, `requestPath: "/internal/sweep"`,
+`responseStatusCode: 404` — the route was registered on `POST` alone, so the
+`404` is the verb and not the secret, which `vercel env ls` confirms is set on
+Production. The route answers `GET` and `POST` since (#187). Vercel documents
+the header a cron sends and not the method, so this is the fact to keep. A cron runs against the **production** deployment, so a `crons` entry
 that has only ever been pushed to a branch reads as `not deployed` and
 `vercel crons run /internal/sweep` refuses it:
 
@@ -250,7 +258,7 @@ Error: No cron jobs found for timschochs-projects/meco. Define cron jobs in
 your vercel.json file.
 ```
 
-A deployment that carries the route answers `POST /internal/sweep` with no
+A deployment that carries the route answers `/internal/sweep` with no
 header as `401 unauthorized`, never `404`: the routes are registered only when
 `CRON_SECRET` is set, so `401` says the request reached the container, the
 variable was injected, and the header check ran. That is the reachability check

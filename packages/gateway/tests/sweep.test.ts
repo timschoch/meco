@@ -9,28 +9,33 @@ const cron = { Authorization: `Bearer ${CRON_SECRET}` };
 
 describe("the Sweep on /internal/sweep", () => {
   it(
-    "runs the Sweep once with the cron's secret and answers the Sweep Report",
+    "runs the Sweep on GET and on POST with the cron's secret, and answers the Sweep Report",
     async () => {
       const one = await stack();
       const { records, swept } = countingSweep(one);
       const now = new Date("2026-09-06T04:00:00.000Z");
       const app = one.app({ records, cronSecret: CRON_SECRET, now: () => now });
 
-      const res = await app.request("/internal/sweep", {
-        method: "POST",
-        headers: cron,
-      });
+      // GET is the verb Vercel's cron dispatcher actually sends, measured on
+      // production (#187). POST is kept because the Sweep is idempotent and
+      // `docs/specs/gateway.md` named it first.
+      for (const method of ["GET", "POST"]) {
+        const res = await app.request("/internal/sweep", {
+          method,
+          headers: cron,
+        });
 
-      expect(res.status).toBe(200);
-      await expect(res.json()).resolves.toEqual({
-        sweptAt: now.toISOString(),
-        retentionDays: 30,
-        files: [],
-        keys: [],
-      });
+        expect(res.status).toBe(200);
+        await expect(res.json()).resolves.toEqual({
+          sweptAt: now.toISOString(),
+          retentionDays: 30,
+          files: [],
+          keys: [],
+        });
+      }
       // The clock the app was built with, not the wall clock: the Sweep
-      // measures the Retention Window from `now()`.
-      expect(swept).toEqual([now]);
+      // measures the Retention Window from `now()`, once per request.
+      expect(swept).toEqual([now, now]);
     },
     TIMEOUT
   );
@@ -136,13 +141,16 @@ describe("the Sweep on /internal/sweep", () => {
   );
 
   it(
-    "sweeps on POST only: a GET with the secret is 404 and runs nothing",
+    "sweeps on the two listed verbs only: a PUT with the secret is 404 and runs nothing",
     async () => {
       const one = await stack();
       const { records, swept } = countingSweep(one);
       const app = one.app({ records, cronSecret: CRON_SECRET });
 
-      const res = await app.request("/internal/sweep", { headers: cron });
+      const res = await app.request("/internal/sweep", {
+        method: "PUT",
+        headers: cron,
+      });
 
       expect(res.status).toBe(404);
       expect(swept).toEqual([]);
