@@ -5,7 +5,6 @@
 // fetches nothing, stores nothing, and chooses no crop.
 export { plan } from "./lib/plan";
 export type { Plan, PlanInput } from "./lib/plan";
-export type { TemplateVariant } from "./template";
 export { render, cut } from "./lib/render";
 export type {
   CutInput,

@@ -1,6 +1,6 @@
 import { area } from "./boxes";
 import { frameCrop } from "./frame-crop";
-import { freeArea } from "./free-area";
+import { freeArea, TIE } from "./free-area";
 import type { Framing, VariantRequest, VariantsInput } from "./framing";
 
 /**
@@ -16,24 +16,21 @@ import type { Framing, VariantRequest, VariantsInput } from "./framing";
  * one number that separates them. The larger Free Area, then the smaller
  * Subject Area shortfall, break the ties that remain.
  *
- * A field a Framing does not carry is neutral: nothing composed, nothing to
- * keep off a zone, so every Variant is as good as the next and the Template's
- * order decides.
+ * An absent `occlusionClear` counts as clear: it is absent when the Variant
+ * declares no zone, and a Subject nothing covers is as clear as one that
+ * missed every zone; and when nothing was composed, in which case it is
+ * absent on every Variant alike and the Template's order decides.
  */
 interface Score {
-  readonly clear: number;
-  readonly satisfied: number;
+  readonly clear: boolean;
+  readonly satisfied: boolean;
   readonly free: number;
   readonly shortfall: number;
 }
 
-/** True beats false; absent is neutral and ranks between the two. */
-const rank = (flag: boolean | undefined): number =>
-  flag === undefined ? 0.5 : flag ? 1 : 0;
-
 const scoreOf = (candidate: VariantRequest, framing: Framing): Score => ({
-  clear: rank(framing.occlusionClear),
-  satisfied: rank(framing.satisfied),
+  clear: framing.occlusionClear ?? true,
+  satisfied: framing.satisfied,
   free:
     candidate.request.occlusion.length === 0
       ? 1
@@ -46,23 +43,17 @@ const scoreOf = (candidate: VariantRequest, framing: Framing): Score => ({
 });
 
 /**
- * How near two areas or two ratios have to be to count as the same. Two
- * Variants that mirror one layout leave Free Areas equal by construction and
- * arrive at them by different sums of the same coordinates, so without this
- * the Template's preference would be decided by the last bit of a float —
- * the same reason `lib/free-area.ts` keeps one.
- */
-const TIE = 1e-9;
-
-/**
  * Whether one candidate beats another. Strictly: an equal score leaves the
  * incumbent, which is the earlier Variant, which is the Template's preference.
+ *
+ * Areas and ratios tie within `TIE`, the Free Area's own tolerance: two
+ * Variants that mirror one design leave Free Areas equal by construction and
+ * arrive at them by different sums of the same coordinates, so without it the
+ * preference would be decided by the last bit of a float.
  */
 const beats = (candidate: Score, best: Score): boolean => {
-  if (candidate.clear !== best.clear) return candidate.clear > best.clear;
-  if (candidate.satisfied !== best.satisfied) {
-    return candidate.satisfied > best.satisfied;
-  }
+  if (candidate.clear !== best.clear) return candidate.clear;
+  if (candidate.satisfied !== best.satisfied) return candidate.satisfied;
   if (Math.abs(candidate.free - best.free) > TIE) {
     return candidate.free > best.free;
   }

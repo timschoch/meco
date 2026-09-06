@@ -555,7 +555,7 @@ What the gateway says on the wire about each Number in one output: the digits re
 _Avoid_: numbers found, OCR results, plate report, detections
 
 **Fill**:
-What one output must fill and what will be drawn over it, as the gateway hands it to frame: the target size in whole pixels, the Occlusion Zones, and the Subject Area. A Render's Fill is compose's Plan; a Crop's is the request itself, with nothing occluded. The one part of the pipeline that differs per Call kind, beside the paint, which is why it has a name at all.
+What one output must fill and what will be drawn over it, as the gateway hands it to frame: the target size in whole pixels, the Occlusion Zones, the Subject Area, and the Variant it belongs to when the Template offers several. A Render has one Fill per Plan, so one per Variant; a Crop has one, the request itself, with nothing occluded. frame chooses among them. The one part of the pipeline that differs per Call kind, beside the paint, which is why it has a name at all.
 _Avoid_: layout (reserved against Template and Plan), plan (a Plan is compose's and needs a Template), slot, canvas, frame
 
 **Front**:

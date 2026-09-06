@@ -121,9 +121,9 @@ export interface Template<Fields extends z.ZodType = z.ZodType> {
   /** Where the Subject should land, in Image Slot fractions. Design intent, per Placement. */
   readonly subjectArea?: Partial<Record<PlacementId, Box>>;
   /**
-   * The layouts this Template can take, most preferred first, each named
-   * once. A Template that declares none lays out one way and its `render` is
-   * never handed a `variant`.
+   * The Variants this Template offers, most preferred first, each named once.
+   * A Template that declares none lays out one way and its `render` is never
+   * handed a `variant`.
    */
   readonly variants?: readonly TemplateVariant[];
   /** Real Fields that render, so a caller can see the Template working. */

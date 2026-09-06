@@ -83,7 +83,7 @@ const RENDER: Stages<RenderInput> = {
     }));
   },
 
-  // `fill` is the one frame chose, so its Variant is the layout to draw.
+  // `fill` is the one frame chose, so its Variant is the one to draw.
   paint(input, fill, image, window, trace) {
     return trace.step("compose.render", () =>
       composeRender({
