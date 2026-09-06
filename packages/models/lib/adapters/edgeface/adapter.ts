@@ -68,8 +68,8 @@ function l2Normalise(values: Float32Array): number[] {
   return Array.from(values, (v) => v / norm);
 }
 
-/** A face Region this Model could align, and where it sits in the answer. */
-interface Alignable {
+/** A face Region this Model did align, and where it sits in the answer. */
+interface AlignedFace {
   index: number;
   square: Buffer;
 }
@@ -87,12 +87,12 @@ async function alignAll(
   image: DecodedImage,
   regions: AdapterRegion[],
   on: AdapterRegion["kind"]
-): Promise<Alignable[]> {
-  const alignable: Alignable[] = [];
+): Promise<AlignedFace[]> {
+  const aligned: AlignedFace[] = [];
   for (const [index, region] of regions.entries()) {
     if (region.kind !== on || !region.landmarks) continue;
     try {
-      alignable.push({
+      aligned.push({
         index,
         square: await alignFace(
           image,
@@ -103,17 +103,19 @@ async function alignAll(
       if (!(err instanceof UnalignableFace)) throw err;
     }
   }
-  return alignable;
+  return aligned;
 }
 
 export function createEdgeface(): Enricher {
   const session = new ModelSession(adapterFile(NAME, WEIGHTS));
+  /** Written once: the Kind it declares and the Kind it aligns cannot drift. */
+  const on = "face";
 
   return {
     model: EDGEFACE,
     licence: readLicence(NAME),
     licenceId: "CC-BY-NC-SA-4.0",
-    on: "face",
+    on,
     warm: async () => {
       await session.get();
     },
@@ -123,16 +125,16 @@ export function createEdgeface(): Enricher {
       image: DecodedImage,
       regions: AdapterRegion[]
     ): Promise<AdapterRegion[]> {
-      const alignable = await alignAll(image, regions, "face");
+      const aligned = await alignAll(image, regions, on);
       // No aligned square, no batch: a batch of nothing has no answer to give,
       // and loading the session to ask it would be a cost for nobody.
-      if (alignable.length === 0) return [...regions];
+      if (aligned.length === 0) return [...regions];
 
       // One inference for the batch and not one per face: a group photograph
       // of eight people should not pay eight session round trips.
       const model = await session.get();
       const results = await model.run({
-        [model.inputNames[0]!]: toTensor(alignable.map((a) => a.square)),
+        [model.inputNames[0]!]: toTensor(aligned.map((a) => a.square)),
       });
       const output = results[model.outputNames[0]!];
       if (!output) {
@@ -145,9 +147,9 @@ export function createEdgeface(): Enricher {
       // print of the wrong shape is refused where it is made rather than where
       // it is compared.
       const values = output.data as Float32Array;
-      if (values.length !== alignable.length * PRINT_LENGTH) {
+      if (values.length !== aligned.length * PRINT_LENGTH) {
         throw new Error(
-          `${WEIGHTS} returned ${values.length} floats for ${alignable.length} faces, and a Face Print is ${PRINT_LENGTH} long`
+          `${WEIGHTS} returned ${values.length} floats for ${aligned.length} faces, and a Face Print is ${PRINT_LENGTH} long`
         );
       }
 
@@ -155,7 +157,7 @@ export function createEdgeface(): Enricher {
       // order: the batch holds only the faces that aligned, and the answer has
       // to be the Regions that came in, in the order they came in.
       const answered = [...regions];
-      for (const [n, { index }] of alignable.entries()) {
+      for (const [n, { index }] of aligned.entries()) {
         const vector = l2Normalise(
           values.subarray(n * PRINT_LENGTH, (n + 1) * PRINT_LENGTH)
         );

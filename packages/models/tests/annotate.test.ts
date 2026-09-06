@@ -21,12 +21,13 @@ const sha256 = (bytes: Uint8Array) =>
 const wireError = async (res: Response) =>
   ((await res.json()) as { error: { code: ErrorCode; message: string } }).error;
 
-// `?models=yunet` and not the whole Catalogue: this block asserts the faces
-// and the timing of one named Detector, and dfine finds the crew's bodies too.
-// That the default runs every entry is `?models= selects Catalogue entries`.
+// `?models=yunet,edgeface` and not the whole Catalogue: this block asserts the
+// faces, their prints and the timing of the two stages that serve them, and
+// dfine finds the crew's bodies too. That the default runs every entry is
+// `?models= selects Catalogue entries`.
 describe("POST /annotate on the crew fixture", async () => {
   const bytes = await fixture("artemis-2-crew.jpg");
-  const res = await annotate(bytes, "?models=yunet");
+  const res = await annotate(bytes, "?models=yunet,edgeface");
   const body: unknown = await res.json();
 
   it("answers 200 with a contracts Annotation", () => {
