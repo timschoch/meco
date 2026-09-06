@@ -2,16 +2,31 @@ import type { FramingRequest, Match, Region } from "@meco/contracts";
 import type { ComposedSubject } from "./framing";
 
 /**
- * The Matches this request is allowed to see: made for its Brand, and about a
+ * A Region id's number. The schema is `<kind>-<n>`, `n` from 1
+ * (`packages/contracts/lib/annotation.ts`), and every candidate here is a face,
+ * so the number is the whole of what "lowest Region id" means. Compared as a
+ * number and not as text, which puts `face-10` before `face-2`.
+ *
+ * Read off the id, never off the position in `annotation.regions`.
+ * `assignRegionIds` does hand the Regions over in id order, but
+ * `Annotation.parse` promises nothing about the order they arrive in, and both
+ * rules below name the id rather than the array.
+ */
+const numberIn = (regionId: string): number =>
+  Number(regionId.slice(regionId.lastIndexOf("-") + 1));
+
+/**
+ * The Matches this request is allowed to use: made for its Brand, and about a
  * face this picture actually holds.
  *
  * `identify` guarantees the Brand already. frame checks anyway, because a Match
  * crossing the Brand wall would show as a stranger leading somebody else's
  * Crop, and that is a leak rather than a wrong rectangle. The Region check is
  * the same argument one step down: a Match naming nothing in the picture has no
- * box to frame, so there is nothing to do with it but ignore it.
+ * box to frame, so there is nothing to do with it but ignore it — and it is
+ * what leaves the leader's own Region certain to exist.
  */
-const matchesAboutTheseFaces = (
+const matchesFrameMayUse = (
   faces: Region[],
   matches: Match[],
   brand: string
@@ -29,23 +44,15 @@ const matchesAboutTheseFaces = (
  * Similarity and not the largest face, because it says who meco is surest of
  * and does not move as people walk about — largest would let the framing wobble
  * across a burst of photographs.
- *
- * "Lowest Region id" is read off `order`, the position contracts numbered the
- * Regions in, rather than off the id string: `face-10` sorts before `face-2` as
- * text and after it as a Region. The comparison is strict, so the first of
- * equals in that order wins.
  */
-const leadingMatch = (
-  candidates: Match[],
-  order: Map<string, number>
-): Match | undefined =>
+const leadingMatch = (candidates: Match[]): Match | undefined =>
   candidates.reduce<Match | undefined>((best, candidate) => {
     if (best === undefined) return candidate;
     if (candidate.similarity !== best.similarity) {
       return candidate.similarity > best.similarity ? candidate : best;
     }
 
-    return order.get(candidate.regionId)! < order.get(best.regionId)!
+    return numberIn(candidate.regionId) < numberIn(best.regionId)
       ? candidate
       : best;
   }, undefined);
@@ -71,27 +78,28 @@ export const matchSubject = (
   request: FramingRequest
 ): ComposedSubject | undefined => {
   const faces = regions.filter((region) => region.kind === "face");
-  const ours = matchesAboutTheseFaces(faces, matches, request.brand);
+  const usable = matchesFrameMayUse(faces, matches, request.brand);
 
   const { persons } = request;
   const mayLead =
     persons === undefined
-      ? ours
-      : ours.filter((match) => persons.includes(match.personId));
+      ? usable
+      : usable.filter((match) => persons.includes(match.personId));
 
-  const order = new Map(regions.map((region, at) => [region.id, at]));
-  const leader = leadingMatch(mayLead, order);
+  const leader = leadingMatch(mayLead);
   if (leader === undefined) return undefined;
 
   const lead = faces.find((face) => face.id === leader.regionId)!;
 
   // The three tiers, and the order is all there is to them: the Leading
   // Subject, a matched non-leading face, every other face. Only the drop rung
-  // (#108) consults them, and it sacrifices from the end. Every Match is a
-  // matched face here whatever `persons` said, because `persons` decides who
+  // (#108) consults them, and it sacrifices from the end. Every Match counts as
+  // a matched face here whatever `persons` said, because `persons` decides who
   // leads and not who is kept.
-  const matched = new Set(ours.map((match) => match.regionId));
-  const others = faces.filter((face) => face.id !== lead.id);
+  const matched = new Set(usable.map((match) => match.regionId));
+  const behind = faces
+    .filter((face) => face.id !== lead.id)
+    .sort((a, b) => numberIn(a.id) - numberIn(b.id));
 
   return {
     resolvedBy: "match",
@@ -99,8 +107,8 @@ export const matchSubject = (
     subject: lead.box,
     keptRegionIds: [
       lead.id,
-      ...others.filter((face) => matched.has(face.id)).map((face) => face.id),
-      ...others.filter((face) => !matched.has(face.id)).map((face) => face.id),
+      ...behind.filter((face) => matched.has(face.id)).map((face) => face.id),
+      ...behind.filter((face) => !matched.has(face.id)).map((face) => face.id),
     ],
   };
 };

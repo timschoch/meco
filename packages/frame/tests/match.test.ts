@@ -97,6 +97,30 @@ describe("the match rung", () => {
     expect(framing.droppedRegionIds).toEqual([]);
   });
 
+  // "Lowest Region id" is read off the id, never off the position in
+  // `annotation.regions`: `assignRegionIds` hands the Regions over in id order,
+  // but `Annotation.parse` promises nothing about the order they arrive in.
+  // Both answers this rung gives are checked, the leader and the tiers.
+  it("reads the id and not the array, so a shuffled Annotation answers the same", () => {
+    const shuffled = Annotation.parse({
+      ...crowd(),
+      regions: [...crowd().regions].reverse(),
+    });
+    const matches = [
+      matchOf("face-3", "person-c", 0.75),
+      matchOf("face-2", "person-b", 0.75),
+      matchOf("face-1", "person-a", 0.4),
+    ];
+    const request = requestFor(SQUARE_TARGET, MATCH_THEN_FACE);
+
+    const asRecorded = frameCrop({ annotation: crowd(), matches, request });
+    const reversed = frameCrop({ annotation: shuffled, matches, request });
+
+    expect(asRecorded.leadRegionId).toBe("face-2");
+    expect(reversed.leadRegionId).toBe(asRecorded.leadRegionId);
+    expect(reversed.keptRegionIds).toEqual(asRecorded.keptRegionIds);
+  });
+
   it("ignores a Match naming a Region this picture does not hold", () => {
     const framing = frameCrop({
       annotation: crowd(),
@@ -151,8 +175,10 @@ describe("persons narrows who may lead", () => {
     matchOf("face-3", "person-c", 0.55),
   ];
 
-  it("leads on the listed Person, not on the higher similarity", () => {
-    const framing = frameCrop({
+  // `person-c` is the lower similarity of the two, so the list and not the
+  // score is what puts `face-3` in front.
+  const narrowed = () =>
+    frameCrop({
       annotation: crowd(),
       matches,
       request: requestFor(SQUARE_TARGET, {
@@ -160,6 +186,9 @@ describe("persons narrows who may lead", () => {
         persons: ["person-c"],
       }),
     });
+
+  it("leads on the listed Person, not on the higher similarity", () => {
+    const framing = narrowed();
 
     expect(framing.resolvedBy).toBe("match");
     expect(framing.leadRegionId).toBe("face-3");
@@ -168,16 +197,7 @@ describe("persons narrows who may lead", () => {
   // The unlisted Match is still a matched face at its tier: `persons` narrows
   // who may lead and nothing else.
   it("keeps the unlisted Match at its tier all the same", () => {
-    const framing = frameCrop({
-      annotation: crowd(),
-      matches,
-      request: requestFor(SQUARE_TARGET, {
-        ...MATCH_THEN_FACE,
-        persons: ["person-c"],
-      }),
-    });
-
-    expect(framing.keptRegionIds).toEqual([
+    expect(narrowed().keptRegionIds).toEqual([
       "face-3",
       "face-1",
       "face-2",
