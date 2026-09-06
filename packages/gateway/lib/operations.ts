@@ -40,7 +40,15 @@ export interface Operation<I extends z.ZodObject = z.ZodObject> {
   readonly path: string;
   /** One object: the body or query is parsed with it and `tools/list` shows it. */
   readonly input: I;
-  handler(ctx: OperationContext, input: z.output<I>): Promise<unknown>;
+  /**
+   * Always an object: the MCP Door carries it as `structuredContent`, which
+   * the protocol types as an object, so a list answers `{ items }` on both
+   * Doors rather than a bare array on one (decided on #181).
+   */
+  handler(
+    ctx: OperationContext,
+    input: z.output<I>
+  ): Promise<Record<string, unknown>>;
 }
 
 // --- Shared input pieces ----------------------------------------------------
@@ -122,7 +130,7 @@ const listPeople = async (ctx: OperationContext) => {
   const perBrand = await Promise.all(
     ctx.brands.map((brand) => ctx.records.people.list(brand))
   );
-  return perBrand.flat().map((person) => ({
+  const items = perBrand.flat().map((person) => ({
     id: person.id,
     brand: person.brand,
     name: person.name,
@@ -135,6 +143,7 @@ const listPeople = async (ctx: OperationContext) => {
       createdAt: photo.createdAt,
     })),
   }));
+  return { items };
 };
 
 const define = <I extends z.ZodObject>(operation: Operation<I>): Operation =>
@@ -191,9 +200,10 @@ export const OPERATIONS: readonly Operation[] = [
     input: z.object({ brand: Brand.optional() }),
     async handler(ctx) {
       const { templates } = await compose();
-      return ctx.brands
+      const items = ctx.brands
         .flatMap((brand) => templates(brand))
         .sort((a, b) => a.id.localeCompare(b.id));
+      return { items };
     },
   }),
   define({
@@ -202,7 +212,7 @@ export const OPERATIONS: readonly Operation[] = [
     method: "GET",
     path: "/placements",
     input: z.object({}),
-    handler: async () => PLACEMENTS,
+    handler: async () => ({ items: PLACEMENTS }),
   }),
   define({
     name: "list_brands",
@@ -216,9 +226,10 @@ export const OPERATIONS: readonly Operation[] = [
       );
       // By id, as `brands.list` orders, so two keys holding the same Brands
       // see the same list.
-      return ctx.brands
+      const items = ctx.brands
         .map((id, i) => ({ id, name: rows[i]?.name ?? id }))
         .sort((a, b) => a.id.localeCompare(b.id));
+      return { items };
     },
   }),
   define({

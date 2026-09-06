@@ -66,18 +66,18 @@ One factory, one seam. `createApp` receives every adapter that varies (records, 
 
 Every Operation is one record: `name` (the MCP tool name), `method` and `path` (the HTTP face), `kind` (records' Call kind or none), `input` (a zod object), `handler(ctx, input)`. The HTTP router registers one route per Operation with `input.parse` on the body or query; the MCP factory registers one tool per Operation with the same `input` as `inputSchema`. Nothing is written twice.
 
-| Operation      | HTTP                                       | Call kind  | Does                                                                                                       |
-| -------------- | ------------------------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------- |
-| `render_image`     | `POST /v1/render`                          | `render`   | template + placement + fields + Source Reference + framing options → a Render                              |
-| `crop_image`       | `POST /v1/crop`                            | `crop`     | Source Reference + target size + framing options → a Crop                                                  |
-| `find_subjects`    | `POST /v1/annotate`                        | `annotate` | Source Reference + brand → the Annotation (prints stripped) and this Brand's Identification; files the source, stores no output |
-| `list_templates`   | `GET /v1/templates?brand=`                 | –          | compose `templates(brand)`; every Template of the Caller's Brands without `brand`                          |
-| `list_placements`  | `GET /v1/placements`                       | –          | compose `PLACEMENTS`                                                                                       |
-| `list_brands`      | `GET /v1/brands`                           | –          | the Caller's Brands with their names                                                                       |
-| `list_people`      | `GET /v1/people?brand=`                    | –          | records `people.list` without the prints; Reference Photo ids and consent dates                            |
-| `add_person`       | `POST /v1/people`                          | –          | records `people.create`                                                                                    |
-| `erase_person`     | `DELETE /v1/people/:id?brand=`             | `erase`    | records `people.erase`; answers the empty listing as proof                                                 |
-| `add_reference_photo` | `POST /v1/people/:id/photos`            | `enrol`    | identify `enrol`; a `choose` answer is a `200` with the faces, not an error                               |
+| Operation             | HTTP                           | Call kind  | Does                                                                                                                            |
+| --------------------- | ------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `render_image`        | `POST /v1/render`              | `render`   | template + placement + fields + Source Reference + framing options → a Render                                                   |
+| `crop_image`          | `POST /v1/crop`                | `crop`     | Source Reference + target size + framing options → a Crop                                                                       |
+| `find_subjects`       | `POST /v1/annotate`            | `annotate` | Source Reference + brand → the Annotation (prints stripped) and this Brand's Identification; files the source, stores no output |
+| `list_templates`      | `GET /v1/templates?brand=`     | –          | compose `templates(brand)`; every Template of the Caller's Brands without `brand`                                               |
+| `list_placements`     | `GET /v1/placements`           | –          | compose `PLACEMENTS`                                                                                                            |
+| `list_brands`         | `GET /v1/brands`               | –          | the Caller's Brands with their names                                                                                            |
+| `list_people`         | `GET /v1/people?brand=`        | –          | records `people.list` without the prints; Reference Photo ids and consent dates                                                 |
+| `add_person`          | `POST /v1/people`              | –          | records `people.create`                                                                                                         |
+| `erase_person`        | `DELETE /v1/people/:id?brand=` | `erase`    | records `people.erase`; answers the empty listing as proof                                                                      |
+| `add_reference_photo` | `POST /v1/people/:id/photos`   | `enrol`    | identify `enrol`; a `choose` answer is a `200` with the faces, not an error                                                     |
 
 Dropped from the prototype: `/v1/carousel` (out of compose v1), `/v1/gallery` (webui's), `/v1/channels` (a Placement names its Channel), `/v1/subjects` (renamed `annotate`).
 
@@ -93,20 +93,20 @@ Dropped from the prototype: `/v1/carousel` (out of compose v1), `/v1/gallery` (w
 
 Per Call kind, in this order, each stage a Step:
 
-| Stage             | `render`                                                                                       | `crop`                                         | `annotate`                       |
-| ----------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------- | -------------------------------- |
-| door              | Caller, Brand Wall, `input.parse`                                                              | same                                           | same                             |
-| `source.*`        | resolve the Source Reference: fetch, hash, `store.put`, `files.ensure`, `sources.hold`         | same                                           | same                             |
-| `records.replay`  | `outputs.byRequest(brand, requestHash)`; a hit answers the Output, records a Call, stops       | same                                           | –                                |
-| `records.annotation` / `models.*` | `annotations.get(hash)`; a miss or `!isComplete(a, CATALOGUE)` → `models.annotate(bytes, { hash })` then `annotations.put`; models' `Server-Timing` entries become `models.<stage>` Steps | same | same |
-| `identify.match`  | `identify.match({ annotation, brand })`                                                        | same                                           | same                             |
-| `compose.plan`    | `plan({ template, placement, brand, fields })` → `target` = `imageSlot`, `occlusion`, `subjectArea` | `target` = `{ width, height }`, `occlusion: []` | –                          |
-| `frame.crop`      | `frameCrop({ annotation, matches, request })`                                                  | same                                           | –                                |
-| `source.decode`   | sharp: EXIF-rotated raw RGB at the photograph's own size; assert `width/height === annotation.width/height` else `resolution_mismatch` (500) | same | –                |
-| `redact.blur`     | `redact({ image, regions, matches, redaction })`                                               | same                                           | –                                |
-| `compose.render` / `compose.cut` | `render({ ...plan input, source, window: framing.windowFraction, format, quality })` | `cut({ source, window, target, format, quality })` (compose's Template-less path, ledgered on #84) | – |
-| `store.put`       | `renders`                                                                                      | `crops`                                        | –                                |
-| `records.record`  | `outputs.record` + `calls.record`, one Call                                                    | same                                           | `calls.record` only              |
+| Stage                             | `render`                                                                                                                                                                                  | `crop`                                                                                             | `annotate`          |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------- |
+| door                              | Caller, Brand Wall, `input.parse`                                                                                                                                                         | same                                                                                               | same                |
+| `source.*`                        | resolve the Source Reference: fetch, hash, `store.put`, `files.ensure`, `sources.hold`                                                                                                    | same                                                                                               | same                |
+| `records.replay`                  | `outputs.byRequest(brand, requestHash)`; a hit answers the Output, records a Call, stops                                                                                                  | same                                                                                               | –                   |
+| `records.annotation` / `models.*` | `annotations.get(hash)`; a miss or `!isComplete(a, CATALOGUE)` → `models.annotate(bytes, { hash })` then `annotations.put`; models' `Server-Timing` entries become `models.<stage>` Steps | same                                                                                               | same                |
+| `identify.match`                  | `identify.match({ annotation, brand })`                                                                                                                                                   | same                                                                                               | same                |
+| `compose.plan`                    | `plan({ template, placement, brand, fields })` → `target` = `imageSlot`, `occlusion`, `subjectArea`                                                                                       | `target` = `{ width, height }`, `occlusion: []`                                                    | –                   |
+| `frame.crop`                      | `frameCrop({ annotation, matches, request })`                                                                                                                                             | same                                                                                               | –                   |
+| `source.decode`                   | sharp: EXIF-rotated raw RGB at the photograph's own size; assert `width/height === annotation.width/height` else `resolution_mismatch` (500)                                              | same                                                                                               | –                   |
+| `redact.blur`                     | `redact({ image, regions, matches, redaction })`                                                                                                                                          | same                                                                                               | –                   |
+| `compose.render` / `compose.cut`  | `render({ ...plan input, source, window: framing.windowFraction, format, quality })`                                                                                                      | `cut({ source, window, target, format, quality })` (compose's Template-less path, ledgered on #84) | –                   |
+| `store.put`                       | `renders`                                                                                                                                                                                 | `crops`                                                                                            | –                   |
+| `records.record`                  | `outputs.record` + `calls.record`, one Call                                                                                                                                               | same                                                                                               | `calls.record` only |
 
 The decode happens once, after frame, because frame needs no pixel and a Replay needs no decode at all. The `resolution_mismatch` assert is the gateway's: frame divides by the Annotation's size, compose multiplies by the Decoded Image's, and only the gateway holds both (ledgered on #88).
 
@@ -116,23 +116,23 @@ The decode happens once, after frame, because frame needs no pixel and a Replay 
 
 - `render`, `crop`: `{ output: { url, key, kind, placement?, width, height, mime, bytes }, call: { id, replayed }, framing: Framing, faces: FaceReport[] }`. `FaceReport = { regionId, verdict, personId?, similarity?, hidden, inFrame }`: `verdict` from identify's Face Verdict, `hidden` when the Region id is in the Redaction Records, `inFrame` when `projectIntoFrame(framing, region.box)` intersects the unit box. A Replay answers the stored Output and `replayed: true`; `framing` and `faces` come from the replayed Call.
 - `annotate`: `{ call: { id }, annotation, identification }`, `annotation.regions[].facePrint` removed.
-- `list_*`: plain arrays. `erase_person`: records' Erasure with the empty listing.
+- `list_*`: `{ items: [...] }`, on both Doors. An object and not a bare array, because the MCP protocol types `structuredContent` as an object and the two Doors answer one shape (decided on #181). `erase_person`: records' Erasure with the empty listing.
 - MCP: every result is `content: [{ type: "text", text: JSON }]` plus `structuredContent` with the same object; every error `isError: true` with the same `{ error }` JSON as text.
 
 ### Errors
 
 `{ error: { code, message, details? } }` on both Doors, one flat code namespace, status from one table:
 
-| Code | Status | From |
-| --- | --- | --- |
-| `invalid_request` | 400 | `input.parse` or the FramingRequest schema; `details` is zod's `treeifyError` |
-| `unauthorized` | 401 | no key, or `callers.byKey` null; `WWW-Authenticate: Basic realm="meco"` only under `/ui` |
-| `brand_not_held` | 403 | the Brand Wall |
-| `not_found` | 404 | unknown route, Person, Call, or a `hash` Source Reference without a Source Hold |
-| `too_large` | 413 | a Source over `MAX_OBJECT_BYTES`, by header or by stream |
-| `source_unfetchable` | 422 | the URL did not answer 2xx in time |
-| `resolution_mismatch` | 500 | the gateway's own invariant |
-| `models_unavailable` | 503 | models `unreachable`, `timeout`, `model_unavailable` |
+| Code                   | Status     | From                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid_request`      | 400        | `input.parse` or the FramingRequest schema; `details` is zod's `treeifyError`                                                                                                                                                                                                                                                                                               |
+| `unauthorized`         | 401        | no key, or `callers.byKey` null; `WWW-Authenticate: Basic realm="meco"` only under `/ui`                                                                                                                                                                                                                                                                                    |
+| `brand_not_held`       | 403        | the Brand Wall                                                                                                                                                                                                                                                                                                                                                              |
+| `not_found`            | 404        | unknown route, Person, Call, or a `hash` Source Reference without a Source Hold                                                                                                                                                                                                                                                                                             |
+| `too_large`            | 413        | a Source over `MAX_OBJECT_BYTES`, by header or by stream                                                                                                                                                                                                                                                                                                                    |
+| `source_unfetchable`   | 422        | the URL did not answer 2xx in time                                                                                                                                                                                                                                                                                                                                          |
+| `resolution_mismatch`  | 500        | the gateway's own invariant                                                                                                                                                                                                                                                                                                                                                 |
+| `models_unavailable`   | 503        | models `unreachable`, `timeout`, `model_unavailable`                                                                                                                                                                                                                                                                                                                        |
 | module codes, verbatim | per module | compose `unknown_template` 404, `unknown_brand` 404, `placement_not_supported` 400, `invalid_fields` 400, `framing_mismatch` 500; identify `consent_required` 400, `unknown_person` 404, `no_face`/`unknown_region`/`too_small`/`not_a_face`/`no_print`/`other_model` 422; models `undecodable`/`unsupported_mime` 415, `too_large` 413, `bad_response`/`hash_mismatch` 502 |
 
 The Call's `error` is `{ module, code, message }`; `module` is not on the wire. A failed Call is recorded before the error is answered.
@@ -163,14 +163,14 @@ The Call's `error` is `{ module, code, message }`; `module` is not on the wire. 
 
 ### Configuration
 
-| Variable | Set by | Purpose |
-| --- | --- | --- |
-| `MODELS_URL` | the service binding | the models client's base URL |
-| `RECORDS_DATABASE_URL_UNPOOLED`, `RECORDS_RETENTION_DAYS` | Neon integration, owner | records (see its spec) |
-| `BLOB_PUBLIC_STORE_ID`, `BLOB_PRIVATE_STORE_ID`, the two tokens | Blob stores | store (see its spec) |
-| `CRON_SECRET` | owner, Sensitive | `/internal/*`; absent disables them |
-| `VERCEL_GIT_COMMIT_SHA` | platform | `/health` version and the MCP server version |
-| `GATEWAY_PROBE` | Preview only, temporary | #141's probe routes; removed with them |
+| Variable                                                        | Set by                  | Purpose                                      |
+| --------------------------------------------------------------- | ----------------------- | -------------------------------------------- |
+| `MODELS_URL`                                                    | the service binding     | the models client's base URL                 |
+| `RECORDS_DATABASE_URL_UNPOOLED`, `RECORDS_RETENTION_DAYS`       | Neon integration, owner | records (see its spec)                       |
+| `BLOB_PUBLIC_STORE_ID`, `BLOB_PRIVATE_STORE_ID`, the two tokens | Blob stores             | store (see its spec)                         |
+| `CRON_SECRET`                                                   | owner, Sensitive        | `/internal/*`; absent disables them          |
+| `VERCEL_GIT_COMMIT_SHA`                                         | platform                | `/health` version and the MCP server version |
+| `GATEWAY_PROBE`                                                 | Preview only, temporary | #141's probe routes; removed with them       |
 
 ### Dependencies
 
@@ -180,27 +180,27 @@ The Call's `error` is `{ module, code, message }`; `module` is not on the wire. 
 
 Every test is `createApp(deps).request(...)`: the HTTP Door and, as JSON-RPC bodies to `/mcp`, the MCP Door, through the same seam. Dependencies are real where an adapter exists: `records({ database: pgliteDatabase(), store })`, `memoryStore()`, real `compose`, `frame`, `redact`, `identify`, and the real models client over a `fetch` fake that answers `/annotate` from committed fixture Annotations keyed by the body's sha256 (`fixtures/faces/detected.json` and `face-prints.json` lifted into contracts `Annotation` JSON, as frame's and identify's tests do) and `/health`, `/models` from fixtures. No models host code enters the gateway graph (ADR-0014). Prior art: `packages/gateway/tests/health.test.ts`, `packages/webui`'s plan, `packages/identify`'s fixture Annotator.
 
-| Check | Mutation that must turn it red |
-| --- | --- |
-| no key is `401`; a wrong key is `401`; `Bearer`, `Basic` and `x-auth-token` reach the same Caller | accept any key; drop one header form |
-| a `brand` the Caller does not hold is `403 brand_not_held` on HTTP and as an MCP tool error, and no module ran | check the Brand after the pipeline |
-| `tools/list` names every Operation and each `inputSchema` equals `z.toJSONSchema` of the route's input | register one tool by hand |
-| `render` on the tracer-bullet fixture returns a `renders/` URL, a Framing with `resolvedBy` from the request's ladder, and one Face Report per face | drop the Face Report |
-| the same `render` twice is one Output and two Calls, the second with one Step `records.replay` | hash the request with the URL in it |
-| two URLs serving the same bytes give one Output | same |
-| `blurUnknownFaces` omitted hides every face with no Match; `false` hides none | default to false |
-| `pinTo` omitted reaches frame as `DEFAULT_PIN_TO` | pass undefined |
-| a 17-zone Template is refused `400 invalid_request` by the FramingRequest schema before frame | skip the schema |
-| a Source over `MAX_OBJECT_BYTES` by `Content-Length` is `413` without reading the body; over by stream is `413` | drop either check |
-| a `hash` Source Reference without a Source Hold is `404`, identical to an unknown hash | answer 403 |
-| a cached, complete Annotation reaches no `models.annotate`; an incomplete one does and is replaced | skip `isComplete` |
-| `annotate`'s response carries no `facePrint` | forget to strip |
-| a Decoded Image of the wrong size is `500 resolution_mismatch` and a failed Call | drop the assert |
-| every module's typed error maps to its code and status, and the Call's `error.module` names the module | map one wrong |
-| a failed Call is a row with `status: failed` before the error is answered | record only on success |
-| `/health` answers from the cache within 30 s and probes again after; `models.warm` follows models' body | probe per request |
-| `/internal/sweep` is `401` without `CRON_SECRET`, `404` when none is configured, runs the Sweep with it | skip the header check |
-| `GET /ui` without a header is `401` with `WWW-Authenticate: Basic`; `/v1/brands` without one is `401` without it | send the challenge everywhere |
+| Check                                                                                                                                               | Mutation that must turn it red       |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| no key is `401`; a wrong key is `401`; `Bearer`, `Basic` and `x-auth-token` reach the same Caller                                                   | accept any key; drop one header form |
+| a `brand` the Caller does not hold is `403 brand_not_held` on HTTP and as an MCP tool error, and no module ran                                      | check the Brand after the pipeline   |
+| `tools/list` names every Operation and each `inputSchema` equals `z.toJSONSchema` of the route's input                                              | register one tool by hand            |
+| `render` on the tracer-bullet fixture returns a `renders/` URL, a Framing with `resolvedBy` from the request's ladder, and one Face Report per face | drop the Face Report                 |
+| the same `render` twice is one Output and two Calls, the second with one Step `records.replay`                                                      | hash the request with the URL in it  |
+| two URLs serving the same bytes give one Output                                                                                                     | same                                 |
+| `blurUnknownFaces` omitted hides every face with no Match; `false` hides none                                                                       | default to false                     |
+| `pinTo` omitted reaches frame as `DEFAULT_PIN_TO`                                                                                                   | pass undefined                       |
+| a 17-zone Template is refused `400 invalid_request` by the FramingRequest schema before frame                                                       | skip the schema                      |
+| a Source over `MAX_OBJECT_BYTES` by `Content-Length` is `413` without reading the body; over by stream is `413`                                     | drop either check                    |
+| a `hash` Source Reference without a Source Hold is `404`, identical to an unknown hash                                                              | answer 403                           |
+| a cached, complete Annotation reaches no `models.annotate`; an incomplete one does and is replaced                                                  | skip `isComplete`                    |
+| `annotate`'s response carries no `facePrint`                                                                                                        | forget to strip                      |
+| a Decoded Image of the wrong size is `500 resolution_mismatch` and a failed Call                                                                    | drop the assert                      |
+| every module's typed error maps to its code and status, and the Call's `error.module` names the module                                              | map one wrong                        |
+| a failed Call is a row with `status: failed` before the error is answered                                                                           | record only on success               |
+| `/health` answers from the cache within 30 s and probes again after; `models.warm` follows models' body                                             | probe per request                    |
+| `/internal/sweep` is `401` without `CRON_SECRET`, `404` when none is configured, runs the Sweep with it                                             | skip the header check                |
+| `GET /ui` without a header is `401` with `WWW-Authenticate: Basic`; `/v1/brands` without one is `401` without it                                    | send the challenge everywhere        |
 
 Every check is proved able to fail by its mutation before it ships. Commit the green state first, then mutate, then `git restore`.
 

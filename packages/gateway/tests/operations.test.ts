@@ -64,9 +64,13 @@ describe("the Operation table on the MCP Door", () => {
         params: { name: "list_brands", arguments: {} },
       });
 
+      // The same object twice: as text, and as `structuredContent`, which
+      // the protocol types as an object — the reason a list is `{ items }`.
       expect(answer.result).toEqual({
         content: [{ type: "text", text: JSON.stringify(http) }],
+        structuredContent: http,
       });
+      expect(http).toMatchObject({ items: expect.any(Array) });
     },
     TIMEOUT
   );
@@ -103,9 +107,11 @@ describe("the Operation table on the HTTP Door", () => {
       const one = await stack();
       const res = await one.app().request("/v1/placements", withKey);
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { id: string; width: number }[];
-      expect(body.length).toBe(7);
-      expect(body[0]).toEqual({
+      const { items } = (await res.json()) as {
+        items: { id: string; width: number }[];
+      };
+      expect(items.length).toBe(7);
+      expect(items[0]).toEqual({
         id: "linkedin/post",
         width: 1200,
         height: 1200,
@@ -119,12 +125,13 @@ describe("the Operation table on the HTTP Door", () => {
     async () => {
       const one = await stack();
       const app = one.app();
-      const laica = (await (
+      type Listed = { items: { id: string; brand: string; fields: unknown }[] };
+      const { items: laica } = (await (
         await app.request("/v1/templates?brand=laica", withKey)
-      ).json()) as { id: string; brand: string; fields: unknown }[];
-      const every = (await (
+      ).json()) as Listed;
+      const { items: every } = (await (
         await app.request("/v1/templates", withKey)
-      ).json()) as { brand: string }[];
+      ).json()) as Listed;
 
       expect(laica.length).toBeGreaterThan(0);
       expect(laica.every((t) => t.brand === "laica")).toBe(true);
@@ -146,15 +153,17 @@ describe("the Operation table on the HTTP Door", () => {
       const res = await one.app().request("/v1/people?brand=laica", withKey);
 
       expect(res.status).toBe(200);
-      await expect(res.json()).resolves.toEqual([
-        {
-          id: person.id,
-          brand: "laica",
-          name: "Ada",
-          createdAt: person.createdAt,
-          photos: [],
-        },
-      ]);
+      await expect(res.json()).resolves.toEqual({
+        items: [
+          {
+            id: person.id,
+            brand: "laica",
+            name: "Ada",
+            createdAt: person.createdAt,
+            photos: [],
+          },
+        ],
+      });
     },
     TIMEOUT
   );
