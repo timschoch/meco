@@ -22,18 +22,22 @@ const SQLSTATE = /^[0-9A-Z]{5}$/;
  * The SQLSTATE of a failure, wherever down the `cause` chain the driver left
  * it. Shaped rather than merely present, so a Node error's `code` — `ECONNRESET`
  * and its kind — is not mistaken for one.
+ *
+ * The deepest match wins, because the driver is the bottom of the chain and
+ * every wrapper above it is something that only caught what the driver said.
  */
 export const sqlstateOf = (error: unknown): string | null => {
+  let found: string | null = null;
   for (
     let at = error;
     at instanceof Object;
     at = (at as { cause?: unknown }).cause
   ) {
     if ("code" in at && typeof at.code === "string" && SQLSTATE.test(at.code)) {
-      return at.code;
+      found = at.code;
     }
   }
-  return null;
+  return found;
 };
 
 /**
