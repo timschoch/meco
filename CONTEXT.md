@@ -410,3 +410,35 @@ _Avoid_: TTL, expiry, grace period, lifetime
 **Records Reach**:
 What the database looks like from inside the deployment: configured, reachable, how many migrations are pending, the server version, and how long one round trip took. Reported in `GET /health` beside Store Health; a database that cannot be reached is reported here rather than by failing the endpoint.
 _Avoid_: db status, connection, ping, healthcheck
+
+## identify
+
+Who a face is, for one Brand, on one call. identify is given an Annotation and a Brand and answers with the Matches and a verdict on every face, by arithmetic over the Face Prints the Annotation already carries and the Face Prints the Brand's People were enrolled with. It calls no model at match time, touches no pixel and no SQL, and it owns enrolling a Reference Photo. Match, Identifiable Face, Uncompared Face, Not-a-Face Print, Person, Reference Photo and Face Print are defined under Faces above and are not redefined here.
+
+**Identification**:
+Everything identify answers for one Annotation and one Brand: the Matches, one Face Verdict per face Region, and the Reference Photos it could not use. Kept on the Call beside the Annotation and never inside it, because it is true for one Brand and not of the bytes.
+_Avoid_: result, recognition, matches (alone), response
+
+**Face Verdict**:
+What identify says about one face Region: a Match with its similarity, unknown with the best similarity that did not clear the Match Rule, uncompared because no usable Face Print was there to compare, or not identifiable because the face is too small or resembles a Not-a-Face Print. Four different answers where the prototype had one silence.
+_Avoid_: status, outcome, classification, confidence
+
+**Match Rule**:
+The open-set test a face has to pass to be a Match: best similarity against one Person at or above the threshold, and ahead of the best other Person by the margin. Calibrated once, on committed fixture prints, with the measurement recorded beside the numbers; never a Brand's or a caller's setting.
+_Avoid_: confidence cutoff, score threshold, tuning, sensitivity
+
+**Print Model**:
+The one Model, by name and version, whose Face Prints the Match Rule was calibrated on. A Face Print from any other is an Uncompared Face, and a Reference Photo enrolled with one is an Unusable Reference Photo, so swapping the model forces a re-enrolment rather than producing a wrong answer.
+_Avoid_: embedder, model tag, face model
+
+**Unusable Reference Photo**:
+An enrolled Reference Photo whose Face Print identify will not compare against: made by another Print Model, or at or above the Not-a-Face threshold to a Not-a-Face Print. Left out of every comparison and named in the Identification so the Brand can re-enrol from a better photograph. The Person still exists; they cannot be matched through this photograph.
+_Avoid_: bad photo, invalid, stale, rejected
+
+**Enrolment**:
+Enrolling one Reference Photo for one Person: the photograph is annotated, one face is chosen, that face is proved an Identifiable Face, and only then are the bytes, the File, the Annotation and the Reference Photo row written. Refused as a whole or done as a whole; a refusal leaves nothing behind. Requires the date the Person agreed.
+_Avoid_: registration, training, upload, onboarding
+
+**Annotator**:
+What identify is handed to turn a photograph's bytes into an Annotation: the models client in production, a fixture-backed fake in tests. The one place identify's suite substitutes a model for data.
+_Avoid_: detector, embedder, face service, models (when the dependency is meant)
