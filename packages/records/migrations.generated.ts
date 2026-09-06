@@ -62,5 +62,15 @@ export const MIGRATIONS: readonly EmbeddedMigration[] = [
       "CREATE INDEX \"outputs_brand_store_key_index\" ON \"outputs\" USING btree (\"brand\",\"store_key\");",
       "CREATE INDEX \"outputs_created_at_store_key_request_hash_index\" ON \"outputs\" USING btree (\"created_at\",\"store_key\",\"request_hash\");"
     ]
+  },
+  {
+    "tag": "0002_a_person_carries_race_numbers",
+    "hash": "613473bcbe40d219b5aabfafef5441f824ddb024584325937e30cfbf571b458d",
+    "statements": [
+      "CREATE TABLE \"person_numbers\" (\n\t\"person_id\" text NOT NULL,\n\t\"brand\" text NOT NULL,\n\t\"number\" text NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\tCONSTRAINT \"person_numbers_brand_number_pk\" PRIMARY KEY(\"brand\",\"number\")\n);",
+      "ALTER TABLE \"person_numbers\" ADD CONSTRAINT \"person_numbers_person_id_people_id_fk\" FOREIGN KEY (\"person_id\") REFERENCES \"public\".\"people\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+      "ALTER TABLE \"person_numbers\" ADD CONSTRAINT \"person_numbers_brand_brands_id_fk\" FOREIGN KEY (\"brand\") REFERENCES \"public\".\"brands\"(\"id\") ON DELETE no action ON UPDATE no action;",
+      "CREATE INDEX \"person_numbers_person_id_index\" ON \"person_numbers\" USING btree (\"person_id\");"
+    ]
   }
 ];

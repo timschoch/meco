@@ -76,3 +76,25 @@ export const PRINT_MODEL = { name: "edgeface", version: "1" } as const;
  * two unrelated networks and could clear the threshold on nothing.
  */
 export const PRINT_DIMENSIONS = 512 as const;
+
+/**
+ * The share of a `number` Region's own box that must lie inside a `vehicle`
+ * Region before the number counts as painted on that kart.
+ *
+ * **Chosen, not measured**, and the measurement says why it could not be.
+ * Over the recorded Annotations of `fixtures/karts/kart-grid-24.jpg` and
+ * `kart-24-target.jpg` (`ppocr@1` and `dfine@1`, 6 Sep 2026) every number that
+ * has a kart at all sits **wholly** inside it, at a share of 1.0000 — five
+ * pairings, five exact containments. Every threshold in (0, 1] therefore picks
+ * the same kart for every one of them, and nothing in the fixture set can
+ * prefer one point in that interval to another. The one number with no kart,
+ * the grid's `227`, overlaps no vehicle box at all and is refused at any
+ * threshold above zero.
+ *
+ * What the floor is for is the case the fixtures do not hold: a number that
+ * overhangs its kart's box, or sits between two of them. Half of the digits on
+ * the kart is the least that can honestly be called painted on it. A
+ * photograph that lands inside the interval is what would let this be
+ * measured, and it gets its own ticket when one is found.
+ */
+export const NUMBER_ON_VEHICLE = 0.5 as const;

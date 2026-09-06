@@ -149,6 +149,7 @@ describe("identify().match", () => {
           regionId: A.regionId,
           personId: person.id,
           brand,
+          by: "face",
           similarity: expect.closeTo(0.8229, 4),
         },
       ]);
@@ -668,6 +669,7 @@ describe("identify().match, the things that are not faces", () => {
           regionId: kartRegionId(paddock, "paddock-mixed.jpg#0"),
           personId: person.id,
           brand,
+          by: "face",
           similarity: expect.closeTo(1, 4),
         },
       ]);

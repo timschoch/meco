@@ -590,6 +590,141 @@ export function recordsConformance(
       },
     },
     {
+      name: "people.create files the race numbers, tidied and sorted, and people.get reads them back",
+      async run() {
+        const records = await open();
+        const brand = brandFor("gives its people numbers");
+        await records.brands.ensure({ id: brand, name: "Numbered" });
+
+        const person = await records.people.create({
+          brand,
+          name: "Ada",
+          // Out of order and with a repeat, because a Brand types what it has
+          // and the row it reads back has to be one shape however it arrived.
+          numbers: ["24", "7", "24"],
+        });
+
+        deepStrictEqual(person.numbers, ["24", "7"].sort());
+        deepStrictEqual(await records.people.get(brand, person.id), person);
+
+        const none = await records.people.create({ brand, name: "Alan" });
+        deepStrictEqual(none.numbers, []);
+      },
+    },
+    {
+      name: "people.setNumbers replaces the whole list, and answers null for another Brand's Person",
+      async run() {
+        const records = await open();
+        const mine = brandFor("sets numbers");
+        const theirs = brandFor("may not set them");
+        await records.brands.ensure({ id: mine, name: "Mine" });
+        await records.brands.ensure({ id: theirs, name: "Theirs" });
+
+        const person = await records.people.create({
+          brand: mine,
+          name: "Ada",
+          numbers: ["7", "24"],
+        });
+
+        const set = await records.people.setNumbers(mine, person.id, ["66"]);
+        // A replace: the 7 and the 24 are gone, not merged with the 66.
+        deepStrictEqual(set?.numbers, ["66"]);
+        deepStrictEqual(
+          (await records.people.get(mine, person.id))?.numbers,
+          ["66"]
+        );
+
+        deepStrictEqual(
+          (await records.people.setNumbers(mine, person.id, []))?.numbers,
+          []
+        );
+
+        strictEqual(
+          await records.people.setNumbers(theirs, person.id, ["66"]),
+          null
+        );
+        strictEqual(
+          await records.people.setNumbers(mine, crypto.randomUUID(), ["66"]),
+          null
+        );
+      },
+    },
+    {
+      name: "one number is one Person within a Brand, and the same number is free in another",
+      async run() {
+        const records = await open();
+        const mine = brandFor("holds number 24");
+        const theirs = brandFor("holds its own 24");
+        await records.brands.ensure({ id: mine, name: "Mine" });
+        await records.brands.ensure({ id: theirs, name: "Theirs" });
+
+        const held = await records.people.create({
+          brand: mine,
+          name: "Ada",
+          numbers: ["24"],
+        });
+
+        // The rule the Match Rule depends on: a number meco reads off a
+        // photograph names at most one Person of the Brand, so there is never
+        // a tie for the Annotation to break.
+        await rejects(() =>
+          records.people.create({ brand: mine, name: "Grace", numbers: ["24"] })
+        );
+        const other = await records.people.create({
+          brand: mine,
+          name: "Grace",
+          numbers: ["66"],
+        });
+        await rejects(() =>
+          records.people.setNumbers(mine, other.id, ["24"])
+        );
+
+        // Setting a Person's own number again is not a conflict with itself.
+        deepStrictEqual(
+          (await records.people.setNumbers(mine, held.id, ["24", "21"]))
+            ?.numbers,
+          ["21", "24"]
+        );
+
+        // The wall is per Brand, exactly as the Person is.
+        const elsewhere = await records.people.create({
+          brand: theirs,
+          name: "Ada elsewhere",
+          numbers: ["24"],
+        });
+        deepStrictEqual(elsewhere.numbers, ["24"]);
+
+        // A refused create leaves no Person behind.
+        const listed = await records.people.list(mine);
+        deepStrictEqual(
+          listed.map((one) => one.name).sort(),
+          ["Ada", "Grace"]
+        );
+      },
+    },
+    {
+      name: "people.erase takes the race numbers with the Person, so the number is free again",
+      async run() {
+        const records = await open();
+        const brand = brandFor("erases a numbered person");
+        await records.brands.ensure({ id: brand, name: "Numbered" });
+
+        const person = await records.people.create({
+          brand,
+          name: "Ada",
+          numbers: ["24"],
+        });
+        await records.people.erase(brand, person.id);
+
+        const successor = await records.people.create({
+          brand,
+          name: "Grace",
+          numbers: ["24"],
+        });
+        deepStrictEqual(successor.numbers, ["24"]);
+      },
+    },
+    {
       name: "people.get of an id never created is null, not a throw",
       async run() {
         const records = await open();

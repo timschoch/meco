@@ -6,6 +6,7 @@ export {
   MATCH_THRESHOLD,
   MIN_FACE_PX,
   NOT_A_FACE_THRESHOLD,
+  NUMBER_ON_VEHICLE,
   PRINT_MODEL,
 } from "./lib/constants";
 export { IdentifyError, type IdentifyErrorCode } from "./lib/errors";

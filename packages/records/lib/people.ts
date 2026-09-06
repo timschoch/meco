@@ -27,7 +27,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { withoutBoundSecrets } from "./bound-secrets";
 import type { DatabaseDriver, Tx } from "./database";
 import { unreferencedFileClauses } from "./references";
-import { files, people, referencePhotos } from "./schema";
+import { files, people, personNumbers, referencePhotos } from "./schema";
 
 /** A named individual one Brand enrolled. Personal data throughout. */
 export interface Person {
@@ -35,8 +35,37 @@ export interface Person {
   readonly id: string;
   readonly brand: string;
   readonly name: string;
+  /**
+   * The race numbers this Brand gave this Person, ascending as text. A Brand
+   * fact and not a face fact: the same driver carries another number next
+   * season and is the same person.
+   */
+  readonly numbers: readonly string[];
   /** ISO 8601, as `@meco/store`'s Listing reports its own times. */
   readonly createdAt: string;
+}
+
+/**
+ * A race number one Brand already gave somebody else. Its own error because
+ * the gateway answers it `409 conflict` and has to name the number and the
+ * Person holding it, which a generic constraint violation cannot say — and
+ * because the message of the raw error quotes the offending row back.
+ */
+export class NumbersTaken extends Error {
+  /** Each number that is taken, with the Person of this Brand holding it. */
+  readonly taken: readonly { readonly number: string; readonly personId: string }[];
+
+  constructor(
+    taken: readonly { readonly number: string; readonly personId: string }[]
+  ) {
+    super(
+      `@meco/records: ${taken
+        .map((one) => `number ${one.number} is person ${one.personId}`)
+        .join(", ")}`
+    );
+    this.name = "NumbersTaken";
+    this.taken = taken;
+  }
 }
 
 /** One photograph enrolled for one Person, with the print it was enrolled by. */
@@ -105,7 +134,26 @@ export interface Unenrolment {
 }
 
 export interface People {
-  create(person: { brand: string; name: string }): Promise<Person>;
+  /** Refuses with {@link NumbersTaken} if a number is another Person's here. */
+  create(person: {
+    brand: string;
+    name: string;
+    numbers?: readonly string[];
+  }): Promise<Person>;
+  /**
+   * Replaces the whole list of race numbers, and answers the Person as it now
+   * stands. A replace and not an add-and-remove pair: a Brand knows what its
+   * driver carries this season, and two operations would leave a Person
+   * momentarily holding a number nobody gave them.
+   *
+   * `null` for a Person of another Brand or no Person at all, which is the
+   * same answer {@link People.get} gives and for the same reason.
+   */
+  setNumbers(
+    brand: string,
+    id: string,
+    numbers: readonly string[]
+  ): Promise<Person | null>;
   get(brand: string, id: string): Promise<Person | null>;
   /** Every Person of one Brand with every Face Print, in one query. */
   list(brand: string): Promise<PersonWithPrints[]>;
@@ -128,14 +176,25 @@ export interface People {
 export const peoplePrefix = (brand: string, personId: string): string =>
   `people/${brand}/${personId}`;
 
-type PersonRow = Omit<Person, "createdAt"> & { readonly createdAt: Date };
+type PersonRow = Omit<Person, "createdAt" | "numbers"> & {
+  readonly createdAt: Date;
+};
 
-const asPerson = (row: PersonRow): Person => ({
+const asPerson = (row: PersonRow, numbers: readonly string[]): Person => ({
   id: row.id,
   brand: row.brand,
   name: row.name,
+  numbers,
   createdAt: row.createdAt.toISOString(),
 });
+
+/**
+ * The numbers as they are stored and answered: duplicates within one list
+ * collapsed, and ascending as text so two calls that gave the same set in two
+ * orders read back the same.
+ */
+const tidied = (numbers: readonly string[]): string[] =>
+  [...new Set(numbers)].sort();
 
 type PhotoRow = {
   readonly id: string;
@@ -197,8 +256,62 @@ async function unreferencedKeys(
   return keys.filter((key) => !named.has(key));
 }
 
+/**
+ * The numbers of this Brand already held by somebody who is not `personId`,
+ * inside the caller's transaction so the answer is the state the write will
+ * land on. Empty means the write may proceed.
+ *
+ * A read before the insert, and the primary key over `(brand, number)` behind
+ * it. The read is what lets the refusal name the Person holding the number;
+ * the key is what makes the rule true whatever two writers do at once, and
+ * {@link asNumbersTaken} turns its violation into the same refusal.
+ */
+async function numbersHeldByOthers(
+  tx: Tx,
+  brand: string,
+  personId: string,
+  numbers: readonly string[]
+): Promise<{ number: string; personId: string }[]> {
+  if (numbers.length === 0) return [];
+  const rows = await tx
+    .select({ number: personNumbers.number, personId: personNumbers.personId })
+    .from(personNumbers)
+    .where(
+      and(
+        eq(personNumbers.brand, brand),
+        inArray(personNumbers.number, [...numbers])
+      )
+    );
+  return rows.filter((row) => row.personId !== personId);
+}
+
+/** Postgres' own refusal of the same rule, when a concurrent writer won. */
+const asNumbersTaken = (
+  numbers: readonly string[],
+  error: unknown
+): unknown => {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "23505"
+    ? new NumbersTaken(
+        numbers.map((number) => ({ number, personId: "another person" }))
+      )
+    : error;
+};
+
 export function peopleOver(driver: DatabaseDriver, store: Store): People {
   const { orm } = driver;
+
+  /** The race numbers of one Person, in the order {@link tidied} promises. */
+  const numbersOf = async (
+    tx: Tx | typeof orm,
+    personId: string
+  ): Promise<string[]> => {
+    const rows = await tx
+      .select({ number: personNumbers.number })
+      .from(personNumbers)
+      .where(eq(personNumbers.personId, personId));
+    return tidied(rows.map((row) => row.number));
+  };
 
   const readPerson = async (
     brand: string,
@@ -209,21 +322,76 @@ export function peopleOver(driver: DatabaseDriver, store: Store): People {
       .from(people)
       .where(and(eq(people.brand, brand), eq(people.id, id)))
       .limit(1);
-    return row === undefined ? null : asPerson(row);
+    return row === undefined ? null : asPerson(row, await numbersOf(orm, id));
   };
 
   return {
     async create(person) {
-      const [row] = await orm
-        .insert(people)
-        .values({ id: crypto.randomUUID(), ...person })
-        .returning();
-      if (row === undefined) {
-        throw new Error(
-          `@meco/records: the person for brand ${person.brand} was inserted and nothing came back.`
-        );
-      }
-      return asPerson(row);
+      const numbers = tidied(person.numbers ?? []);
+      const id = crypto.randomUUID();
+
+      const row = await orm.transaction(async (tx) => {
+        const taken = await numbersHeldByOthers(tx, person.brand, id, numbers);
+        if (taken.length > 0) throw new NumbersTaken(taken);
+
+        const [inserted] = await tx
+          .insert(people)
+          .values({ id, brand: person.brand, name: person.name })
+          .returning();
+        if (inserted === undefined) {
+          throw new Error(
+            `@meco/records: the person for brand ${person.brand} was inserted and nothing came back.`
+          );
+        }
+        if (numbers.length > 0) {
+          await tx
+            .insert(personNumbers)
+            .values(
+              numbers.map((number) => ({
+                personId: id,
+                brand: person.brand,
+                number,
+              }))
+            )
+            .catch((error: unknown) => {
+              throw asNumbersTaken(numbers, error);
+            });
+        }
+        return inserted;
+      });
+
+      return asPerson(row, numbers);
+    },
+
+    async setNumbers(brand, id, wanted) {
+      const numbers = tidied(wanted);
+
+      return orm.transaction(async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(people)
+          .where(and(eq(people.brand, brand), eq(people.id, id)))
+          .limit(1);
+        if (row === undefined) return null;
+
+        const taken = await numbersHeldByOthers(tx, brand, id, numbers);
+        if (taken.length > 0) throw new NumbersTaken(taken);
+
+        // Replace, so a number the Brand dropped is gone rather than merged
+        // back in by the insert below.
+        await tx.delete(personNumbers).where(eq(personNumbers.personId, id));
+        if (numbers.length > 0) {
+          await tx
+            .insert(personNumbers)
+            .values(
+              numbers.map((number) => ({ personId: id, brand, number }))
+            )
+            .catch((error: unknown) => {
+              throw asNumbersTaken(numbers, error);
+            });
+        }
+        return asPerson(row, numbers);
+      });
     },
 
     get: readPerson,
@@ -248,11 +416,32 @@ export function peopleOver(driver: DatabaseDriver, store: Store): People {
           referencePhotos.id
         );
 
+      // The numbers in a second statement rather than a second left join: two
+      // one-to-many joins in one query multiply their rows together, and a
+      // Person with three photographs and two numbers would arrive six times.
+      const numbered = await orm
+        .select({
+          personId: personNumbers.personId,
+          number: personNumbers.number,
+        })
+        .from(personNumbers)
+        .where(eq(personNumbers.brand, brand));
+      const byPersonNumbers = new Map<string, string[]>();
+      for (const { personId, number } of numbered) {
+        byPersonNumbers.set(personId, [
+          ...(byPersonNumbers.get(personId) ?? []),
+          number,
+        ]);
+      }
+
       const byPerson = new Map<string, Person & { photos: ReferencePhoto[] }>();
       for (const { person, photo } of rows) {
         let held = byPerson.get(person.id);
         if (held === undefined) {
-          held = { ...asPerson(person), photos: [] };
+          held = {
+            ...asPerson(person, tidied(byPersonNumbers.get(person.id) ?? [])),
+            photos: [],
+          };
           byPerson.set(person.id, held);
         }
         // A left join: a Person with no Reference Photo is one row with none.

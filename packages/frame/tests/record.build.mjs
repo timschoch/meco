@@ -12,12 +12,19 @@ import { fileURLToPath } from "node:url";
 // directory names the same folder in both.
 const sources = fileURLToPath(new URL("../../../fixtures/", import.meta.url));
 const recordings = fileURLToPath(new URL("./fixtures/", import.meta.url));
+// The two kart recordings #227 added are read by identify's suite as well as
+// by frame's, so they live beside the photographs instead of inside one
+// package's tests. One recording, two readers, nothing to drift.
+const shared = fileURLToPath(
+  new URL("../../../fixtures/karts/annotations/", import.meta.url)
+);
 
 await build({
   entryPoints: ["tests/record.ts"],
   define: {
     __SOURCES__: JSON.stringify(sources),
     __RECORDINGS__: JSON.stringify(recordings),
+    __SHARED_RECORDINGS__: JSON.stringify(shared),
   },
   bundle: true,
   platform: "node",

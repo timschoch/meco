@@ -23,6 +23,6 @@ export {
   Redaction,
   Target,
 } from "./lib/framing-request";
-export { Match } from "./lib/match";
+export { Match, type MatchRule } from "./lib/match";
 export { assignRegionIds, type AdapterRegion } from "./lib/region-ids";
 export type { DecodedImage, ModelAdapter } from "./lib/adapter";

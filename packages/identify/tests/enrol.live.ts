@@ -155,8 +155,11 @@ it("names that Person in a second photograph of them, live", async () => {
   expect(matches).toHaveLength(1);
   expect(matches[0]?.personId).toBe(personId);
   expect(matches[0]?.brand).toBe(brand);
-  expect(matches[0]?.similarity).toBeGreaterThanOrEqual(MATCH_THRESHOLD);
-  console.log(`similarity ${matches[0]?.similarity.toFixed(4)}`);
+  const named = matches[0];
+  expect(named?.by).toBe("face");
+  const similarity = named?.by === "face" ? named.similarity : undefined;
+  expect(similarity).toBeGreaterThanOrEqual(MATCH_THRESHOLD);
+  console.log(`similarity ${similarity?.toFixed(4)}`);
 }, 180_000);
 
 it("erases the Person and leaves the prefix empty", async () => {
