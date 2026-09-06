@@ -20,6 +20,14 @@ RUN pnpm --filter @meco/gateway build
 # same recipe `Dockerfile.vercel` uses for `models` (DEPLOY.md, the fourth
 # trap).
 RUN pnpm --filter @meco/gateway --prod deploy --legacy /deploy
+# `pnpm deploy` copies every workspace dependency whole, so `@meco/models`
+# brings onnxruntime-node's 283 MB of binaries into an image that runs no
+# Model. The gateway reaches models over the service binding and imports one
+# file to do it, the thin client, which the bundle inlines — the rule
+# `models-client-stays-thin` in `.dependency-cruiser.cjs` is what keeps that
+# true. Nothing here resolves the runtime, and the check below proves what
+# does resolve.
+RUN rm -rf /deploy/node_modules/.pnpm/onnxruntime-node@*
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
@@ -28,6 +36,18 @@ COPY --from=build --chown=node:node /deploy/node_modules ./node_modules
 # After node_modules: the bundle's own folder carries each Look's fonts and
 # wordmark under the Brand's name, which is where compose reads them.
 COPY --from=build --chown=node:node /app/packages/gateway/dist/bundle ./
+# Both halves of the fourth trap, as a build failure rather than a boot crash
+# (DEPLOY.md). The natives the bundle marks external must resolve from this
+# directory, and each Look's wordmark must be where compose will look for it.
+# Deployment meco-i0z94sd7l built clean and then died on the first request
+# with `Cannot find package '@takumi-rs/core' imported from /app/server.js`.
+RUN node --input-type=module -e "\
+  await import('sharp'); \
+  await import('@takumi-rs/core'); \
+  const { readFileSync } = await import('node:fs'); \
+  for (const brand of ['laica', 'hopefamily', 'swisshutless']) { \
+    readFileSync(new URL('./' + brand + '/logo.png', 'file:///app/')); \
+  }"
 USER node
 ENV PORT=80
 EXPOSE 80

@@ -19,6 +19,7 @@
     "@meco/store": "workspace:*",
     "@meco/webui": "workspace:*",
     "@modelcontextprotocol/server": "^2.0.0",
+    "@takumi-rs/core": "2.13.6",
     "hono": "^4.10.7",
     "sharp": "0.35.4",
     "zod": "^4.5.4"

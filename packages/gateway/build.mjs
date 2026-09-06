@@ -5,7 +5,13 @@
 // `sharp` and `@takumi-rs/core` load native binaries by their own paths and
 // cannot be bundled (the `models` image keeps `sharp` and `onnxruntime-node`
 // outside its bundle for the same reason); `Containerfile` installs them flat
-// with `pnpm deploy`. Every Look folder is then copied to
+// with `pnpm deploy`. Both are direct dependencies of this package although no
+// file here imports either: they reach the bundle through compose, and a
+// workspace dependency's own dependency is nested under it by `pnpm deploy`,
+// where `/app/server.js` cannot resolve it. Measured on deployment
+// meco-i0z94sd7l: `ERR_MODULE_NOT_FOUND Cannot find package '@takumi-rs/core'
+// imported from /app/server.js`. `models` declares its two the same way.
+// Every Look folder is then copied to
 // `dist/bundle/<brand>/` minus its TypeScript, which is where compose looks
 // from a bundle: `lib/looks/assets.ts` resolves `<its own directory>/<brand>/
 // <file>`, and in a single-file bundle its own directory is this one.
