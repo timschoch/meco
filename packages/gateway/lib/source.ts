@@ -11,7 +11,7 @@
  */
 import { createHash } from "node:crypto";
 import { MAX_OBJECT_BYTES, type Store } from "@meco/store";
-import type { Records } from "@meco/records";
+import type { FileRecord, Records } from "@meco/records";
 import { z } from "zod";
 import { GatewayError } from "./errors";
 import type { Trace } from "./trace";
@@ -50,6 +50,17 @@ export interface ResolvedSource {
    * there is an Annotation to read one off.
    */
   contentType(): Promise<string>;
+  /**
+   * The Store Key these bytes are already filed under, or `null` when they are
+   * only in this process. What decides which carrier models is handed: a key
+   * means a Signed URL, which crosses the service binding at any size and
+   * moves the bytes once instead of three times (#201).
+   *
+   * A `{ url }` Source Reference has none. Its bytes cannot be filed before
+   * models has decoded them, because `store.put` derives the key's extension
+   * from a media type, and what a photograph is, is models' answer to make.
+   */
+  storeKey(): Promise<string | null>;
 }
 
 export interface SourceDeps {
@@ -193,6 +204,7 @@ export async function resolveSource(
       hash,
       bytes: async () => bytes,
       contentType: async () => contentType,
+      storeKey: async () => null,
     };
   }
 
@@ -205,24 +217,39 @@ export async function resolveSource(
       `this brand holds no source ${source.hash}`
     );
   }
-  // One read for both answers, and only if something asks: a Call the
-  // Annotation cache serves reads neither.
-  let read: Promise<{ bytes: Uint8Array; mime: string }> | undefined;
+  // One read of the File row, and only if something asks: a Call the
+  // Annotation cache serves reads nothing. The key and the media type come
+  // off that row; the bytes are a second read on top of it, made only by a
+  // caller that truly needs them in this process.
+  let file: Promise<FileRecord> | undefined;
+  const filed = () =>
+    (file ??= trace.step("records.files.get", async () => {
+      const row = await deps.records.files.get(source.hash);
+      if (row === null) {
+        // A hold on a File that is not there is a records invariant broken,
+        // not a caller's mistake.
+        throw new Error(`the bytes of ${source.hash} are held and not filed`);
+      }
+      return row;
+    }));
+
+  let read: Promise<Uint8Array> | undefined;
   const stored = () =>
-    (read ??= trace.step("store.get", async () => {
-      const file = await deps.records.files.get(source.hash);
-      const bytes = file === null ? null : await deps.store.get(file.storeKey);
-      if (file === null || bytes === null) {
-        // A hold on a File whose bytes are gone is a records invariant
-        // broken, not a caller's mistake.
+    (read ??= (async () => {
+      const { storeKey } = await filed();
+      const bytes = await trace.step("store.get", () =>
+        deps.store.get(storeKey)
+      );
+      if (bytes === null) {
         throw new Error(`the bytes of ${source.hash} are held and not stored`);
       }
-      return { bytes, mime: file.mime };
-    }));
+      return bytes;
+    })());
 
   return {
     hash: source.hash,
-    bytes: async () => (await stored()).bytes,
-    contentType: async () => (await stored()).mime,
+    bytes: stored,
+    contentType: async () => (await filed()).mime,
+    storeKey: async () => (await filed()).storeKey,
   };
 }

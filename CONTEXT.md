@@ -263,7 +263,11 @@ _Avoid_: component, partial, widget, primitive, snippet
 
 ## models
 
-The catalogue of vision Models and the one container that runs them. In: a Source Image's bytes. Out: its Annotation. It knows nothing of Brands, Persons, templates or crops.
+The catalogue of vision Models and the one container that runs them. In: a Source Image, by whichever Source Carrier the caller chose. Out: its Annotation. It knows nothing of Brands, Persons, templates or crops.
+
+**Source Carrier**:
+How a Source Image reaches the models container: its bytes in the request body, or a Signed URL in a JSON body that models fetches for itself. Two and only two, told apart by the content type. The caller picks by where the bytes already are, never by their size — a photograph already in the Private Store travels as a Signed URL, one the caller is holding travels as bytes. Whichever was used, the Annotation's Content Hash is of the bytes models decoded, so the same check proves both.
+_Avoid_: upload mode, transport, transfer method, store key, presigned body
 
 **Catalogue**:
 The fixed list of Models the models service holds, each behind its own Model Adapter with its licence text beside its weights. A request names Catalogue entries; an entry not in the Catalogue is refused, never fetched.

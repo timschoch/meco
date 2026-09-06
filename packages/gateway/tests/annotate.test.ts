@@ -7,6 +7,7 @@ import {
   NOT_HELD,
   PHOTOS,
   TIMEOUT,
+  fakeModels,
   rpc,
   useStacks,
   type Opened,
@@ -190,7 +191,51 @@ describe("a { hash } Source Reference", () => {
   );
 
   it(
-    "reads the bytes off the store when the held row is incomplete",
+    "hands models a Signed URL when the held row is incomplete, and never reads the bytes itself",
+    async () => {
+      const one = await stack();
+      const complete = fixtureAnnotation(FILE);
+      const key = (await one.store.put("sources", BYTES, "image/jpeg")).key;
+      await one.records.files.ensure({
+        hash: HASH,
+        mime: "image/jpeg",
+        width: 1280,
+        height: 1600,
+        bytes: BYTES.byteLength,
+        storeKey: key,
+      });
+      await one.records.annotations.put({ ...complete, producedBy: [] });
+      await one.records.sources.hold(BRAND, HASH);
+
+      const { status, body } = await annotate(one, { hash: HASH });
+      const recorded = await call(one, body.call?.id);
+
+      expect(status).toBe(200);
+      expect(one.photosSeen).toEqual([]);
+      // The photograph crosses the binding as a URL, so the gateway never
+      // downloads it and never uploads it back: bytes it already filed are
+      // moved once, whatever their size (#201).
+      expect(stepNames(recorded).slice(0, 5)).toEqual([
+        "records.sources.heldBy",
+        "records.annotations.get",
+        "records.files.get",
+        "store.signedUrl",
+        "models.annotate",
+      ]);
+      expect(stepNames(recorded)).not.toContain("store.get");
+      expect(stepNames(recorded)).not.toContain("store.put");
+      expect(stepNames(recorded)).not.toContain("records.files.ensure");
+      expect(one.modelsFetched).toHaveLength(1);
+      expect(new URL(one.modelsFetched[0]!).pathname).toBe(`/${key}`);
+      await expect(one.records.annotations.get(HASH)).resolves.toEqual(
+        complete
+      );
+    },
+    TIMEOUT
+  );
+
+  it(
+    "mints a Signed URL that expires, and never one for the Public Store",
     async () => {
       const one = await stack();
       const complete = fixtureAnnotation(FILE);
@@ -205,20 +250,80 @@ describe("a { hash } Source Reference", () => {
       await one.records.annotations.put({ ...complete, producedBy: [] });
       await one.records.sources.hold(BRAND, HASH);
 
-      const { status, body } = await annotate(one, { hash: HASH });
-      const recorded = await call(one, body.call?.id);
+      await annotate(one, { hash: HASH });
 
-      expect(status).toBe(200);
-      expect(one.photosSeen).toEqual([]);
-      expect(stepNames(recorded).slice(0, 4)).toEqual([
-        "records.sources.heldBy",
-        "records.annotations.get",
-        "store.get",
-        "models.annotate",
-      ]);
-      await expect(one.records.annotations.get(HASH)).resolves.toEqual(
-        complete
-      );
+      const minted = new URL(one.modelsFetched[0]!);
+      // A Source Image is in the Private Store, so its URL carries what makes
+      // it stop working. Nothing hands the models container a store token.
+      expect(minted.pathname.startsWith("/sources/")).toBe(true);
+      expect(minted.searchParams.get("validUntil")).not.toBeNull();
+    },
+    TIMEOUT
+  );
+
+  it(
+    "answers try-again when the Signed URL failed but the bytes are still there",
+    async () => {
+      // The object is in the store, so nothing is broken: the URL itself did
+      // not hand it over. The caller's remedy is a fresh URL, which is what
+      // the next call mints, so this is `models_unavailable` and not the
+      // gateway's own `source_unfetchable`, which means the caller's URL.
+      const one = await stack({
+        models: fakeModels({
+          annotate: async () =>
+            Response.json(
+              {
+                error: {
+                  code: "source_unfetchable",
+                  message: "it answered 403",
+                },
+              },
+              { status: 502 }
+            ),
+        }),
+      });
+      const complete = fixtureAnnotation(FILE);
+      await one.records.files.ensure({
+        hash: HASH,
+        mime: "image/jpeg",
+        width: 1280,
+        height: 1600,
+        bytes: BYTES.byteLength,
+        storeKey: (await one.store.put("sources", BYTES, "image/jpeg")).key,
+      });
+      await one.records.annotations.put({ ...complete, producedBy: [] });
+      await one.records.sources.hold(BRAND, HASH);
+
+      const { status, body } = await annotate(one, { hash: HASH });
+      expect(status).toBe(503);
+      expect(body.error?.code).toBe("models_unavailable");
+    },
+    TIMEOUT
+  );
+
+  it(
+    "does not call a File whose bytes are gone a transient failure",
+    async () => {
+      // records names bytes the store does not hold. No URL this gateway can
+      // mint will ever hand them over, so telling the caller to try again
+      // would be a lie it could act on forever: this is the same broken
+      // invariant reading the bytes off the store raises.
+      const one = await stack();
+      const complete = fixtureAnnotation(FILE);
+      await one.records.files.ensure({
+        hash: HASH,
+        mime: "image/jpeg",
+        width: 1280,
+        height: 1600,
+        bytes: BYTES.byteLength,
+        storeKey: `sources/${HASH}.jpg`,
+      });
+      await one.records.annotations.put({ ...complete, producedBy: [] });
+      await one.records.sources.hold(BRAND, HASH);
+
+      const { status, body } = await annotate(one, { hash: HASH });
+      expect(status).toBe(500);
+      expect(body.error?.code).toBe("internal");
     },
     TIMEOUT
   );

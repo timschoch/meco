@@ -8,7 +8,16 @@ export const ERROR_STATUS = {
   undecodable: 400,
   unknown_model: 400,
   bad_models: 400,
+  /** A JSON body that names no https URL: the second body shape, malformed. */
+  bad_source: 400,
   unsupported_mime: 415,
+  /**
+   * The URL in a `{ url }` body did not hand over the bytes: it answered
+   * something other than 2xx (an expired Signed URL is the store's 403, a key
+   * it does not hold its 404), did not answer at all, or its body broke off.
+   * A 502 because the failure is upstream of models and of its caller both.
+   */
+  source_unfetchable: 502,
   /** A guard against a runaway body, not a photograph bound. */
   too_large: 413,
   /** A session failed to create on this instance; the next request retries. */

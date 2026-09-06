@@ -12,6 +12,7 @@ import type { Catalogue, Detector } from "./detector";
 import type { Enricher } from "./enricher";
 import { HostError } from "./errors";
 import { version } from "./health";
+import { type FetchSource, fetchSource, parseUrlBody } from "./source";
 import { Laps } from "./timing";
 import type { CatalogueEntry, ModelsHealth } from "./wire";
 
@@ -78,7 +79,11 @@ function refuse(c: Context, err: unknown, laps: Laps): Response {
       ? err
       : new HostError("internal", "the host failed", { cause: err });
   console.log(`annotate refused ${error.code} ${laps.summary()}`.trimEnd());
-  if (error.code === "internal" || error.code === "model_unavailable") {
+  if (
+    error.code === "internal" ||
+    error.code === "model_unavailable" ||
+    error.code === "source_unfetchable"
+  ) {
     console.error(`${error.code}: ${error.message}`, error.cause ?? "");
   }
   c.header("Server-Timing", laps.serverTiming());
@@ -88,12 +93,30 @@ function refuse(c: Context, err: unknown, laps: Laps): Response {
   );
 }
 
+export interface AppOptions {
+  /**
+   * How the host fetches a `{ url }` body's Signed URL. The container's global
+   * `fetch` in production; a test hands in one that answers without a network.
+   */
+  readonly fetch?: FetchSource;
+}
+
+/**
+ * Which of the two body shapes this request carries. A JSON content type is
+ * the whole signal: the bytes body is a photograph, which is never JSON, so
+ * the two can never be read for each other.
+ */
+const namesAUrl = (contentType: string | undefined): boolean =>
+  (contentType ?? "").split(";")[0]?.trim().toLowerCase() ===
+  "application/json";
+
 /**
  * The HTTP surface, built from a Catalogue so a test can hand in in-memory
  * Detectors. Without a socket: `server.ts` binds one.
  */
-export function createApp(catalogue: Catalogue): Hono {
+export function createApp(catalogue: Catalogue, options: AppOptions = {}): Hono {
   const app = new Hono();
+  const call = options.fetch ?? globalThis.fetch;
 
   app.get("/health", (c) => {
     const body: ModelsHealth = {
@@ -132,15 +155,32 @@ export function createApp(catalogue: Catalogue): Hono {
   app.post("/annotate", async (c) => {
     const laps = new Laps();
     try {
+      // Before the body: a Model this Catalogue does not hold is refused
+      // without fetching anything, whichever shape the body has.
       const chosen = selectModels(catalogue, c.req.query("models"));
-      const bytes = await readBody(c.req.raw);
-      if (bytes.byteLength === 0) {
-        throw new HostError("empty_body", "POST the image bytes as the body");
+
+      let bytes: Uint8Array;
+      if (namesAUrl(c.req.header("content-type"))) {
+        // Read through the same guard the bytes shape uses: a body that calls
+        // itself JSON is still a body, and nothing may hand this host an
+        // unbounded one.
+        const { url } = parseUrlBody(
+          new TextDecoder().decode(await readBody(c.req.raw))
+        );
+        laps.start();
+        bytes = await fetchSource(call, url);
+        laps.lap("fetch");
+      } else {
+        bytes = await readBody(c.req.raw);
+        if (bytes.byteLength === 0) {
+          throw new HostError("empty_body", "POST the image bytes as the body");
+        }
+        laps.start();
       }
-      // The hash of the body as received, before anything touches it.
+      // The hash of the bytes as received or as fetched, before anything
+      // touches them: the Annotation names what this host actually decoded.
       const hash = sha256(bytes);
 
-      laps.start();
       const { image, width, height, mime } = await decode(bytes);
       laps.lap("decode");
 
