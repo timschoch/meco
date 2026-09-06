@@ -30,9 +30,7 @@ export function mcpDoor(
             const result = await run(operation, deps, caller, args);
             return {
               content: [{ type: "text", text: JSON.stringify(result) }],
-              // The protocol wants an object here; a list Operation's plain
-              // array travels as text only, the same JSON either way.
-              ...(isObject(result) ? { structuredContent: result } : {}),
+              structuredContent: result,
             };
           } catch (error) {
             const { body } = toWire(error);
@@ -52,6 +50,3 @@ export function mcpDoor(
       request
     );
 }
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
