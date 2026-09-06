@@ -1,9 +1,10 @@
+import { createElement } from "react";
 import sharp from "sharp";
-import { fromJsx } from "@takumi-rs/helpers/jsx";
+import { Bitmap, fromJsx } from "@takumi-rs/helpers/jsx";
 import type { RgbaImage } from "@takumi-rs/helpers";
-import type { Box, DecodedImage } from "@meco/contracts";
+import type { Node } from "@takumi-rs/core";
+import type { Box, DecodedImage, Size } from "@meco/contracts";
 import { ComposeError } from "./errors";
-import type { MeasuredBox } from "./measured-tree";
 import { layout, resolve, type PlanInput } from "./plan";
 import { lookImages, sharedRenderer } from "./renderer";
 
@@ -62,14 +63,11 @@ function windowInPixels(window: Box, source: DecodedImage) {
   };
 }
 
-function refuseAspectMismatch(
-  cut: { width: number; height: number },
-  slot: MeasuredBox
-): void {
+function refuseAspectMismatch(windowPx: Size, slot: Size): void {
   // The box with the slot's aspect the window should have been, holding each
   // axis fixed in turn.
-  const wantedWidth = (cut.height * slot.width) / slot.height;
-  const wantedHeight = (cut.width * slot.height) / slot.width;
+  const wantedWidth = (windowPx.height * slot.width) / slot.height;
+  const wantedHeight = (windowPx.width * slot.height) / slot.width;
   // The smaller of the two, because they are one deviation seen at two scales,
   // not two independent errors: the height figure is the width figure times the
   // slot's aspect ratio, so `Math.max` would always read the long axis and make
@@ -77,13 +75,13 @@ function refuseAspectMismatch(
   // question worth asking — how far is this window from a correct one, moving
   // whichever axis is cheaper to move.
   const off = Math.min(
-    Math.abs(cut.width - wantedWidth),
-    Math.abs(cut.height - wantedHeight)
+    Math.abs(windowPx.width - wantedWidth),
+    Math.abs(windowPx.height - wantedHeight)
   );
   if (off > ASPECT_TOLERANCE_PX) {
     throw new ComposeError(
       "framing_mismatch",
-      `The window is ${cut.width}x${cut.height} source pixels, ${off.toFixed(2)} px off the ${slot.width}x${slot.height} Image Slot's aspect; the tolerance is ${ASPECT_TOLERANCE_PX} px.`
+      `The window is ${windowPx.width}x${windowPx.height} source pixels, ${off.toFixed(2)} px off the ${slot.width}x${slot.height} Image Slot's aspect; the tolerance is ${ASPECT_TOLERANCE_PX} px.`
     );
   }
 }
@@ -99,21 +97,91 @@ function refuseAspectMismatch(
 async function fitToSlot(
   source: DecodedImage,
   window: Box,
-  slot: MeasuredBox
+  slot: Size
 ): Promise<RgbaImage> {
-  const cut = windowInPixels(window, source);
-  refuseAspectMismatch(cut, slot);
+  const windowPx = windowInPixels(window, source);
+  refuseAspectMismatch(windowPx, slot);
 
   const data = await sharp(source.data, {
     raw: { width: source.width, height: source.height, channels: 3 },
   })
-    .extract(cut)
+    .extract(windowPx)
     .resize(slot.width, slot.height, { fit: "fill", kernel: "lanczos3" })
     .ensureAlpha()
     .raw()
     .toBuffer();
 
   return { width: slot.width, height: slot.height, data };
+}
+
+/** What both callers hand takumi: a laid-out tree and the canvas to draw it on. */
+interface Drawing {
+  readonly node: Node;
+  readonly css: string[];
+  readonly canvas: Size;
+  /** The table an `<img src>` resolves against. Empty for a picture on its own. */
+  readonly images: { src: string; data: Uint8Array }[];
+}
+
+/**
+ * Draw a tree on a canvas and encode it.
+ *
+ * The one encoder in compose, so a bare Crop and a Render cannot drift into two
+ * JPEGs of the same picture at two qualities. Not sharp: takumi already holds
+ * the drawn canvas, and handing the pixels back to sharp to encode would be a
+ * second library's idea of quality 90.
+ */
+async function encode(
+  drawing: Drawing,
+  format: RenderFormat | undefined,
+  quality: number | undefined
+): Promise<RenderResult> {
+  const renderer = await sharedRenderer();
+  const chosen = format ?? DEFAULT_FORMAT;
+  const bytes = await renderer.render(drawing.node, {
+    width: drawing.canvas.width,
+    height: drawing.canvas.height,
+    format: chosen,
+    quality: quality ?? DEFAULT_QUALITY,
+    images: drawing.images,
+    css: drawing.css,
+  });
+  return { bytes, mime: MIME[chosen] };
+}
+
+/** A bare Crop: the window at a size, with no Template over it. */
+export interface CutInput {
+  /** The redacted Source Image, at the resolution the Annotation describes. */
+  readonly source: DecodedImage;
+  /** What frame chose, in Source Image fractions. */
+  readonly window: Box;
+  /** The output, in whole pixels. The Image Slot's part, with no Template. */
+  readonly target: Size;
+  readonly format?: RenderFormat;
+  readonly quality?: number;
+}
+
+/**
+ * Cut the window out of the Source Image and encode it at the target size.
+ *
+ * The bare Crop route: the same extract, the same lanczos3 resize and the same
+ * encoder a Render goes through, with nothing drawn over the picture. compose
+ * owns pixels, so no caller has to reach for sharp to skip a Template
+ * (gateway design, #88).
+ */
+export async function cut(input: CutInput): Promise<RenderResult> {
+  const src = await fitToSlot(input.source, input.window, input.target);
+  // The picture is already the canvas's size, so takumi draws it 1:1 and the
+  // bytes are the same pixels a Template's Image Slot would have held.
+  const { node, css } = await fromJsx(
+    createElement(Bitmap, { ...src, style: { width: "100%", height: "100%" } })
+  );
+
+  return encode(
+    { node, css, canvas: input.target, images: [] },
+    input.format,
+    input.quality
+  );
 }
 
 /**
@@ -133,7 +201,6 @@ export async function render(input: RenderInput): Promise<RenderResult> {
   const { slot } = await layout(resolved);
   const src = await fitToSlot(input.source, input.window, slot);
 
-  const renderer = await sharedRenderer();
   const { node, css } = await fromJsx(
     template.render({
       fields: resolved.fields,
@@ -143,15 +210,9 @@ export async function render(input: RenderInput): Promise<RenderResult> {
     })
   );
 
-  const format = input.format ?? DEFAULT_FORMAT;
-  const bytes = await renderer.render(node, {
-    width: placement.width,
-    height: placement.height,
-    format,
-    quality: input.quality ?? DEFAULT_QUALITY,
-    images: lookImages(look),
-    css,
-  });
-
-  return { bytes, mime: MIME[format] };
+  return encode(
+    { node, css, canvas: placement, images: lookImages(look) },
+    input.format,
+    input.quality
+  );
 }

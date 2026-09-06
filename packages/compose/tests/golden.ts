@@ -8,8 +8,8 @@
  */
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { render } from "../index";
-import { GOLDEN_CASES, inputFor } from "./cases";
+import { cut, render } from "../index";
+import { CUT_CASE, cutInputFor, GOLDEN_CASES, inputFor } from "./cases";
 import { GOLDENS } from "./goldens";
 
 for (const test of GOLDEN_CASES) {
@@ -18,3 +18,7 @@ for (const test of GOLDEN_CASES) {
   writeFileSync(path, bytes);
   console.log(`${test.golden}: ${bytes.length} bytes`);
 }
+
+const bare = await cut(await cutInputFor({ format: "png" }));
+writeFileSync(fileURLToPath(new URL(CUT_CASE.golden, GOLDENS)), bare.bytes);
+console.log(`${CUT_CASE.golden}: ${bare.bytes.length} bytes`);
