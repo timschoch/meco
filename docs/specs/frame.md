@@ -61,7 +61,7 @@ export interface Framing {
   satisfied: boolean;
   fallback?: FallbackRung;
   subjectAreaSatisfied?: boolean; // only when the request named one
-  subjectAreaShortfall?: number; // 1 when satisfied, the factor short otherwise
+  subjectAreaShortfall?: number; // a size ratio: 1 when the picture was big enough, the factor short otherwise
   occlusionClear?: boolean; // only when `occlusion` was non-empty
 }
 
@@ -106,12 +106,12 @@ A `face` Subject is the face box alone. frame never grows it to the `person` Reg
 
 ### Placing the window
 
-1. **Size.** The cover window is the largest window of the target shape that fits the Source Image. A declared `subjectArea` sizes the window so the Subject fills it; failing that, an Eye Line sizes it so the eyes can reach the upper Golden Line, floored on the Leading Subject's own box. Never below the cover window.
+1. **Size.** The cover window is the largest window of the target shape that fits the Source Image. A declared `subjectArea` sizes the window so the Subject fills it; failing that, an Eye Line sizes it so the eyes can reach the upper Golden Line, floored on the Leading Subject's own box. Never below the cover window. A window a Subject Area sized is rounded **up**, because `subjectArea` fixes the smallest window that holds the Subject inside it and the containment slack below is already spent on the origin's own rounding; its longer axis is derived from its shorter one, so that rounding is divided by the aspect rather than multiplied by it.
 2. **Aim.** With a `subjectArea`, the Subject aims at its centre. Otherwise the Subject aims at the Golden Line nearest to where it already sat, which moves the photographer's composition as little as possible; with an Eye Line, the eyes aim at the upper Golden Line instead.
 3. **Free Area.** The largest rectangle of the Image Slot no Occlusion Zone touches, intersected with `subjectArea` when both are given (`subjectArea` wins an empty intersection, and the miss is reported). The aim point is clamped so the Subject lands inside it, and the Eye Line aims at the Free Area's upper Golden Line rather than the frame's. **The Free Area never changes the size.**
 4. **Clamp** to the Source Image, then round to whole pixels.
 
-Containment allows **0.5 px** of slack, because the window is rounded before it is cut and exact containment would report a fallback for a Subject half a pixel out.
+Containment allows **0.5 px** of slack, because the window is rounded before it is cut and exact containment would report a fallback for a Subject half a pixel out. One rounding, not two: that is the budget the window's origin spends, which is why a window sized by a `subjectArea` rounds up rather than to nearest.
 
 ### The fallback ladder
 

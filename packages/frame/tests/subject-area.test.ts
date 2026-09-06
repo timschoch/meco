@@ -330,3 +330,93 @@ describe("the window a Subject Area sized, whatever the shapes", () => {
     });
   }
 });
+
+/**
+ * The cases round numbers never reach. Every fixture above divides exactly, and
+ * a window rounded off a Subject Area is where the two promises this module
+ * makes are most easily lost: the target shape, and a Subject Area the picture
+ * was big enough to fill.
+ *
+ * Deterministic, not random: the same 4000 shapes every run, from a generator
+ * written out here, so a red run names the case that broke and a green one is
+ * not luck. `frameCrop` is pure, so this is a property test and not a fuzz.
+ */
+const awkwardCases = () => {
+  // A linear congruential generator, the constants of Numerical Recipes. Any
+  // sequence would do; what matters is that it is the same one every run.
+  let seed = 42;
+  const next = () =>
+    (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+
+  return Array.from({ length: 4000 }, () => {
+    const source = {
+      width: 800 + Math.floor(next() * 3200),
+      height: 800 + Math.floor(next() * 3200),
+    };
+    const target = TARGETS[Math.floor(next() * TARGETS.length)]!.target;
+    const face = { width: 0.05 + next() * 0.3, height: 0.05 + next() * 0.3 };
+    const area = { width: 0.2 + next() * 0.6, height: 0.2 + next() * 0.6 };
+
+    return {
+      source,
+      target,
+      face: {
+        ...face,
+        x: next() * (1 - face.width),
+        y: next() * (1 - face.height),
+      },
+      subjectArea: {
+        ...area,
+        x: next() * (1 - area.width),
+        y: next() * (1 - area.height),
+      },
+    };
+  });
+};
+
+describe("the window a Subject Area sized, on numbers that do not divide", () => {
+  const CASES = awkwardCases();
+
+  it("is within one pixel of the target aspect, on both axes, every time", () => {
+    const broken = CASES.filter(({ source, target, face, subjectArea }) => {
+      const { width, height } = framingWith(
+        source,
+        face,
+        subjectArea,
+        target
+      ).window;
+      const aspect = target.width / target.height;
+
+      return (
+        Math.abs(width - height * aspect) > 1 ||
+        Math.abs(height - width / aspect) > 1
+      );
+    });
+
+    expect(broken).toEqual([]);
+  });
+
+  // The window a Subject Area asks for is the *smallest* one that fits the
+  // Subject inside it, so rounding it down puts the Subject over the area's
+  // edge. When the picture was big enough and nothing pushed the window off the
+  // area, the answer must be that the area was satisfied.
+  it("satisfies every area the Source Image was big enough to fill", () => {
+    const missed = CASES.filter(({ source, target, face, subjectArea }) => {
+      const framing = framingWith(source, face, subjectArea, target);
+      const { x, y, width, height } = framing.window;
+      const slid =
+        x > 0 &&
+        x + width < source.width &&
+        y > 0 &&
+        y + height < source.height;
+
+      return (
+        framing.subjectAreaShortfall === 1 &&
+        slid &&
+        framing.subjectAreaSatisfied === false
+      );
+    });
+
+    expect(missed).toEqual([]);
+  });
+});

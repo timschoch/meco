@@ -26,6 +26,7 @@ export function frameCrop(input: FrameInput): Framing {
 
   const source = { width: annotation.width, height: annotation.height };
   const composed = composeSubject(annotation, request);
+  const declaredArea = request.subjectArea;
 
   // A Subject Area does two jobs and needs a Subject for both: it sizes the
   // window so the Subject fills it, and it supplies the aim point in place of a
@@ -34,10 +35,10 @@ export function frameCrop(input: FrameInput): Framing {
   // been. The Eye Line (#103) is the only other thing that sizes, and a
   // declared area turns it off.
   const area =
-    request.subjectArea === undefined || composed === undefined
+    declaredArea === undefined || composed === undefined
       ? undefined
       : solveSubjectArea(
-          request.subjectArea,
+          declaredArea,
           composed.subject,
           source,
           request.target
@@ -86,14 +87,14 @@ export function frameCrop(input: FrameInput): Framing {
     // and miss the area doing it on #108. A Subject that rung sacrificed is a
     // miss too, which is the `droppedRegionIds` clause — nothing fills it until
     // #108 builds the drop rung, and it is written here so #108 cannot forget.
-    ...(request.subjectArea === undefined
+    ...(declaredArea === undefined
       ? {}
       : {
           subjectAreaSatisfied:
             composed !== undefined &&
             droppedRegionIds.length === 0 &&
             fillsSubjectArea(
-              request.subjectArea,
+              declaredArea,
               composed.subject,
               cropWindow,
               source

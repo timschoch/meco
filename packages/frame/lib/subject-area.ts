@@ -1,6 +1,6 @@
 import type { Box, Point, Size } from "@meco/contracts";
 import type { CropWindow } from "./framing";
-import { coverWindow, roundOntoAxis } from "./window";
+import { coverWindow } from "./window";
 
 /**
  * The containment slack, in Source Image pixels. The window is rounded before
@@ -21,6 +21,35 @@ export interface SubjectAreaSolve {
   /** 1 when the Source Image could fill the area, the factor short otherwise. */
   shortfall: number;
 }
+
+/**
+ * The window of the target shape that fits the Subject inside the area, in
+ * whole pixels.
+ *
+ * Rounded up and never down. `needed` is the *smallest* window that holds the
+ * Subject inside the area, so a window one rounding narrower puts the Subject
+ * over the area's edge — and the half pixel of containment slack is already
+ * spent on the rounding of the window's own origin.
+ *
+ * The longer axis is derived from the shorter one and never the reverse. The
+ * rounding up is then divided by the aspect on the axis it was not applied to,
+ * rather than multiplied by it, which is what keeps the window within a pixel
+ * of the target shape on both axes at 16:9 and at 9:16 alike.
+ *
+ * Capped at the cover window, which the caller has already established the
+ * picture can hold: the rounding up must not ask for a pixel the Source Image
+ * has not got.
+ */
+const windowForArea = (needed: number, aspect: number, cover: Size): Size => {
+  const wide = aspect >= 1;
+  const shorter = Math.ceil(wide ? needed / aspect : needed);
+  const longer = Math.ceil(wide ? shorter * aspect : shorter / aspect);
+
+  return {
+    width: Math.min(cover.width, wide ? longer : shorter),
+    height: Math.min(cover.height, wide ? shorter : longer),
+  };
+};
 
 /**
  * The window a Subject Area asks for.
@@ -52,18 +81,14 @@ export function solveSubjectArea(
 
   const aim = { x: area.x + area.width / 2, y: area.y + area.height / 2 };
   // The same half pixel the containment allows: a window one rounding wider
-  // than the picture is not a Source Image that fell short.
-  const short = needed > cover.width + SLACK_PX;
+  // than the picture is not a Source Image that fell short, and a shortfall of
+  // 1.0001 would read as a miss where the arithmetic only rounded.
+  const sourceTooSmall = needed > cover.width + SLACK_PX;
 
   return {
-    size: short
-      ? cover
-      : {
-          width: roundOntoAxis(needed, source.width),
-          height: roundOntoAxis(needed / aspect, source.height),
-        },
+    size: sourceTooSmall ? cover : windowForArea(needed, aspect, cover),
     aim,
-    shortfall: short ? needed / cover.width : 1,
+    shortfall: sourceTooSmall ? needed / cover.width : 1,
   };
 }
 

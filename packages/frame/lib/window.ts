@@ -18,7 +18,7 @@ const ANCHOR_OFFSETS: Record<CropAnchor, { x: number; y: number }> = {
 };
 
 /** The nearest whole pixel, never below one and never past the source axis. */
-export const roundOntoAxis = (value: number, limit: number): number =>
+const roundOntoAxis = (value: number, limit: number): number =>
   Math.min(limit, Math.max(1, Math.round(value)));
 
 /**
