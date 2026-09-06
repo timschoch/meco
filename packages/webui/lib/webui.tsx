@@ -9,6 +9,8 @@
 import type { Caller, Records } from "@meco/records";
 import type { Store } from "@meco/store";
 import { type Context, Hono } from "hono";
+import { CallView } from "./call";
+import { callView } from "./call-page";
 import { Calls } from "./calls";
 import { callsPage } from "./calls-page";
 import { Gallery } from "./gallery";
@@ -72,6 +74,21 @@ const notYourBrand = (c: Context, brand: string) =>
       detail={`Your key does not hold the brand ${brand}.`}
     />,
     403
+  );
+
+/**
+ * The one page for "no such Call", built from constants so that a Call of a
+ * Brand the Caller does not hold and an id that names nothing are the same
+ * bytes. Anything read off the request would say the id exists.
+ */
+const notFound = (c: Context) =>
+  c.html(
+    <Refusal
+      title="Not found"
+      code="not_found"
+      detail="No such Call, or not one of your Brands."
+    />,
+    404
   );
 
 const badRequest = (c: Context, title: string, detail: string) =>
@@ -226,6 +243,34 @@ export function webui(options: WebuiOptions): Hono {
         calls={page.rows}
         brands={named}
         cursor={page.cursor}
+      />
+    );
+  });
+
+  app.get("/calls/:id", async (c) => {
+    const caller = await seen(c);
+    if (caller instanceof Response) return caller;
+
+    let view;
+    try {
+      view = await callView(
+        options.records,
+        caller,
+        c.req.param("id"),
+        pageSize
+      );
+    } catch {
+      return noAnswer(c);
+    }
+    if (view === null) return notFound(c);
+
+    return c.html(
+      <CallView
+        basePath={basePath}
+        call={view.call}
+        outputs={view.outputs}
+        moreOutputs={view.moreOutputs}
+        store={options.store}
       />
     );
   });
