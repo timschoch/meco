@@ -123,21 +123,31 @@ export function matchGolden<T extends Pick<Region, "box">>(
 }
 
 /**
- * One committed reference Face Print, as `fixtures/faces/face-prints.json`
- * records them: the prototype's own ONNX print of every hand-marked fixture
- * face, named by the same label `expected.json` gives its box.
+ * The golden Face Prints: `fixtures/faces/edgeface-reference.json`, PyTorch's
+ * own output over the committed 112px squares in `fixtures/faces/aligned/`.
+ *
+ * Not `face-prints.json` beside it, which this repository's own script now
+ * writes through the shipped Catalogue (`pnpm --filter @meco/models
+ * print:fixtures`, #177): checking the adapter against its own output would
+ * assert nothing. These come from another runtime and another aligner —
+ * PyTorch 2.14 at opset 17, InsightFace's warp — so agreeing with them is a
+ * claim about this adapter and not about this repository.
+ *
+ * Keyed by the aligned square's filename, which is the fixture's stem and the
+ * hand-marked label with its spaces as dashes.
  */
-export interface ReferencePrint {
-  name: string;
-  file: string;
-  label: string;
-  person: string;
-  print: number[];
-}
-
-export const referencePrints = async (): Promise<ReferencePrint[]> =>
+const goldenPrints = async (): Promise<Record<string, number[]>> =>
   (
-    JSON.parse(await readFile(new URL("face-prints.json", FACES), "utf8")) as {
-      prints: ReferencePrint[];
-    }
+    JSON.parse(
+      await readFile(new URL("edgeface-reference.json", FACES), "utf8")
+    ) as { prints: Record<string, number[]> }
   ).prints;
+
+/** The golden print of one hand-marked fixture face, by its photograph and label. */
+export const goldenPrint = async (
+  file: string,
+  label: string
+): Promise<number[] | undefined> => {
+  const name = `${file.replace(/\.[^.]+$/, "")}-${label.replace(/ /g, "-")}.png`;
+  return (await goldenPrints())[name];
+};

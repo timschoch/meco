@@ -19,7 +19,8 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "probe": "node scripts/probe.build.mjs && node dist/probe/probe.js"
+    "probe": "node scripts/probe.build.mjs && node dist/probe/probe.js",
+    "print:fixtures": "node scripts/print-fixtures.build.mjs && node dist/print-fixtures/print-fixtures.js"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
