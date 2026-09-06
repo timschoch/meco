@@ -19,6 +19,7 @@ import {
   isComparablePrint,
   similarity,
 } from "./face";
+import { numberMatches } from "./number";
 import type { FaceVerdict, Identification } from "./types";
 
 /** A Person as the rule compares them: their id and their usable prints. */
@@ -156,11 +157,25 @@ export const matchRule = (
             regionId: face.regionId,
             personId: face.personId,
             brand,
+            by: "face",
             similarity: face.similarity,
-          },
+          } satisfies Match,
         ]
       : []
   );
 
-  return { matches, faces, unusableReferencePhotos: unusable };
+  // The second rule, over the same Annotation and the same People. It reads no
+  // print and shares no arithmetic with the first: a face and a painted digit
+  // are two kinds of evidence, and `by` on the Match says which one answered.
+  //
+  // Both lists are already in Region id order within themselves. Concatenated
+  // rather than merged, because a number Match names a `vehicle` and a face
+  // Match names a `face`, so one order over both would interleave two kinds of
+  // id for no consumer that wants it: frame reads `by` and the gateway groups
+  // by Region.
+  return {
+    matches: [...matches, ...numberMatches(annotation, brand, people)],
+    faces,
+    unusableReferencePhotos: unusable,
+  };
 };

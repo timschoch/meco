@@ -16,7 +16,7 @@
  * 16). `list_people` and the Enrolment both answer through it.
  */
 import { type Annotator, identify } from "@meco/identify";
-import type { ReferencePhoto } from "@meco/records";
+import { NumbersTaken, type ReferencePhoto } from "@meco/records";
 import { modelsUnbound } from "./catalogue";
 import { GatewayError } from "./errors";
 import type { OperationContext } from "./operations";
@@ -32,6 +32,7 @@ export const listPeople = async (ctx: OperationContext) => {
     id: person.id,
     brand: person.brand,
     name: person.name,
+    numbers: person.numbers,
     createdAt: person.createdAt,
     photos: person.photos.map(onTheWire),
   }));
@@ -60,8 +61,67 @@ const onTheWire = (photo: ReferencePhoto) => ({
  */
 export const addPerson = async (
   ctx: OperationContext,
-  input: { readonly brand: string; readonly name: string }
-) => ({ ...(await ctx.records.people.create(input)) });
+  input: {
+    readonly brand: string;
+    readonly name: string;
+    readonly numbers?: readonly string[];
+  }
+) => ({ ...(await conflictAware(() => ctx.records.people.create(input))) });
+
+/**
+ * Replaces a Person's race numbers. `404` for a Person of another Brand or
+ * none at all, which is the same answer and the same words `erase_person`
+ * gives: an id is not a capability.
+ *
+ * A whole-list replace, because records' seam is one. A Brand knows what its
+ * driver carries this season, and an add-and-remove pair would leave a moment
+ * where the Person holds a number nobody gave them.
+ */
+export const setPersonNumbers = async (
+  ctx: OperationContext,
+  {
+    brand,
+    id,
+    numbers,
+  }: {
+    readonly brand: string;
+    readonly id: string;
+    readonly numbers: readonly string[];
+  }
+) => {
+  const person = await conflictAware(() =>
+    ctx.records.people.setNumbers(brand, id, numbers)
+  );
+  if (person === null) {
+    throw new GatewayError("not_found", `No Person ${id} in brand ${brand}.`);
+  }
+  return { ...person };
+};
+
+/**
+ * A race number another Person of this Brand already carries, as the wire's
+ * `409 conflict` rather than a `500`.
+ *
+ * The refusal is records' constraint and the message names the number and its
+ * holder, because the caller's next move is to pick another number or to look
+ * at the Person who has it. Every other failure travels on untouched.
+ */
+const conflictAware = async <T>(run: () => Promise<T>): Promise<T> => {
+  try {
+    return await run();
+  } catch (error) {
+    if (!(error instanceof NumbersTaken)) throw error;
+    throw new GatewayError(
+      "conflict",
+      error.taken
+        .map(
+          (one) =>
+            `race number ${one.number} already belongs to person ${one.personId}`
+        )
+        .join("; ")
+    );
+  }
+};
 
 /**
  * Erasure, answered as records reports it — including `remaining`, its own

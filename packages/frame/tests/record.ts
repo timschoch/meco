@@ -30,6 +30,13 @@ import { KART_FIXTURES } from "./samples";
 declare const __SOURCES__: string;
 /** This folder's `fixtures/`, where the recordings are written. */
 declare const __RECORDINGS__: string;
+/**
+ * `fixtures/karts/annotations/`, where a recording two packages read is
+ * written instead. identify's number Match Rule is tested on the same two
+ * kart Annotations frame's `match` rung is, and a second copy of a recording
+ * is a second thing to re-record.
+ */
+declare const __SHARED_RECORDINGS__: string;
 
 /**
  * Every recording, and the photograph it is a recording of. The name is the
@@ -46,7 +53,12 @@ const SOURCES: Record<string, string> = {
   "paddock-mixed": "karts/paddock-mixed.jpg",
   "podium-trophy": "karts/podium-trophy.jpg",
   "podium-trophy-2": "karts/podium-trophy-2.jpg",
+  "kart-grid-24": "karts/kart-grid-24.jpg",
+  "kart-24-target": "karts/kart-24-target.jpg",
 };
+
+/** The recordings that go to {@link __SHARED_RECORDINGS__} instead. */
+const SHARED = new Set(["kart-grid-24", "kart-24-target"]);
 
 const baseUrl = process.argv[2];
 if (baseUrl === undefined) {
@@ -245,7 +257,7 @@ for (const [name, relative] of Object.entries(SOURCES)) {
 
 for (const [name, annotation] of recorded) {
   await writeFile(
-    resolve(__RECORDINGS__, `${name}.json`),
+    resolve(SHARED.has(name) ? __SHARED_RECORDINGS__ : __RECORDINGS__, `${name}.json`),
     `${JSON.stringify(annotation, null, 2)}\n`
   );
 }

@@ -1,0 +1,545 @@
+{
+  "schema": 1,
+  "hash": "bbfb8a472ba5852b119f3c609341102442edcee1a21c7b282727b47b776a0b16",
+  "mime": "image/jpeg",
+  "width": 1200,
+  "height": 675,
+  "producedBy": [
+    {
+      "name": "yunet",
+      "version": "1"
+    },
+    {
+      "name": "dfine",
+      "version": "1"
+    },
+    {
+      "name": "ppocr",
+      "version": "1"
+    },
+    {
+      "name": "edgeface",
+      "version": "1"
+    }
+  ],
+  "regions": [
+    {
+      "kind": "face",
+      "label": "face",
+      "box": {
+        "x": 0.511799,
+        "y": 0.209802,
+        "width": 0.07105,
+        "height": 0.151054
+      },
+      "score": 0.783913,
+      "model": {
+        "name": "yunet",
+        "version": "1"
+      },
+      "landmarks": {
+        "rEye": {
+          "x": 0.540289,
+          "y": 0.26226
+        },
+        "lEye": {
+          "x": 0.56593,
+          "y": 0.266043
+        },
+        "nose": {
+          "x": 0.554828,
+          "y": 0.289987
+        },
+        "rMouth": {
+          "x": 0.538707,
+          "y": 0.310779
+        },
+        "lMouth": {
+          "x": 0.558997,
+          "y": 0.316664
+        }
+      },
+      "id": "face-1"
+    },
+    {
+      "kind": "number",
+      "label": "227",
+      "box": {
+        "x": 0.318267,
+        "y": 0.343769,
+        "width": 0.055078,
+        "height": 0.055022
+      },
+      "score": 0.634514,
+      "model": {
+        "name": "ppocr",
+        "version": "1"
+      },
+      "id": "number-1"
+    },
+    {
+      "kind": "number",
+      "label": "24",
+      "box": {
+        "x": 0.465847,
+        "y": 0.381652,
+        "width": 0.058437,
+        "height": 0.090862
+      },
+      "score": 0.82989,
+      "model": {
+        "name": "ppocr",
+        "version": "1"
+      },
+      "id": "number-2"
+    },
+    {
+      "kind": "number",
+      "label": "66",
+      "box": {
+        "x": 0.862192,
+        "y": 0.455991,
+        "width": 0.064267,
+        "height": 0.086531
+      },
+      "score": 0.729855,
+      "model": {
+        "name": "ppocr",
+        "version": "1"
+      },
+      "id": "number-3"
+    },
+    {
+      "kind": "number",
+      "label": "21",
+      "box": {
+        "x": 0.168836,
+        "y": 0.579322,
+        "width": 0.076802,
+        "height": 0.097308
+      },
+      "score": 0.798531,
+      "model": {
+        "name": "ppocr",
+        "version": "1"
+      },
+      "id": "number-4"
+    },
+    {
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.463787,
+        "y": 0.000078,
+        "width": 0.033522,
+        "height": 0.045232
+      },
+      "score": 0.294534,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "person-1"
+    },
+    {
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.458802,
+        "y": 0.000157,
+        "width": 0.03958,
+        "height": 0.078765
+      },
+      "score": 0.438685,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "person-2"
+    },
+    {
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.946927,
+        "y": 0.002093,
+        "width": 0.053016,
+        "height": 0.188616
+      },
+      "score": 0.311501,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "person-3"
+    },
+    {
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.25184,
+        "y": 0.13222,
+        "width": 0.166684,
+        "height": 0.462717
+      },
+      "score": 0.809454,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "person-4"
+    },
+    {
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.132214,
+        "y": 0.13744,
+        "width": 0.219729,
+        "height": 0.751355
+      },
+      "score": 0.418631,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "person-5"
+    },
+    {
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.489604,
+        "y": 0.153537,
+        "width": 0.141304,
+        "height": 0.476381
+      },
+      "score": 0.588773,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "person-6"
+    },
+    {
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.239945,
+        "y": 0.154161,
+        "width": 0.069947,
+        "height": 0.332218
+      },
+      "score": 0.348906,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "person-7"
+    },
+    {
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.373508,
+        "y": 0.154695,
+        "width": 0.256489,
+        "height": 0.468083
+      },
+      "score": 0.476967,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "person-8"
+    },
+    {
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.678016,
+        "y": 0.159411,
+        "width": 0.315659,
+        "height": 0.70521
+      },
+      "score": 0.793026,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "person-9"
+    },
+    {
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.000466,
+        "y": 0.210451,
+        "width": 0.172435,
+        "height": 0.69007
+      },
+      "score": 0.740409,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "person-10"
+    },
+    {
+      "kind": "vehicle",
+      "label": "truck",
+      "box": {
+        "x": 0.678185,
+        "y": 0.000959,
+        "width": 0.286308,
+        "height": 0.242362
+      },
+      "score": 0.334879,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-1"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.4108,
+        "y": 0.023963,
+        "width": 0.0876,
+        "height": 0.067132
+      },
+      "score": 0.327589,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-2"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.380798,
+        "y": 0.367328,
+        "width": 0.203404,
+        "height": 0.626976
+      },
+      "score": 0.708699,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-3"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.784283,
+        "y": 0.39919,
+        "width": 0.214883,
+        "height": 0.595401
+      },
+      "score": 0.320731,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-4"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.000081,
+        "y": 0.442092,
+        "width": 0.999617,
+        "height": 0.552904
+      },
+      "score": 0.283865,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-5"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.000933,
+        "y": 0.448926,
+        "width": 0.530901,
+        "height": 0.545935
+      },
+      "score": 0.637046,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-6"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.535971,
+        "y": 0.455673,
+        "width": 0.164289,
+        "height": 0.418731
+      },
+      "score": 0.468969,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-7"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.13936,
+        "y": 0.477624,
+        "width": 0.212078,
+        "height": 0.432895
+      },
+      "score": 0.350236,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-8"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.000555,
+        "y": 0.488614,
+        "width": 0.148952,
+        "height": 0.454639
+      },
+      "score": 0.367059,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-9"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.66159,
+        "y": 0.488896,
+        "width": 0.337426,
+        "height": 0.506128
+      },
+      "score": 0.677288,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-10"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.654654,
+        "y": 0.594297,
+        "width": 0.178131,
+        "height": 0.401294
+      },
+      "score": 0.316826,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-11"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.568367,
+        "y": 0.623183,
+        "width": 0.127567,
+        "height": 0.25051
+      },
+      "score": 0.283613,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-12"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.000248,
+        "y": 0.671179,
+        "width": 0.113426,
+        "height": 0.273865
+      },
+      "score": 0.286374,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-13"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.001004,
+        "y": 0.677336,
+        "width": 0.513233,
+        "height": 0.318363
+      },
+      "score": 0.288263,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-14"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.664883,
+        "y": 0.741487,
+        "width": 0.334026,
+        "height": 0.254873
+      },
+      "score": 0.414537,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-15"
+    },
+    {
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.666002,
+        "y": 0.755056,
+        "width": 0.168315,
+        "height": 0.241731
+      },
+      "score": 0.335317,
+      "model": {
+        "name": "dfine",
+        "version": "1"
+      },
+      "id": "vehicle-16"
+    }
+  ]
+}

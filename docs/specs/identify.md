@@ -114,6 +114,7 @@ export const MATCH_THRESHOLD: 0.5;
 export const MATCH_MARGIN: 0.05;
 export const MIN_FACE_PX: 40;
 export const NOT_A_FACE_THRESHOLD: 0.6;
+export const NUMBER_ON_VEHICLE: 0.5;
 export const PRINT_MODEL: { name: "edgeface"; version: "1" };
 ```
 
@@ -129,7 +130,22 @@ export const PRINT_MODEL: { name: "edgeface"; version: "1" };
    - shorter side below `MIN_FACE_PX` in the Decoded Image → `not-identifiable: too-small`;
    - similarity at or above `NOT_A_FACE_THRESHOLD` to a Not-a-Face Print → `not-identifiable: not-a-face`, `detail` naming the reference;
    - otherwise compared: best similarity per Person, the runner-up is the best other Person. `match` when best ≥ `MATCH_THRESHOLD` and best − runnerUp ≥ `MATCH_MARGIN` (no runner-up passes the margin); `unknown` otherwise, with `best` and `runnerUp` reported.
-4. `matches` is the `match` verdicts as contracts Matches, `brand` set.
+4. `matches` is the `match` verdicts as contracts Matches, `by: "face"`, `brand` set, followed by the number Matches below.
+
+### The second Match Rule: a race number
+
+A driver in a crash helmet has no face to compare, so step 3 above is silent for them by design. What a person at the fence reads instead is the number painted on the kart, and `ppocr@1` already puts it on the Annotation as a `number` Region whose Label is the digits ([ADR-0015](../adr/0015-a-race-number-is-a-second-match-rule.md)).
+
+For each `number` Region, in id order, whose Label equals one of a Brand's Person's numbers:
+
+- score every `vehicle` Region by the share of the **number's own** box that lies inside it — not an IoU, which would be small for exactly the pairing being looked for;
+- the best score wins and must be above `NUMBER_ON_VEHICLE`; ties go to the **smaller** vehicle box, then to the lower Region id;
+- nothing above the floor is no Match, because there is no kart to frame and the digits are not one;
+- the Match is `{ regionId: <the vehicle>, personId, brand, by: "number", numberRegionId: <the number> }`.
+
+A number no Person carries is no Match, which is most of them. records keeps one number to one Person within a Brand, so the lookup itself can never be ambiguous. The same number read on two karts gives that Person two Matches; both are reported, and choosing between them is framing's business.
+
+The rule reads no print, shares no arithmetic with the face rule, and adds no field to `Identification`: `faces` still means face Regions. The Number Report the gateway shows is assembled from the Annotation's `number` Regions plus these Matches.
 
 No `persons`: frame narrows who leads and redact must not blur an enrolled Person the caller did not name ([`frame.md`](frame.md), "persons narrows who may lead and nothing else"). No model call: the prints are on the Annotation. No cache: a Match is tens of dot products (ADR-0011, Decision 2). A Brand with no People yields every face `unknown` or `uncompared`, and an empty `matches`.
 
@@ -177,7 +193,7 @@ The same photograph enrolled twice is two rows on one key (records, "People, Ref
 
 ### The kart
 
-The brief says "given a kart, this is the kart". A kart is frame's composition of a `vehicle` Region and the `person` on it (`CONTEXT.md`, Kart Producer), not a Region Kind and not an identity. identify v1 says nothing about non-face Regions; `faces` lists face Regions only.
+The brief says "given a kart, this is the kart". A kart is frame's composition of a `vehicle` Region and the `person` on it (`CONTEXT.md`, Kart Producer), not a Region Kind and not an identity. A number Match **names** a `vehicle` Region and composes nothing: which boxes join it into a Subject is still frame's rule and is kept in one place. `faces` lists face Regions only.
 
 ### Dependencies and boundaries
 
@@ -186,6 +202,10 @@ The brief says "given a kart, this is the kart". A kart is frame's composition o
 ## Testing decisions
 
 Vitest, through `packages/identify/index.ts` only, `tests-through-entrypoints` enforced. Dependencies are real where an adapter exists and fake only at the model: `records(pgliteDatabase(), memoryStore())`, `memoryStore()`, and an `Annotator` that returns a committed fixture Annotation for a known hash. No network, no ONNX, no fake `Records`; a fake would be a third adapter nobody keeps honest.
+
+The number rule is tested on the two Annotations at `fixtures/karts/annotations/`, recorded through the shipped Catalogue and shared with frame's and the gateway's suites. A recording and not a hand-built Annotation: every question the rule answers is a question about boxes a detector really drew, and a fixture somebody typed would answer them by construction.
+
+One question those recordings cannot ask, and it is the containment floor's own. In both of them every number that has a kart sits wholly inside it, so every floor in (0, 1] picks the same kart and dropping the floor altogether leaves the suite green. What the floor is for is a number that overhangs its kart or sits between two of them, which no committed photograph holds, so that geometry is built by hand — the right tool for asking what the rule does with a box already given, and the wrong one for asking where a detector draws one.
 
 Fixture Annotations are built from `fixtures/faces/detected.json` (YuNet boxes and landmarks) and `fixtures/faces/face-prints.json` (prints, 7 people lettered A to G), and from `fixtures/karts/face-prints.json` for the helmet, parsed with the contracts schema inside the test so a drift fails here.
 
@@ -208,6 +228,12 @@ Fixture Annotations are built from `fixtures/faces/detected.json` (YuNet boxes a
 | `enrol` with `regionId` on a two-face photograph enrols that face                                           | ignore `regionId`                      |
 | `enrol` writes under `people/<brand>/<personId>/` and the row names that key and the chosen print           | write under `sources/`                 |
 | the calibration file recomputes the table above from the committed prints and fails on a single false Match | raise a stranger pair over 0.50        |
+| the `24` on the recorded grid matches `vehicle-3`, not the number's own Region and not the largest `vehicle` | seed the number rule on the largest box |
+| the `21`, wholly inside three nested `vehicle` boxes, matches the smallest of them                          | break that tie on the id alone         |
+| the `227`, over no `vehicle` box at all, is no Match                                                        | take any `vehicle` that overlaps at all |
+| a number straddling two karts, neither holding a majority of it, is no Match                                | drop the containment floor             |
+| a number no Person of the Brand carries is no Match, and another Brand's list names nobody                  | look the label up across Brands        |
+| the target photograph, whose driver is in a helmet and has no face Region, still matches by its number      | require a face Region to be present    |
 
 Every check is proved able to fail by its mutation before it ships. Commit the green state first, then mutate, then `git restore`.
 

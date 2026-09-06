@@ -28,6 +28,7 @@ export {
 export { type Page } from "./lib/page";
 export { neonDatabase } from "./lib/neon-database";
 export {
+  NumbersTaken,
   type Erasure,
   type NewReferencePhoto,
   type People,

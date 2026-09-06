@@ -13,6 +13,13 @@ export const GATEWAY_STATUS = {
   unauthorized: 401,
   brand_not_held: 403,
   not_found: 404,
+  /**
+   * A race number another Person of this Brand already carries. One number is
+   * one Person within a Brand, so that a number read off a photograph names at
+   * most one of them; the caller picks another number or looks at the Person
+   * who has it, and the message says which that is.
+   */
+  conflict: 409,
   too_large: 413,
   /** Bytes the decoder cannot read as an image. models raises this too. */
   unsupported_mime: 415,

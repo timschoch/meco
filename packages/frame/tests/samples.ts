@@ -80,7 +80,21 @@ export const matchOf = (
   personId: string,
   similarity: number,
   brand: string = BRAND
-): Match => Match.parse({ regionId, personId, brand, similarity });
+): Match =>
+  Match.parse({ regionId, personId, brand, by: "face", similarity });
+
+/**
+ * A number Match: this `vehicle` Region carries this Person's race number,
+ * read off the `number` Region beside it. No similarity — there is no cosine
+ * to report for a digit somebody painted on a kart.
+ */
+export const numberMatchOf = (
+  regionId: string,
+  personId: string,
+  numberRegionId: string,
+  brand: string = BRAND
+): Match =>
+  Match.parse({ regionId, personId, brand, by: "number", numberRegionId });
 
 /** A request for one target size, everything optional left out. */
 export const requestFor = (

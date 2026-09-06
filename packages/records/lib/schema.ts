@@ -112,6 +112,32 @@ export const people = pgTable(
 );
 
 /**
+ * A race number one Brand gave one Person: the digits painted on their kart.
+ *
+ * Its own table and not a `text[]` on `people`, because the rule that matters
+ * is that no two People of one Brand carry the same number — a number meco
+ * reads off a photograph has to name at most one Person, or the Match Rule
+ * would have to choose between them and no photograph holds the tie-break.
+ * Postgres has no unique index over the elements of an array, so the array
+ * would leave that rule to whichever writer got there first
+ * (ADR-0015). Cascades with the Person, like a Reference Photo.
+ */
+export const personNumbers = pgTable(
+  "person_numbers",
+  {
+    personId: text("person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+    brand: text("brand")
+      .notNull()
+      .references(() => brands.id),
+    number: text("number").notNull(),
+    createdAt: createdAt("created_at"),
+  },
+  (t) => [primaryKey({ columns: [t.brand, t.number] }), index().on(t.personId)]
+);
+
+/**
  * A Reference Photo: a File like any other, plus the Person it was enrolled
  * for, the Region identify chose, the Face Print it computed and the consent
  * that allowed it.

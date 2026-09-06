@@ -208,12 +208,22 @@ export const invalidFramingRequests: { name: string; value: unknown }[] = [
   },
 ];
 
-/** One Match: this face Region is this Person, for this Brand, on this call. */
+/** One face Match: this face Region is this Person, for this Brand, on this call. */
 export const match: Match = {
   regionId: face.id,
   personId: "p-nino",
   brand,
+  by: "face",
   similarity: 0.71,
+};
+
+/** One number Match: the kart carrying this Person's race number. */
+export const numberMatch: Match = {
+  regionId: "vehicle-1",
+  personId: "p-nino",
+  brand,
+  by: "number",
+  numberRegionId: "number-1",
 };
 
 export const invalidMatches: { name: string; value: unknown }[] = [
@@ -230,5 +240,34 @@ export const invalidMatches: { name: string; value: unknown }[] = [
   {
     name: "a region id that is not <kind>-<n>",
     value: { ...match, regionId: "face_1" },
+  },
+  // The discriminant, and the halves it keeps apart. A Match with no `by` was
+  // the whole shape before #227; taking it is what stops a face Match written
+  // against the old contract from arriving as a number one.
+  {
+    name: "no rule saying how the Match was made",
+    value: { regionId: face.id, personId: "p-nino", brand, similarity: 0.71 },
+  },
+  { name: "a rule nothing implements", value: { ...match, by: "voice" } },
+  {
+    name: "a face Match carrying a number Region",
+    value: { ...match, numberRegionId: "number-1" },
+  },
+  {
+    name: "a number Match carrying a similarity",
+    value: { ...numberMatch, similarity: 1 },
+  },
+  {
+    name: "a number Match with no number Region",
+    value: {
+      regionId: "vehicle-1",
+      personId: "p-nino",
+      brand,
+      by: "number",
+    },
+  },
+  {
+    name: "a number Match whose number Region is not <kind>-<n>",
+    value: { ...numberMatch, numberRegionId: "number_1" },
   },
 ];

@@ -1,7 +1,8 @@
 /**
  * The HTTP Door: one route per Operation, under `/v1`. A `GET` or `DELETE`
- * reads its input from the query and the path, a `POST` from the JSON body and
- * the path; every answer is JSON, and every refusal is `toWire`'s body.
+ * reads its input from the query and the path, a `POST` or `PATCH` from the
+ * JSON body and the path; every answer is JSON, and every refusal is
+ * `toWire`'s body.
  */
 import { Hono } from "hono";
 import type { Caller } from "@meco/records";
@@ -19,8 +20,11 @@ export function httpDoor(
 
   for (const operation of operations) {
     door.on(operation.method, operation.path, async (c) => {
+      // Which methods carry a body, not which are writes: a `DELETE` names
+      // its Person in the path and a query string cannot carry a list of race
+      // numbers, which is why `set_person_numbers` is a `PATCH`.
       const raw =
-        operation.method === "POST"
+        operation.method === "POST" || operation.method === "PATCH"
           ? { ...(await jsonBody(c.req.raw)), ...c.req.param() }
           : { ...c.req.query(), ...c.req.param() };
       const result = await run(operation, deps, c.get("caller"), raw);

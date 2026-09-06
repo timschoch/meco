@@ -167,6 +167,7 @@ export const matchOf = (regionId: string, similarity: number): Match => ({
   regionId,
   personId: "person-reid-wiseman",
   brand: "nasa",
+  by: "face",
   similarity,
 });
 

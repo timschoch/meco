@@ -70,12 +70,13 @@ Every Operation is one record: `name` (the MCP tool name), `method` and `path` (
 | --------------------- | ------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `render_image`        | `POST /v1/render`              | `render`   | template + placement + fields + Source Reference + framing options → a Render                                                   |
 | `crop_image`          | `POST /v1/crop`                | `crop`     | Source Reference + target size + framing options → a Crop                                                                       |
-| `find_subjects`       | `POST /v1/annotate`            | `annotate` | Source Reference + brand → the Annotation (prints stripped) and this Brand's Identification; files the source, stores no output |
+| `find_subjects`       | `POST /v1/annotate`            | `annotate` | Source Reference + brand → the Annotation (prints stripped), this Brand's Identification and the Number Report without `inFrame`; files the source, stores no output |
 | `list_templates`      | `GET /v1/templates?brand=`     | –          | compose `templates(brand)`; every Template of the Caller's Brands without `brand`                                               |
 | `list_placements`     | `GET /v1/placements`           | –          | compose `PLACEMENTS`                                                                                                            |
 | `list_brands`         | `GET /v1/brands`               | –          | the Caller's Brands with their names                                                                                            |
-| `list_people`         | `GET /v1/people?brand=`        | –          | records `people.list` without the prints; Reference Photo ids and consent dates                                                 |
-| `add_person`          | `POST /v1/people`              | –          | records `people.create`                                                                                                         |
+| `list_people`         | `GET /v1/people?brand=`        | –          | records `people.list` without the prints; Reference Photo ids, consent dates and race numbers                                   |
+| `add_person`          | `POST /v1/people`              | –          | records `people.create`, with optional race numbers; a number another Person of the Brand carries is `409 conflict`             |
+| `set_person_numbers`  | `PATCH /v1/people/:id`         | –          | records `people.setNumbers`, replacing the whole list; `409 conflict` on a number already taken, `404` for another Brand's Person |
 | `erase_person`        | `DELETE /v1/people/:id?brand=` | `erase`    | records `people.erase`; answers the empty listing as proof                                                                      |
 | `add_reference_photo` | `POST /v1/people/:id/photos`   | `enrol`    | identify `enrol`; a `choose` answer is a `200` with the faces, not an error                                                     |
 | `create_upload`       | `POST /v1/sources/uploads`     | –          | a Signed URL to `PUT` a photograph to, scoped to one `sources/` key; see "Bytes in"                                             |

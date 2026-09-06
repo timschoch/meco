@@ -15,6 +15,13 @@
       "when": 1788707491615,
       "tag": "0001_outputs_keyed_by_request_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788729872112,
+      "tag": "0002_a_person_carries_race_numbers",
+      "breakpoints": true
     }
   ]
 }
