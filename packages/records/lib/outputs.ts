@@ -18,9 +18,10 @@
  * it.
  *
  * **The Gallery is a keyset list.** Newest first, paged over
- * `(created_at, store_key, request_hash)`, each row carrying its Call's `source_hash`,
- * `status` and `started_at` so a tile needs no second read. webui derives URLs
- * with `store.publicUrl(key)`; records returns Store Keys and never a URL.
+ * `(created_at, store_key, request_hash)`, each row carrying its Call's
+ * `source_hash`, `status` and `started_at` so a tile needs no second read.
+ * webui derives URLs with `store.publicUrl(key)`; records returns Store Keys
+ * and never a URL.
  */
 import type { Store } from "@meco/store";
 import { type SQL, and, desc, eq } from "drizzle-orm";
@@ -154,10 +155,17 @@ const asOutput = (row: OutputRow): Output => ({
   startedAt: row.startedAt.toISOString(),
 });
 
+/**
+ * What the Gallery sorts by after `created_at`. Two of one Brand's Outputs may
+ * share a Store Key, so the Request Hash after it is what makes the order total
+ * and the cursor a place between two rows. Named once: the order, the cursor
+ * predicate and the index in `schema.ts` are the same list, and a list that
+ * drifted would be silently wrong pagination rather than a type error.
+ */
+const TIEBREAK = [outputs.storeKey, outputs.requestHash] as const;
+
 const keysetOf = (row: OutputRow): Keyset => ({
   at: row.cursorAt,
-  // Two of one Brand's Outputs may share a Store Key, so the Request Hash after
-  // it is what makes the order total and the cursor a place between two rows.
   tiebreak: [row.storeKey, row.requestHash],
 });
 
@@ -241,7 +249,7 @@ export function outputsOver(driver: DatabaseDriver, store: Store): Outputs {
           ? undefined
           : olderThan(
               outputs.createdAt,
-              [outputs.storeKey, outputs.requestHash],
+              TIEBREAK,
               decodeCursor(query.cursor)
             ),
       ].filter((one) => one !== undefined);
@@ -249,14 +257,10 @@ export function outputsOver(driver: DatabaseDriver, store: Store): Outputs {
       const rows = await read(
         narrowed.length === 0 ? undefined : and(...narrowed)
       )
-        // The Store Key and then the Request Hash as well as the time, so two
-        // Outputs written in the same microsecond — of one key or of two —
-        // still have one order for a cursor to point between.
-        .orderBy(
-          desc(outputs.createdAt),
-          desc(outputs.storeKey),
-          desc(outputs.requestHash)
-        )
+        // The tiebreak as well as the time, so two Outputs written in the same
+        // microsecond — of one key or of two — still have one order for a
+        // cursor to point between.
+        .orderBy(desc(outputs.createdAt), ...TIEBREAK.map(desc))
         .limit(query.limit + 1);
 
       return pageOf(rows, query.limit, asOutput, keysetOf);

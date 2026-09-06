@@ -398,7 +398,7 @@ One timed part of a Call, named for the module or Model that did it, with its du
 _Avoid_: span, phase, stage, timing, segment
 
 **Output**:
-One Render, Crop or Carousel a Brand owns, as a row: the Brand, the Store Key, the Call that made it and the Request Hash it answers. The Gallery is the list of Outputs. Two Brands with byte-identical Outputs have two Outputs on one Store Key, and the bytes go only when the last Output on that key goes.
+One Render, Crop or Carousel a Brand owns, as a row keyed by the Brand and the Request Hash it answers, carrying the Store Key and the Call that made it. The Gallery is the list of Outputs. A Store Key is not unique: two Brands with byte-identical Outputs have two Outputs on one key, and so do one Brand's two requests that produce the same bytes. The bytes go only when the last Output on that key goes.
 _Avoid_: asset, result, artifact, render (a Render is one kind of Output), file (a File is the source side)
 
 **Request Hash**:

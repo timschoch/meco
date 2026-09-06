@@ -79,15 +79,15 @@ export function decodeCursor(cursor: string): Keyset {
   } catch {
     return refuse();
   }
-  if (
-    !Array.isArray(parsed) ||
-    parsed.length < 2 ||
-    !parsed.every((one) => typeof one === "string")
-  ) {
-    return refuse();
+  if (!Array.isArray(parsed)) return refuse();
+  const [at, ...rest]: readonly unknown[] = parsed;
+  if (typeof at !== "string" || rest.length === 0) return refuse();
+
+  const tiebreak: string[] = [];
+  for (const one of rest) {
+    if (typeof one !== "string") return refuse();
+    tiebreak.push(one);
   }
-  const [at, ...tiebreak] = parsed as string[];
-  if (at === undefined) return refuse();
   return { at, tiebreak };
 }
 
@@ -109,26 +109,35 @@ export const olderThan = (
   tiebreak: readonly PgColumn[],
   keyset: Keyset
 ): SQL | undefined => {
-  if (keyset.tiebreak.length !== tiebreak.length) {
+  const mismatch = () => {
     throw new Error(
       "@meco/records: that cursor belongs to another list. Pass back the `cursor` this list returned, or none."
     );
-  }
-
-  /** The comparison from `tiebreak[index]` rightwards, or nothing past the end. */
-  const after = (index: number): SQL | undefined => {
-    const column = tiebreak[index];
-    const value = keyset.tiebreak[index];
-    if (column === undefined || value === undefined) return undefined;
-    const rest = after(index + 1);
-    return rest === undefined
-      ? lt(column, value)
-      : or(lt(column, value), and(eq(column, value), rest));
   };
+  if (keyset.tiebreak.length > tiebreak.length) mismatch();
+
+  // Each column beside the value the cursor carries for it. Paired here, once,
+  // so nothing below has to index either list again.
+  const pairs = tiebreak.map((column, index) => {
+    const value = keyset.tiebreak[index];
+    if (value === undefined) return mismatch();
+    return { column, value };
+  });
+
+  // Right to left, so each column's `<` carries the rest of the comparison
+  // under its own `=`.
+  const rest = pairs.reduceRight<SQL | undefined>(
+    (inner, pair) =>
+      inner === undefined
+        ? lt(pair.column, pair.value)
+        : or(lt(pair.column, pair.value), and(eq(pair.column, pair.value), inner)),
+    undefined
+  );
 
   const edge = sql`${keyset.at}::timestamptz`;
-  const rest = after(0);
-  return rest === undefined ? lt(at, edge) : or(lt(at, edge), and(eq(at, edge), rest));
+  return rest === undefined
+    ? lt(at, edge)
+    : or(lt(at, edge), and(eq(at, edge), rest));
 };
 
 /**

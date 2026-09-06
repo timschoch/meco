@@ -1283,10 +1283,14 @@ export function recordsConformance(
         // Recording the same Request Hash again is the Output it already made.
         // The gateway asks `byRequest` first, but two equal requests in flight
         // at once both miss, and the loser must not be a 500.
+        const second = recorded[1];
+        ok(second !== undefined, "both Outputs were recorded");
         const again = await records.outputs.record({
           brand: mine.brand,
           storeKey: shared.key,
-          callId: recorded[1]?.callId ?? "",
+          // The other Call, so a `record` that inserted instead of answering
+          // would be a row this check can see rather than a copy of the first.
+          callId: second.callId,
           kind: "crop",
           requestHash: hashed(requests[0]),
         });
