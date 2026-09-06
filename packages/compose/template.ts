@@ -20,7 +20,7 @@ export { registerTemplates } from "./lib/templates/register";
  */
 export const LOGO_SRC = "meco:logo";
 
-/** A font face the Look ships, already read off disk. */
+/** A font face the Look ships, with its file already read off disk. */
 export interface LookFont {
   /** The family a Template names in `fontFamily`. */
   readonly family: string;
@@ -36,17 +36,26 @@ export interface LookFont {
  * a Template is handed the `Look` its Brand resolves to at run time, so nothing
  * yet ties `swisshutless-story` to the Swiss Hutless palette at the type level.
  * Narrowing that is worth doing when a second Look exists to get it wrong.
+ *
+ * `fonts` and `logo` are calls and not fields because they open files. compose
+ * is a library: it must be importable where its asset files are not beside it,
+ * so nothing is read until a `plan` or a `render` asks for it, and each file is
+ * then held for the life of the process. A field would have hidden that read
+ * behind what reads as a lookup — and reading at import is the defect this
+ * shape exists to prevent (#209). A Template touches neither: it names families
+ * and writes `LOGO_SRC`, and compose resolves both.
  */
 export interface Look {
   readonly brand: string;
   readonly colors: Readonly<Record<string, string>>;
-  readonly fonts: readonly LookFont[];
+  /** The faces to register. Reads the font files on the first call. */
+  fonts(): readonly LookFont[];
   /** The family headings render in. */
   readonly headingFamily: string;
   /** The family body copy renders in. */
   readonly bodyFamily: string;
-  /** The wordmark, as encoded PNG bytes. */
-  readonly logo: Uint8Array;
+  /** The wordmark, as encoded PNG bytes. Reads the file on the first call. */
+  logo(): Uint8Array;
 }
 
 /**

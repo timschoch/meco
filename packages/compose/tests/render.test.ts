@@ -45,13 +45,23 @@ describe("render", () => {
     }
   );
 
-  it("reaches neither the network nor the disk", async () => {
-    // A Look reads its fonts and wordmark when its module loads, so by the time
-    // `render` runs there is nothing left for it to open. Both spies watch the
-    // JavaScript layer only — sharp and takumi do their own I/O in Rust — which
-    // is why the fonts being committed, rather than fetched, is what actually
-    // makes the claim true.
+  it("reaches neither the network nor the disk once warm", async () => {
+    // A Look reads its fonts and wordmark on first use and holds them, so by
+    // the second `render` there is nothing left for it to open. The warm-up
+    // call is what makes the claim true rather than accidentally true.
+    //
+    // What the spies actually cover is narrower than it looks. `fetch` is a
+    // global, so that half is real. The disk half is not the memo's proof:
+    // `spyOn` replaces a property of the `node:fs` namespace object, and a Look
+    // reads through a named import that the replacement never reaches —
+    // measured by dropping the memo, which leaves this test green and turns
+    // `assets.test.ts > are read once, however many renders follow` red. That
+    // file mocks the module and is where the memo is held to account. Neither
+    // spy sees sharp or takumi, which do their own I/O in Rust; the fonts being
+    // committed rather than fetched is what makes the network half true.
     const input = await story({ format: "png" });
+    await render(input);
+
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const readSpy = vi.spyOn(fs, "readFileSync");
     const openSpy = vi.spyOn(fs.promises, "readFile");

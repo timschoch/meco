@@ -46,7 +46,7 @@ cut({ source: DecodedImage, window: Box, target: Size, format?, quality? })
   → Promise<{ bytes: Uint8Array, mime }>   // a bare Crop: no Template
 templates(brand?) → TemplateDescription[]       // id, brand, description, placements, fields as JSON Schema, example
 PLACEMENTS: readonly Placement[]                 // the closed catalogue
-ComposeError { code: "unknown_template" | "unknown_brand" | "placement_not_supported" | "invalid_fields" | "framing_mismatch" }
+ComposeError { code: "unknown_template" | "unknown_brand" | "placement_not_supported" | "invalid_fields" | "framing_mismatch" | "look_assets_missing" }
 ```
 
 `template.ts`, the only import a Template author needs: the `Template` and `Look` types, `TemplateProps`, the Markers `ImageSlot` and `Occludes`, and the Building Blocks `PhotoCard`, `Scrim` and `TextBlock`.
@@ -94,6 +94,8 @@ No fetch, no store, no crop decision. `source` is a Decoded Image and `window` a
 ### Looks
 
 One folder per Brand id under compose's private implementation: a token module (`colors`, `fonts`, `headingFamily`, `bodyFamily`, `logo`, `logoAlt?`) and the asset files beside it. `assets/` at the repo root moves in. Every font file ships with its licence text. compose refuses `unknown_brand` for a Brand with no Look.
+
+`fonts` and `logo` are calls, not fields: compose is a library and must import without touching the disk, so each file is read on the first `plan` or `render` that needs it and held for the rest of the process. Memoised by path, which is also what keeps two weights instanced out of one variable font file on the same bytes — takumi silently drops the second registration otherwise. A file that is not there when it is first asked for gives `look_assets_missing`, naming it. Reading at import instead cost a gateway bundle that built and then died at load on `Eina02-Regular.otf` (#209, measured on #181).
 
 Fonts: Eina 02 (Hope Family, already committed), Outfit and Figtree variable (laica), Barlow and Barlow Condensed 400/600/700 (Swiss Hutless). 816 KB total. Barlow, Barlow Condensed, Outfit and Figtree are OFL. Eina 02 is proprietary — a Textaxis face carrying "All rights reserved" and no licence URL — and its licence is held by the owner, text pending; `packages/compose/lib/looks/hopefamily/fonts/LICENCE.txt` records the notices the binaries carry and nothing more (#116).
 

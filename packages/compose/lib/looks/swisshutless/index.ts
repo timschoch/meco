@@ -1,10 +1,7 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import type { Look, LookFont } from "../../../template";
+import { lookAssets } from "../assets";
 
-function bytes(relative: string): Uint8Array {
-  return readFileSync(fileURLToPath(new URL(relative, import.meta.url)));
-}
+const bytes = lookAssets(import.meta.url);
 
 function face(family: string, weight: number, file: string): LookFont {
   return { family, weight, data: bytes(`./fonts/${file}`) };
@@ -34,7 +31,7 @@ export const swisshutless = {
     white: "#f8f8f8",
     silver: "#c8ccd2",
   },
-  fonts: [
+  fonts: () => [
     face("Barlow Condensed", 400, "BarlowCondensed-Regular.ttf"),
     face("Barlow Condensed", 600, "BarlowCondensed-SemiBold.ttf"),
     face("Barlow Condensed", 700, "BarlowCondensed-Bold.ttf"),
@@ -44,5 +41,5 @@ export const swisshutless = {
   ],
   headingFamily: "Barlow Condensed",
   bodyFamily: "Barlow",
-  logo: bytes("./logo.png"),
+  logo: () => bytes("./logo.png"),
 } as const satisfies Look;

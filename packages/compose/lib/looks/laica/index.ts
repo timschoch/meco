@@ -1,31 +1,31 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import type { Look, LookFont } from "../../../template";
+import { lookAssets } from "../assets";
 
-function bytes(relative: string): Uint8Array {
-  return readFileSync(fileURLToPath(new URL(relative, import.meta.url)));
-}
+const bytes = lookAssets(import.meta.url);
 
 /**
  * One weight instanced out of a variable font file.
  *
- * `data` **must** be the same object for every weight of one file, which is why
- * the bytes are read once above and handed in rather than read per face.
- * Measured on takumi 2.13.6: register one Buffer twice, as Outfit 400 and 500,
- * and "LOGBUCH" at 24 px measures 123.92 and 125.15 px — two instances of the
+ * `data` **must** be the same object for every weight of one file. Measured on
+ * takumi 2.13.6: register one Buffer twice, as Outfit 400 and 500, and
+ * "LOGBUCH" at 24 px measures 123.92 and 125.15 px — two instances of the
  * `wght` axis. Read the same file into two Buffers and both measure 123.92: the
  * second registration is dropped and every weight renders at the first one.
  * Nothing warns; the picture just comes out one weight throughout.
  *
+ * `lookAsset` memoises by path, so the two Outfit faces below are the same
+ * bytes however often `fonts()` is called. That is what the identity rests on
+ * now the files are read on first use rather than at import (#209).
+ *
  * Swiss Hutless is unaffected — its weights are separate static files, so its
  * faces are separate bytes by construction.
  */
-function face(family: string, weight: number, data: Uint8Array): LookFont {
-  return { family, weight, data };
+function face(family: string, weight: number, file: string): LookFont {
+  return { family, weight, data: bytes(file) };
 }
 
-const OUTFIT = bytes("./fonts/outfit/Outfit-Variable.ttf");
-const FIGTREE = bytes("./fonts/figtree/Figtree-Variable.ttf");
+const OUTFIT = "./fonts/outfit/Outfit-Variable.ttf";
+const FIGTREE = "./fonts/figtree/Figtree-Variable.ttf";
 
 /**
  * laica — bright, calm, precise B2B consulting.
@@ -56,12 +56,12 @@ export const laica = {
     grayMedium: "#9e9e9e",
     grayDark: "#555555",
   },
-  fonts: [
+  fonts: () => [
     face("Outfit", 400, OUTFIT),
     face("Outfit", 500, OUTFIT),
     face("Figtree", 400, FIGTREE),
   ],
   headingFamily: "Outfit",
   bodyFamily: "Figtree",
-  logo: bytes("./logo.png"),
+  logo: () => bytes("./logo.png"),
 } as const satisfies Look;
