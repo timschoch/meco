@@ -5,9 +5,11 @@
   "type": "module",
   "exports": {
     ".": "./index.ts",
+    "./conformance": "./conformance.ts",
     "./health": "./health.ts"
   },
   "dependencies": {
+    "@meco/contracts": "workspace:*",
     "@vercel/blob": "^2.8.0"
   }
 }

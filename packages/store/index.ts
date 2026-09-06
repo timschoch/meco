@@ -13,3 +13,4 @@ export {
   type StoredObject,
   blobStore,
 } from "./lib/blob";
+export { memoryStore } from "./lib/memory";

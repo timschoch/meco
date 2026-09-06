@@ -173,6 +173,7 @@ The prototype's `list(prefix)` built the Gallery, because there was no database.
 | `get` returns the identical bytes                                                   | return the bytes of a different key                      |
 | writing the same bytes twice returns the same key and `deduped: true` on the second | drop the `head` check and always write                   |
 | writing different bytes to the same prefix returns different keys                   | key on the prefix alone                                  |
+| the bytes handed to `put` and returned by `get` are the caller's own                | keep the caller's array instead of copying it            |
 | `get` of a key never written is `null`, not a throw                                 | throw on a miss                                          |
 | `head` of a missing key is `null`; of a present key reports the true size           | report the requested size instead of the stored one      |
 | after `delete`, `get` is `null` and `list(prefix)` no longer names the key          | make `delete` a no-op                                    |
@@ -181,6 +182,7 @@ The prototype's `list(prefix)` built the Gallery, because there was no database.
 | bytes over `MAX_OBJECT_BYTES` are refused, with the size in the message             | drop the size check                                      |
 | an unmapped content type is refused                                                 | fall back to a guessed extension                         |
 | `isPrivate` is true for `people/…` and `People/…`, false for `peoples-choice/…`     | make the comparison case-sensitive                       |
+| `isPrivate` is true for `health/…` and false for `health-public/…`                  | map `health-public` private                              |
 | `publicUrl` throws for a private key                                                | return a URL for any key                                 |
 | `signedUrl` throws for a public key and refuses over 300 seconds                    | drop the cap                                             |
 | a private object's plain URL does not serve the bytes unauthenticated               | write a private key to the public store                  |
