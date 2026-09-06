@@ -1,5 +1,5 @@
 {
-  "note": "The race numbers expected off the three photographs the owner supplied for #227 and two of the Commons fixtures, with the box each number sits in as fractions of the file. Boxes were taken from the ppocr Detector's first run at the Decode Bound (6 Sep 2026) and checked by eye against the photograph; `tolerance` is how far a found centre may sit from them. `misses` are numbers a person reads that no candidate reader found (a watermark across the 302, a ~20 px 32, a tilted 2 read as 5 under the score floor): a reader that finds one is better than this file and the entry moves to `numbers` on purpose. `others` are numbers a person can make out in the background that the reader may or may not find. A `number` Region whose label is in none of the three lists is a false read.",
+  "note": "The race numbers expected off the two photographs the owner supplied for #227 and two of the Commons fixtures, with the box each number sits in as fractions of the file. The third-party race photograph the reader was also measured on is not in the repository; its reads are in docs/specs/models.md. Boxes were taken from the ppocr Detector's first run at the Decode Bound (6 Sep 2026) and checked by eye against the photograph; `tolerance` is how far a found centre may sit from them. `misses` are numbers a person reads that no candidate reader found (a tilted 2 read as 5 under the score floor): a reader that finds one is better than this file and the entry moves to `numbers` on purpose. `others` are numbers a person can make out in the background that the reader may or may not find. A `number` Region whose label is in none of the three lists is a false read.",
   "tolerance": 0.03,
   "images": [
     {
@@ -12,15 +12,6 @@
         { "label": "21", "box": { "x": 0.169, "y": 0.579, "width": 0.077, "height": 0.097 } }
       ],
       "misses": []
-    },
-    {
-      "file": "kart-race-rotax.jpg",
-      "note": "A race start from the front. The 302 sits under the photographer's watermark, the 32 is about 20 px tall and foreshortened; neither is read by any candidate (#227).",
-      "numbers": [],
-      "misses": [
-        { "label": "302", "box": { "x": 0.42, "y": 0.80, "width": 0.05, "height": 0.06 } },
-        { "label": "32", "box": { "x": 0.81, "y": 0.68, "width": 0.05, "height": 0.05 } }
-      ]
     },
     {
       "file": "kart-24-target.jpg",

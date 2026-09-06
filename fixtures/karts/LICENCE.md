@@ -23,7 +23,7 @@ only the unencumbered ones are committed here.
 
 ## The owner's number fixtures
 
-`kart-grid-24.jpg`, `kart-race-rotax.jpg` and `kart-24-target.jpg` are owner-supplied test photographs, used with permission for tests only. They are not public domain and are not for reuse outside this repository's test suite. Committed as supplied ([#227](https://github.com/timschoch/meco/issues/227)), all three under the Decode Bound, so the Decoded Image is the file: 1200 x 675, 800 x 533 and 574 x 348. Their expected race-number reads are in `numbers.json` beside this file.
+`kart-grid-24.jpg` and `kart-24-target.jpg` are owner-supplied test photographs, used with permission for tests only. They are not public domain and are not for reuse outside this repository's test suite. Committed as supplied ([#227](https://github.com/timschoch/meco/issues/227)), both under the Decode Bound, so the Decoded Image is the file: 1200 x 675 and 574 x 348. Their expected race-number reads are in `numbers.json` beside this file. A third race photograph the reader was measured on carries a third party's watermark and is not committed; its reads are recorded in `docs/specs/models.md` only.
 
 ## The size rule, and why it is a rule
 
