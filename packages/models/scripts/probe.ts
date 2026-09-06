@@ -23,12 +23,14 @@ if (!baseUrl) {
   console.error("usage: probe <baseUrl> [fixture] [models]");
   process.exit(2);
 }
+/** The repository's fixtures folder, resolved by the build. */
+declare const __FIXTURES__: string;
+
 // pnpm runs the script in the package directory and leaves the caller's
-// directory in INIT_CWD, so a relative fixture path means what the caller
-// meant and the default is read from the package, not from the bundle.
+// directory in INIT_CWD, so a relative fixture path means what the caller meant.
 const fixture = fixtureArg
   ? resolve(process.env["INIT_CWD"] ?? process.cwd(), fixtureArg)
-  : resolve(process.cwd(), "../../fixtures/faces/artemis-2-crew.jpg");
+  : resolve(__FIXTURES__, "faces/artemis-2-crew.jpg");
 
 // The client answers with the Annotation, not the response, so the probe wraps
 // the fetch it hands in to keep the header the host times each stage in.

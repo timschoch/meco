@@ -45,8 +45,7 @@ rather than re-exporting a whole subtree through one index.
 - **models-client-stays-thin** — a root file of `models` other than `app.ts`,
   `catalogue.ts` and `server.ts` is a client another package imports, so it may
   reach neither the ONNX Runtime, sharp, Hono nor those three host entry
-  points — not directly, and not through anything it imports. Without it one
-  import would put the runtime and the weights in the gateway's image.
+  points. Read over the whole graph, not one edge.
 
 Run them: `pnpm lint:boundaries`. `tests/boundaries.test.ts` runs the same
 check and additionally asserts it goes red on a planted violation.

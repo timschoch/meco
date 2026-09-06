@@ -61,8 +61,13 @@ describe("the client over the app", async () => {
 
   it("passes `models` on, so the host runs exactly those", async () => {
     const two = client(createApp(fakeCatalogue(...selection)).fetch);
-    const annotation = await two.annotate(bytes, { models: ["b"] });
-    expect(annotation.producedBy.map((m) => m.name)).toEqual(["b"]);
+    const one = await two.annotate(bytes, { models: ["b"] });
+    expect(one.producedBy.map((m) => m.name)).toEqual(["b"]);
+
+    // Two names travel as one comma-separated value, and the host reads them
+    // back in Catalogue order however the client encoded the separator.
+    const both = await two.annotate(bytes, { models: ["b", "a"] });
+    expect(both.producedBy.map((m) => m.name)).toEqual(["a", "b"]);
   });
 
   it("lists the Catalogue with each Model's licence id", async () => {
@@ -85,17 +90,17 @@ describe("the client maps every wire error to its own code", () => {
   // there without a client that understands it fails here.
   for (const [code, status] of Object.entries(ERROR_STATUS)) {
     it(`${code} as ${status}`, async () => {
-      const stub = client(
+      const canned = client(
         answers(JSON.stringify({ error: { code, message: "no" } }), { status })
       );
-      const error = await refusal(stub.annotate(new Uint8Array([1])));
+      const error = await refusal(canned.annotate(new Uint8Array([1])));
       expect(error.code).toBe(code);
       expect(error.status).toBe(status);
       expect(error.message).toContain("no");
     });
   }
 
-  it("reads the same code off the real host, not only off a stub", async () => {
+  it("reads the same code off the real host, not only off a canned one", async () => {
     const error = await refusal(overApp.annotate(new Uint8Array(0)));
     expect(error.code).toBe<ModelsErrorCode>("empty_body");
     expect(error.status).toBe(ERROR_STATUS.empty_body);
@@ -126,21 +131,20 @@ describe("the client maps every wire error to its own code", () => {
   });
 });
 
-describe("the client refuses what it cannot vouch for", () => {
+describe("the client refuses what it cannot vouch for", async () => {
   const bytes = new Uint8Array([1]);
+  // One real Annotation, doctored below into the answers a host must never be
+  // believed on: the wrong hash, and a Region the schema refuses.
+  const annotation = await overApp.annotate(await fixture("jezero-crater.jpg"));
+  const wrongHash = client(
+    answers(JSON.stringify({ ...annotation, hash: "0".repeat(64) }), {
+      status: 200,
+    })
+  );
 
   it("hash_mismatch when the Annotation's hash is not the one it was given", async () => {
-    const annotation = await overApp.annotate(
-      await fixture("jezero-crater.jpg")
-    );
-    const doctored = client(
-      answers(JSON.stringify({ ...annotation, hash: "0".repeat(64) }), {
-        status: 200,
-      })
-    );
-
     const error = await refusal(
-      doctored.annotate(bytes, { hash: annotation.hash })
+      wrongHash.annotate(bytes, { hash: annotation.hash })
     );
     expect(error.code).toBe<ModelsErrorCode>("hash_mismatch");
     expect(error.status).toBe(200);
@@ -148,15 +152,7 @@ describe("the client refuses what it cannot vouch for", () => {
   });
 
   it("says nothing about the hash when it was given none", async () => {
-    const annotation = await overApp.annotate(
-      await fixture("jezero-crater.jpg")
-    );
-    const doctored = client(
-      answers(JSON.stringify({ ...annotation, hash: "0".repeat(64) }), {
-        status: 200,
-      })
-    );
-    expect((await doctored.annotate(bytes)).hash).toBe("0".repeat(64));
+    expect((await wrongHash.annotate(bytes)).hash).toBe("0".repeat(64));
   });
 
   it("bad_response on a body that is not an Annotation", async () => {
@@ -178,9 +174,6 @@ describe("the client refuses what it cannot vouch for", () => {
   });
 
   it("bad_response on a Region the Annotation schema refuses", async () => {
-    const annotation = await overApp.annotate(
-      await fixture("jezero-crater.jpg")
-    );
     const faceless = {
       ...annotation,
       regions: [
@@ -202,6 +195,17 @@ describe("the client refuses what it cannot vouch for", () => {
     const error = await refusal(wrong.annotate(bytes));
     expect(error.code).toBe<ModelsErrorCode>("bad_response");
     expect(error.status).toBe(502);
+  });
+
+  it("keeps a field a newer host added, rather than refusing the answer", async () => {
+    // The two containers deploy together, but not in the same instant. A
+    // `/health` grown one field must not read as a models that is down.
+    const newer = client(
+      answers(JSON.stringify({ ...(await overApp.health()), queue: 3 }), {
+        status: 200,
+      })
+    );
+    expect((await newer.health()).ok).toBe(true);
   });
 
   it("bad_response on a Catalogue listing that is not the wire's", async () => {

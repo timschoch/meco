@@ -3,8 +3,6 @@ import type { Annotation, DecodedImage } from "@meco/contracts";
 import { DECODE_BOUND } from "./decode-bound";
 import { HostError } from "./errors";
 
-export { DECODE_BOUND };
-
 /** What sharp calls a format, to what contracts calls its mime. */
 const MIME: Record<string, Annotation["mime"]> = {
   jpeg: "image/jpeg",

@@ -6,9 +6,16 @@
 // answers the same question the same way; the probe borrows it rather than
 // bringing a second TypeScript runner into the repo for one script.
 import { build } from "esbuild";
+import { fileURLToPath } from "node:url";
+
+// The default fixture, resolved here and baked in: the bundle sits at a
+// different depth than the source, so neither `import.meta.url` nor the
+// working directory names the same folder in both.
+const fixtures = fileURLToPath(new URL("../../../fixtures/", import.meta.url));
 
 await build({
   entryPoints: ["scripts/probe.ts"],
+  define: { __FIXTURES__: JSON.stringify(fixtures) },
   bundle: true,
   platform: "node",
   format: "esm",

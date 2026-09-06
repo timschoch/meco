@@ -1,9 +1,7 @@
-// The client the gateway imports. It holds the wire and nothing else: no
-// adapter, no session, no decode. `models-client-stays-thin` in
-// `.dependency-cruiser.cjs` is what keeps that true.
+// The Models Client: `models` over HTTP, typed against the wire.
 import { z } from "zod";
 import { Annotation } from "@meco/contracts";
-import { ERROR_STATUS, type ErrorCode } from "./errors";
+import type { ErrorCode } from "./errors";
 import {
   type AnnotateOptions,
   CatalogueEntry,
@@ -69,9 +67,6 @@ export interface ModelsClientOptions {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-/** Whether a word off the wire is a code this client understands. */
-const isWireCode = (code: string): code is ErrorCode => code in ERROR_STATUS;
-
 export function createModelsClient(options: ModelsClientOptions): ModelsClient {
   const base = options.baseUrl.replace(/\/+$/, "");
   const call = options.fetch ?? globalThis.fetch;
@@ -86,7 +81,7 @@ export function createModelsClient(options: ModelsClientOptions): ModelsClient {
     path: string,
     schema: z.ZodType<T>,
     init: RequestInit = {}
-  ): Promise<T> {
+  ): Promise<{ body: T; status: number }> {
     const signal = AbortSignal.timeout(timeoutMs);
     let response: Response;
     try {
@@ -148,7 +143,7 @@ export function createModelsClient(options: ModelsClientOptions): ModelsClient {
         { cause: parsed.error }
       );
     }
-    return parsed.data;
+    return { body: parsed.data, status: response.status };
   }
 
   /**
@@ -164,7 +159,7 @@ export function createModelsClient(options: ModelsClientOptions): ModelsClient {
       body = undefined;
     }
     const wire = WireError.safeParse(body);
-    if (wire.success && isWireCode(wire.data.error.code)) {
+    if (wire.success) {
       return new ModelsError(
         wire.data.error.code,
         wire.data.error.message,
@@ -183,26 +178,31 @@ export function createModelsClient(options: ModelsClientOptions): ModelsClient {
       const query = annotateOptions.models
         ? `?models=${encodeURIComponent(annotateOptions.models.join(","))}`
         : "";
-      const annotation = await send(`/annotate${query}`, Annotation, {
-        method: "POST",
-        // A copy, so a caller that reuses its buffer cannot change the body
-        // out from under an in-flight request.
-        body: new Uint8Array(bytes),
-      });
+      const { body: annotation, status } = await send(
+        `/annotate${query}`,
+        Annotation,
+        {
+          method: "POST",
+          // A copy, so a caller that reuses its buffer cannot change the body
+          // out from under an in-flight request.
+          body: new Uint8Array(bytes),
+        }
+      );
 
       const { hash } = annotateOptions;
       if (hash !== undefined && annotation.hash !== hash) {
         throw new ModelsError(
           "hash_mismatch",
           `models annotated ${annotation.hash}, not the ${hash} it was sent`,
-          200
+          status
         );
       }
       return annotation;
     },
 
-    catalogue: () => send("/models", z.array(CatalogueEntry)),
+    catalogue: async () =>
+      (await send("/models", z.array(CatalogueEntry))).body,
 
-    health: () => send("/health", ModelsHealth),
+    health: async () => (await send("/health", ModelsHealth)).body,
   };
 }
