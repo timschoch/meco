@@ -2,12 +2,16 @@ import Ajv2020 from "ajv/dist/2020";
 import { describe, expect, it } from "vitest";
 import { templates } from "../index";
 import { registerTemplates } from "../template";
+import { SHIPPED } from "./cases";
 
 const listed = templates();
 
+const TEMPLATE_IDS = SHIPPED.map((t) => t.id);
+
 /**
- * The one Template that ships. Thrown for by name rather than indexed, so a
- * catalogue that lost it fails here with what it does hold in the message.
+ * The Swiss Hutless story, the Template every other test in this package is
+ * written around. Thrown for by name rather than indexed, so a catalogue that
+ * lost it fails here with what it does hold in the message.
  */
 const story = listed.find((t) => t.id === "swisshutless-story");
 if (!story) {
@@ -22,8 +26,14 @@ if (!story) {
 const ajv = new Ajv2020({ strict: false });
 
 describe("templates", () => {
-  it("lists swisshutless-story with what a caller needs to fill it", () => {
-    expect(listed.map((t) => t.id)).toEqual(["swisshutless-story"]);
+  it("lists every Template that ships, with what a caller needs to fill it", () => {
+    // Sorted by id, which is the catalogue's own promise and not the order the
+    // registry's static imports happen to sit in.
+    expect(listed.map((t) => t.id)).toEqual([
+      "hopefamily-post",
+      "hopefamily-story",
+      "swisshutless-story",
+    ]);
     expect(story).toMatchObject({
       brand: "swisshutless",
       placements: ["instagram/story", "facebook/story"],
@@ -31,14 +41,37 @@ describe("templates", () => {
     expect(story.description).toContain("Swiss Hutless");
   });
 
-  it("gives the Fields as a JSON Schema the example validates against", () => {
-    const validate = ajv.compile(story.fields);
+  it.each(TEMPLATE_IDS)(
+    "gives %s's Fields as a JSON Schema its example validates against",
+    (id) => {
+      const template = listed.find((t) => t.id === id)!;
+      const validate = ajv.compile(template.fields);
 
-    expect(validate(story.example), ajv.errorsText(validate.errors)).toBe(true);
+      expect(validate(template.example), ajv.errorsText(validate.errors)).toBe(
+        true
+      );
+    }
+  );
 
-    // The schema is not vacuous: `headline` is required, so the Fields `plan`
-    // refuses with `invalid_fields` are refused here too.
-    expect(validate({ kicker: "only a kicker" })).toBe(false);
+  it("gives a schema that is not vacuous", () => {
+    // `headline` is required, so the Fields `plan` refuses with
+    // `invalid_fields` are refused here too.
+    expect(ajv.compile(story.fields)({ kicker: "only a kicker" })).toBe(false);
+  });
+
+  it("lists both Hope Family Templates when asked for that Brand", () => {
+    expect(templates("hopefamily")).toMatchObject([
+      {
+        id: "hopefamily-post",
+        brand: "hopefamily",
+        placements: ["instagram/post", "facebook/post"],
+      },
+      {
+        id: "hopefamily-story",
+        brand: "hopefamily",
+        placements: ["instagram/story", "facebook/story"],
+      },
+    ]);
   });
 
   it("lists nothing for a Brand with no Template yet", () => {
@@ -46,7 +79,7 @@ describe("templates", () => {
   });
 
   it("lists a Brand's own Templates when asked for one", () => {
-    expect(templates("swisshutless")).toEqual(listed);
+    expect(templates("swisshutless")).toEqual([story]);
   });
 });
 

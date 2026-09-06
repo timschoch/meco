@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { COMPOSE_ERROR_CODES, ComposeError, plan, type Plan } from "../index";
-import { planFor, STORY_CASE } from "./cases";
+import { exampleFields, planFor, STORY_CASE } from "./cases";
 
 const SLOT = { width: 1080, height: 1920 };
 
@@ -13,12 +13,12 @@ const SLOT = { width: 1080, height: 1920 };
  * wide. Nothing is hidden by it — a layout that moved is at least a pixel out,
  * and that is a different integer.
  */
-const inPixels = (plan: Plan) =>
+const inPixels = (plan: Plan, slot: { width: number; height: number } = SLOT) =>
   plan.occlusion.map((zone) => ({
-    x: Math.round(zone.x * SLOT.width),
-    y: Math.round(zone.y * SLOT.height),
-    width: Math.round(zone.width * SLOT.width),
-    height: Math.round(zone.height * SLOT.height),
+    x: Math.round(zone.x * slot.width),
+    y: Math.round(zone.y * slot.height),
+    width: Math.round(zone.width * slot.width),
+    height: Math.round(zone.height * slot.height),
   }));
 
 /** The Template's own padding, so three of the block's four edges are arithmetic. */
@@ -78,6 +78,69 @@ describe("plan", () => {
 
     expect(second).toEqual(first);
   });
+});
+
+/**
+ * The Hope Family Templates put two things over the picture, not one, and the
+ * Subject Area has to sit in the gap between them. These are the measured
+ * numbers on takumi 2.13.6 with Eina 02 at the sizes the two modules name, in
+ * whole Image Slot pixels, so a reader can check every edge against the
+ * Template by hand: three of the wordmark's four and three of the type block's
+ * are its padding, and the fourth is what the type measured.
+ */
+describe("plan for the Hope Family Templates", () => {
+  const cases = [
+    {
+      template: "hopefamily-story",
+      placement: "instagram/story",
+      slot: { width: 1080, height: 1920 },
+      wordmark: { x: 84, y: 84, width: 300, height: 169 },
+      typeBlock: { x: 84, y: 1415, width: 912, height: 421 },
+      subject: { x: 0.08, y: 0.18, width: 0.84, height: 0.44 },
+    },
+    {
+      template: "hopefamily-story",
+      placement: "facebook/story",
+      slot: { width: 1080, height: 1920 },
+      wordmark: { x: 84, y: 84, width: 300, height: 169 },
+      typeBlock: { x: 84, y: 1415, width: 912, height: 421 },
+      subject: { x: 0.08, y: 0.18, width: 0.84, height: 0.44 },
+    },
+    {
+      template: "hopefamily-post",
+      placement: "instagram/post",
+      slot: { width: 1080, height: 1350 },
+      wordmark: { x: 76, y: 76, width: 280, height: 157 },
+      typeBlock: { x: 76, y: 904, width: 928, height: 370 },
+      subject: { x: 0.08, y: 0.2, width: 0.84, height: 0.34 },
+    },
+    {
+      // The one that earns the second Template: wider than it is tall, so the
+      // type is a 58 % column on the left and the Subject Area is the right.
+      template: "hopefamily-post",
+      placement: "facebook/post",
+      slot: { width: 1200, height: 630 },
+      wordmark: { x: 56, y: 56, width: 220, height: 124 },
+      typeBlock: { x: 56, y: 268, width: 584, height: 306 },
+      subject: { x: 0.62, y: 0.08, width: 0.32, height: 0.84 },
+    },
+  ];
+
+  it.each(cases)(
+    "$template at $placement covers the wordmark and the type block and leaves the Subject Area clear",
+    async ({ template, placement, slot, wordmark, typeBlock, subject }) => {
+      const result = await plan({
+        template,
+        placement,
+        brand: "hopefamily",
+        fields: exampleFields(template),
+      });
+
+      expect(result.imageSlot).toEqual(slot);
+      expect(inPixels(result, slot)).toEqual([wordmark, typeBlock]);
+      expect(result.subjectArea).toEqual(subject);
+    }
+  );
 });
 
 describe("plan refusals", () => {

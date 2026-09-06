@@ -74,6 +74,20 @@ function overflowingRuns(measured: MeasuredNode): string[] {
   );
 }
 
+/**
+ * Whether two Boxes share any area. Both are Image Slot fractions, so the
+ * comparison needs no tolerance: an edge that exactly meets another overlaps by
+ * nothing and is a design that touches, not one that covers.
+ */
+function overlap(a: Box, b: Box): boolean {
+  return (
+    a.x < b.x + b.width &&
+    b.x < a.x + a.width &&
+    a.y < b.y + b.height &&
+    b.y < a.y + a.height
+  );
+}
+
 function leavesSlot(zone: MeasuredBox, slot: MeasuredBox): boolean {
   return (
     zone.x < slot.x - SUBPIXEL ||
@@ -177,6 +191,23 @@ function checksFor(
       run: async () => {
         const { subjectArea } = await planned();
         if (subjectArea) Box.parse(subjectArea);
+      },
+    },
+    {
+      name: `${name} keeps the Subject Area clear of every Occlusion Zone`,
+      run: async () => {
+        // Both are what the gateway puts in one FramingRequest: "put the
+        // Subject here" and "keep it out from under this". A Template that
+        // declares them overlapping is asking frame for a crop that cannot
+        // exist, and frame would satisfy neither. It is design intent against
+        // measured layout, so only the Template's own numbers can be wrong.
+        const { subjectArea, occlusion } = await planned();
+        if (!subjectArea) return;
+        const covered = occlusion.filter((zone) => overlap(zone, subjectArea));
+        ok(
+          covered.length === 0,
+          `The Subject Area ${JSON.stringify(subjectArea)} lies under ${covered.length} Occlusion Zone(s): ${JSON.stringify(covered)}.`
+        );
       },
     },
     {

@@ -1,6 +1,23 @@
-import type { PlanInput, RenderInput } from "../index";
-import { centredWindow, decode, KART_FIXTURE } from "./fixture";
+import { templates, type PlanInput, type RenderInput } from "../index";
+import { centredWindow, decode, FACE_FIXTURE, KART_FIXTURE } from "./fixture";
 import { PLACEMENTS } from "../placements";
+
+/**
+ * Every Template that ships, with the Placements it declares, in registry
+ * order. One list, so a Template added without its catalogue entry, its layout
+ * Checks or its goldens shows up as a count that no longer matches.
+ */
+export const SHIPPED: readonly {
+  readonly id: string;
+  readonly placements: readonly string[];
+}[] = [
+  {
+    id: "swisshutless-story",
+    placements: ["instagram/story", "facebook/story"],
+  },
+  { id: "hopefamily-story", placements: ["instagram/story", "facebook/story"] },
+  { id: "hopefamily-post", placements: ["instagram/post", "facebook/post"] },
+];
 
 /** One golden: a Template at a Placement, with the Fields and the photograph it is rendered from. */
 export interface GoldenCase {
@@ -13,20 +30,54 @@ export interface GoldenCase {
   readonly golden: string;
 }
 
+/**
+ * A Template's own `example` Fields, off the catalogue.
+ *
+ * Read rather than copied, because the catalogue is what a caller fills a
+ * Template from: a golden rendered from a second, hand-kept set of Fields would
+ * be a picture no caller can reproduce, and it would go on matching after the
+ * `example` moved.
+ */
+export function exampleFields(template: string): Record<string, unknown> {
+  const described = templates().find((t) => t.id === template);
+  if (!described) throw new Error(`${template} is not in the catalogue.`);
+  return described.example as Record<string, unknown>;
+}
+
+/**
+ * One golden per Placement a Template declares, taken from `SHIPPED` so the
+ * goldens cannot list a Placement the Template does not draw for, or miss one
+ * it does.
+ */
+function goldensFor(
+  template: string,
+  brand: string,
+  fixture: string,
+  only?: readonly string[]
+): GoldenCase[] {
+  const shipped = SHIPPED.find((t) => t.id === template);
+  if (!shipped) throw new Error(`${template} is not in SHIPPED.`);
+  const fields = exampleFields(template);
+  return (only ?? shipped.placements).map((placement) => ({
+    template,
+    placement,
+    brand,
+    fixture,
+    fields,
+    golden: `${template}--${placement.replace("/", "-")}.png`,
+  }));
+}
+
 export const GOLDEN_CASES: readonly GoldenCase[] = [
-  {
-    template: "swisshutless-story",
-    placement: "instagram/story",
-    brand: "swisshutless",
-    fixture: KART_FIXTURE,
-    fields: {
-      headline: "Wohlen",
-      kicker: "Nächstes Rennen",
-      subline: "Wohlen, Schweiz",
-      footnote: "12. – 14. Juni 2026",
-    },
-    golden: "swisshutless-story--instagram-story.png",
-  },
+  // Swiss Hutless has one golden and two Placements: `facebook/story` is
+  // 1080x1920 like `instagram/story`, so it renders the same bytes. Hope Family
+  // takes one per Placement, per #116, which is what makes a Template that ever
+  // varies by Placement id visible here.
+  ...goldensFor("swisshutless-story", "swisshutless", KART_FIXTURE, [
+    "instagram/story",
+  ]),
+  ...goldensFor("hopefamily-story", "hopefamily", FACE_FIXTURE),
+  ...goldensFor("hopefamily-post", "hopefamily", FACE_FIXTURE),
 ];
 
 /** The story every test starts from, so one edit moves the golden and the tests together. */

@@ -1,4 +1,5 @@
 import type { Look } from "../../template";
+import { hopefamily } from "./hopefamily";
 import { swisshutless } from "./swisshutless";
 
 /**
@@ -8,4 +9,5 @@ import { swisshutless } from "./swisshutless";
  */
 export const LOOKS: ReadonlyMap<string, Look> = new Map<string, Look>([
   [swisshutless.brand, swisshutless],
+  [hopefamily.brand, hopefamily],
 ]);
