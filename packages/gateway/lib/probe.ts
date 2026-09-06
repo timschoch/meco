@@ -36,11 +36,26 @@ export function probeRoutes(
     return new Response(upstream.body, { status: upstream.status, headers });
   };
 
-  probe.post("/probe/annotate", (c) => {
-    const query = new URL(c.req.url).search;
-    return forward(`/annotate${query}`, {
+  // `?pad=<bytes>` grows the body to that many bytes with trailing zeros
+  // before it crosses the binding. The platform refuses a public request
+  // above 4.5 MB before the gateway sees it, so the only way to measure what
+  // the binding carries is to make the body large on this side of it. A JPEG
+  // decoder stops at the end-of-image marker, so the padded photograph still
+  // decodes; only its hash changes.
+  probe.post("/probe/annotate", async (c) => {
+    const url = new URL(c.req.url);
+    const pad = Number(url.searchParams.get("pad") ?? 0);
+    url.searchParams.delete("pad");
+    let body: RequestInit["body"] = c.req.raw.body;
+    if (pad > 0) {
+      const received = new Uint8Array(await c.req.arrayBuffer());
+      const padded = new Uint8Array(Math.max(pad, received.byteLength));
+      padded.set(received);
+      body = padded;
+    }
+    return forward(`/annotate${url.search}`, {
       method: "POST",
-      body: c.req.raw.body,
+      body,
       duplex: "half",
       signal: AbortSignal.timeout(60_000),
     });
