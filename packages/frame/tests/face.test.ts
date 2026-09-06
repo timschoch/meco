@@ -94,95 +94,36 @@ describe("the face rung with no face Region", () => {
 });
 
 /**
- * Every axis of every fixture at every target, with the answer written out
- * rather than re-derived from φ: which Golden Line the Subject should reach,
- * and whether the Source Image lets the window slide that far.
+ * Every horizontal of every fixture at every target, with the answer written
+ * out rather than re-derived from φ: which Golden Line the Subject's centre
+ * should reach, and whether the Source Image lets the window slide that far.
  *
- * `line` indexes {@link PHI_LINES}. `reach: "start"` means the window is up
- * against the top or left edge of the Source Image and the line is out of
- * reach, which is the shape's answer and not the solver's.
+ * `line` indexes {@link PHI_LINES}. `reach: "start"` and `reach: "end"` mean
+ * the window is up against the left or the right edge of the Source Image and
+ * the line is out of reach, which is the shape's answer and not the solver's.
  *
- * Axes with no slack are absent on purpose: a cover window touches the Source
- * Image on one axis by construction, so that axis is fixed by the shape. Both
- * 1280x1600 portraits are exactly 4:5, so that target pins them on both.
+ * Horizontals only. Every face carries landmarks, so every face Subject has an
+ * Eye Line, and the vertical is the Eye Line's to aim — `eye-line.test.ts`
+ * enumerates it and holds the same "and no others" guard for that axis.
+ *
+ * Axes with no slack are absent on purpose: an axis the window fills is fixed
+ * by the shape rather than by the solver.
  */
 const GOLDEN_CASES: {
   fixture: string;
   target: string;
-  axis: "x" | "y";
   line: 0 | 1;
-  reach: "line" | "start";
+  reach: "line" | "start" | "end";
 }[] = [
-  {
-    fixture: "astronaut-portrait.jpg",
-    target: "1:1",
-    axis: "y",
-    line: 0,
-    reach: "start",
-  },
-  {
-    fixture: "astronaut-portrait.jpg",
-    target: "9:16",
-    axis: "x",
-    line: 1,
-    reach: "line",
-  },
-  {
-    fixture: "astronaut-portrait.jpg",
-    target: "16:9",
-    axis: "y",
-    line: 0,
-    reach: "line",
-  },
-  {
-    fixture: "artemis-2-crew.jpg",
-    target: "1:1",
-    axis: "y",
-    line: 0,
-    reach: "line",
-  },
-  {
-    fixture: "artemis-2-crew.jpg",
-    target: "9:16",
-    axis: "x",
-    line: 0,
-    reach: "line",
-  },
-  {
-    fixture: "artemis-2-crew.jpg",
-    target: "16:9",
-    axis: "y",
-    line: 0,
-    reach: "line",
-  },
-  {
-    fixture: "soyuz-crew.jpg",
-    target: "1:1",
-    axis: "x",
-    line: 0,
-    reach: "line",
-  },
-  {
-    fixture: "soyuz-crew.jpg",
-    target: "4:5",
-    axis: "x",
-    line: 0,
-    reach: "line",
-  },
-  {
-    fixture: "soyuz-crew.jpg",
-    target: "9:16",
-    axis: "x",
-    line: 0,
-    reach: "line",
-  },
-  {
-    fixture: "soyuz-crew.jpg",
-    target: "16:9",
-    axis: "x",
-    line: 0,
-    reach: "start",
-  },
+  { fixture: "astronaut-portrait.jpg", target: "1:1", line: 1, reach: "line" },
+  { fixture: "astronaut-portrait.jpg", target: "4:5", line: 1, reach: "line" },
+  { fixture: "astronaut-portrait.jpg", target: "9:16", line: 1, reach: "line" },
+  { fixture: "artemis-2-crew.jpg", target: "4:5", line: 0, reach: "end" },
+  { fixture: "artemis-2-crew.jpg", target: "9:16", line: 0, reach: "line" },
+  { fixture: "soyuz-crew.jpg", target: "1:1", line: 0, reach: "line" },
+  { fixture: "soyuz-crew.jpg", target: "4:5", line: 0, reach: "line" },
+  { fixture: "soyuz-crew.jpg", target: "9:16", line: 0, reach: "line" },
+  { fixture: "soyuz-crew.jpg", target: "16:9", line: 0, reach: "start" },
 ];
 
 /** One axis of one framing, reduced to the four numbers the checks read. */
@@ -215,26 +156,24 @@ const measure = (fixture: string, target: string, axis: "x" | "y") => {
 describe("the Subject on its Golden Lines", () => {
   // Without this, a solver that stopped sliding altogether would pass every
   // case below by leaving the axis it never touched out of the list.
-  it("slides on exactly the axes listed, and no others", () => {
+  it("slides on exactly the horizontals listed, and no others", () => {
     const withSlack = FACE_FIXTURES.flatMap((fixture) =>
-      TARGETS.flatMap(({ name: target }) =>
-        (["x", "y"] as const)
-          .filter((axis) => measure(fixture.name, target, axis).slack > 0)
-          .map((axis) => `${fixture.name} ${target} ${axis}`)
-      )
+      TARGETS.filter(
+        ({ name: target }) => measure(fixture.name, target, "x").slack > 0
+      ).map(({ name: target }) => `${fixture.name} ${target}`)
     );
 
     expect(withSlack).toEqual(
-      GOLDEN_CASES.map((c) => `${c.fixture} ${c.target} ${c.axis}`)
+      GOLDEN_CASES.map((c) => `${c.fixture} ${c.target}`)
     );
   });
 
-  for (const { fixture, target, axis, line, reach } of GOLDEN_CASES) {
-    const name = `${fixture} at ${target}, ${axis}`;
+  for (const { fixture, target, line, reach } of GOLDEN_CASES) {
+    const name = `${fixture} at ${target}, x`;
 
     if (reach === "line") {
       it(`puts the Subject on the Golden Line at ${PHI_LINES[line].toFixed(3)}: ${name}`, () => {
-        const { inFrame } = measure(fixture, target, axis);
+        const { inFrame } = measure(fixture, target, "x");
 
         expect(Math.abs(inFrame - PHI_LINES[line])).toBeLessThanOrEqual(
           TOLERANCE
@@ -242,10 +181,11 @@ describe("the Subject on its Golden Lines", () => {
       });
     } else {
       it(`runs out of Source Image before the line: ${name}`, () => {
-        const { origin, inFrame } = measure(fixture, target, axis);
+        const { origin, slack, inFrame } = measure(fixture, target, "x");
 
-        expect(origin).toBe(0);
-        expect(inFrame).toBeLessThan(PHI_LINES[line]);
+        expect(origin).toBe(reach === "start" ? 0 : slack);
+        if (reach === "start") expect(inFrame).toBeLessThan(PHI_LINES[line]);
+        else expect(inFrame).toBeGreaterThan(PHI_LINES[line]);
       });
     }
   }
