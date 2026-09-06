@@ -21,9 +21,12 @@ const sha256 = (bytes: Uint8Array) =>
 const wireError = async (res: Response) =>
   ((await res.json()) as { error: { code: ErrorCode; message: string } }).error;
 
+// `?models=yunet` and not the whole Catalogue: this block asserts the faces
+// and the timing of one named Detector, and dfine finds the crew's bodies too.
+// That the default runs every entry is `?models= selects Catalogue entries`.
 describe("POST /annotate on the crew fixture", async () => {
   const bytes = await fixture("artemis-2-crew.jpg");
-  const res = await annotate(bytes);
+  const res = await annotate(bytes, "?models=yunet");
   const body: unknown = await res.json();
 
   it("answers 200 with a contracts Annotation", () => {
@@ -89,7 +92,9 @@ describe("POST /annotate honours EXIF orientation", async () => {
 
   it("reports the upright size", async () => {
     const meta = await sharp(upright).metadata();
-    const annotation = Annotation.parse(await (await annotate(turned)).json());
+    const annotation = Annotation.parse(
+      await (await annotate(turned, "?models=yunet")).json()
+    );
     expect({ width: annotation.width, height: annotation.height }).toEqual({
       width: meta.width,
       height: meta.height,
@@ -97,7 +102,9 @@ describe("POST /annotate honours EXIF orientation", async () => {
   });
 
   it("finds every hand-marked face where it is in the upright photograph", async () => {
-    const annotation = Annotation.parse(await (await annotate(turned)).json());
+    const annotation = Annotation.parse(
+      await (await annotate(turned, "?models=yunet")).json()
+    );
     expect(annotation.regions).toHaveLength(marked.faces.length);
     for (const match of matchGolden(marked.faces, annotation.regions)) {
       expect(match.iou, `${match.label} IoU`).toBeGreaterThanOrEqual(MIN_IOU);
@@ -164,7 +171,8 @@ describe("POST /annotate refuses", () => {
     ],
     [
       "unknown_model",
-      async () => annotate(await fixture("jezero-crater.jpg"), "?models=dfine"),
+      async () =>
+        annotate(await fixture("jezero-crater.jpg"), "?models=nonesuch"),
     ],
     [
       "bad_models",
@@ -225,7 +233,7 @@ describe("POST /annotate refuses", () => {
   }
 
   it("does not fetch a Model it does not know: unknown_model wins over the body", async () => {
-    const res = await annotate(null, "?models=dfine");
+    const res = await annotate(null, "?models=nonesuch");
     expect((await wireError(res)).code).toBe("unknown_model");
   });
 

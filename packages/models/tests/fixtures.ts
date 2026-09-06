@@ -5,12 +5,16 @@ import { fileURLToPath } from "node:url";
 import type { Box, DecodedImage, Region } from "@meco/contracts";
 
 const FACES = new URL("../../../fixtures/faces/", import.meta.url);
+const KARTS = new URL("../../../fixtures/karts/", import.meta.url);
 
 export const fixture = (file: string): Promise<Buffer> =>
   readFile(new URL(file, FACES));
 
 export const fixturePath = (file: string): string =>
   fileURLToPath(new URL(file, FACES));
+
+export const kartFixture = (file: string): Promise<Buffer> =>
+  readFile(new URL(file, KARTS));
 
 /** The shape of `fixtures/faces/expected.json`, as far as these tests read it. */
 export interface Expected {
@@ -26,6 +30,37 @@ export interface Expected {
 export const expectedFaces = async (): Promise<Expected> =>
   JSON.parse(
     await readFile(new URL("expected.json", FACES), "utf8")
+  ) as Expected;
+
+/**
+ * The shape of `fixtures/karts/objects.json`, as far as these tests read it.
+ * Recorded from the real Model at the Decode Bound rather than drawn by hand:
+ * nobody can place a `motorbike` box on a kart to four decimals. `label` is
+ * COCO's own word, which is what a `dfine` Region carries.
+ */
+export interface ExpectedObjects {
+  /** The largest allowed distance between a recorded centre and the found one. */
+  tolerance: number;
+  images: {
+    file: string;
+    note: string;
+    objects: { label: string; score: number; box: Box }[];
+  }[];
+}
+
+export const expectedObjects = async (): Promise<ExpectedObjects> =>
+  JSON.parse(
+    await readFile(new URL("objects.json", KARTS), "utf8")
+  ) as ExpectedObjects;
+
+/**
+ * `fixtures/karts/expected.json`: the Not-a-Face ground truth for the same
+ * photographs. Not to be confused with `expectedObjects` beside it — this one
+ * is about faces, and on the on-track photographs the answer is none.
+ */
+export const expectedKartFaces = async (): Promise<Expected> =>
+  JSON.parse(
+    await readFile(new URL("expected.json", KARTS), "utf8")
   ) as Expected;
 
 /** A 4 by 4 mid-grey image: the blank the adapter checks run on. */
