@@ -48,6 +48,36 @@ const STYLE = `
   td code { color: #9a2c2c; }
   .empty, .note { color: #6b7280; }
   .older { display: inline-block; margin-top: 1.5rem; }
+
+  h2 { font-size: .9375rem; margin: 2rem 0 .5rem; }
+  pre {
+    background: #fff; border: 1px solid #e6e7ea; border-radius: .5rem;
+    padding: .75rem; overflow-x: auto; font-size: .8125rem; margin: 0;
+  }
+  .facts { display: grid; grid-template-columns: 7rem 1fr; gap: .15rem 1rem; margin: 0; }
+  .facts dt { color: #6b7280; }
+  .facts dd { margin: 0; }
+  .error {
+    background: #fff5f5; border: 1px solid #f0c9c9; border-radius: .5rem;
+    padding: .75rem; margin-top: 1.5rem;
+  }
+  .error p { margin: 0 0 .25rem; }
+  .steps { list-style: none; margin: 0; padding: 0; }
+  .steps li { display: grid; grid-template-columns: 12rem 1fr 5rem; gap: .75rem; align-items: center; }
+  .step-dur { text-align: right; font-variant-numeric: tabular-nums; }
+  .bar { display: block; background: #eceef1; border-radius: 999px; height: .5rem; }
+  .bar-fill { display: block; background: #16181d; border-radius: 999px; height: 100%; }
+  .source { display: block; width: 100%; height: auto; background: #eceef1; border-radius: .5rem; }
+  .overlay { position: relative; display: block; max-width: 40rem; }
+  .overlay .region, .overlay .window { position: absolute; }
+  .overlay .region { border: 2px solid #2563eb; }
+  .overlay .region[data-hidden="true"] { border-color: #b91c1c; border-style: dashed; }
+  .overlay .window { border: 2px dashed #16181d; box-shadow: 0 0 0 100vmax rgba(0,0,0,.06); }
+  .overlay .tag {
+    position: absolute; top: 0; left: 0; transform: translateY(-100%);
+    background: #16181d; color: #fff; font-size: .6875rem; padding: 0 .3rem;
+    white-space: nowrap; border-radius: .2rem;
+  }
 `;
 
 export function Layout(props: { title: string; children?: Child }) {

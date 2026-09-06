@@ -9,6 +9,8 @@
 import type { Caller, Records } from "@meco/records";
 import type { Store } from "@meco/store";
 import { type Context, Hono } from "hono";
+import { CallView } from "./call";
+import { readCall, sourceUrl, viewOf } from "./call-page";
 import { Calls } from "./calls";
 import { callsPage } from "./calls-page";
 import { Gallery } from "./gallery";
@@ -72,6 +74,21 @@ const notYourBrand = (c: Context, brand: string) =>
       detail={`Your key does not hold the brand ${brand}.`}
     />,
     403
+  );
+
+/**
+ * The one page for "no such Call", built from constants so that a Call of a
+ * Brand the Caller does not hold and an id that names nothing are the same
+ * bytes. Anything read off the request would say the id exists.
+ */
+const notFound = (c: Context) =>
+  c.html(
+    <Refusal
+      title="Not found"
+      code="not_found"
+      detail="No such Call, or not one of your Brands."
+    />,
+    404
   );
 
 const badRequest = (c: Context, title: string, detail: string) =>
@@ -227,6 +244,56 @@ export function webui(options: WebuiOptions): Hono {
         brands={filterBrands}
         cursor={page.cursor}
       />
+    );
+  });
+
+  /**
+   * The Source Thumbnail. The mint runs here, inside the gateway's container
+   * and behind its door, with a records row as the authorisation — so the page
+   * itself never holds a URL that hands over a photograph.
+   */
+  app.get("/calls/:id/source", async (c) => {
+    const caller = await seen(c);
+    if (caller instanceof Response) return caller;
+
+    let url;
+    try {
+      url = await sourceUrl(
+        options.records,
+        options.store,
+        caller,
+        c.req.param("id")
+      );
+    } catch {
+      return noAnswer(c);
+    }
+    if (url === null) return notFound(c);
+
+    return c.redirect(url, 302);
+  });
+
+  app.get("/calls/:id", async (c) => {
+    const caller = await seen(c);
+    if (caller instanceof Response) return caller;
+
+    // Only what records is asked for is inside the guard. A fault in the page
+    // itself is a fault and must not be reported as a database that did not
+    // answer.
+    let read;
+    try {
+      read = await readCall(
+        options.records,
+        caller,
+        c.req.param("id"),
+        pageSize
+      );
+    } catch {
+      return noAnswer(c);
+    }
+    if (read === null) return notFound(c);
+
+    return c.html(
+      <CallView basePath={basePath} view={viewOf(read)} store={options.store} />
     );
   });
 
