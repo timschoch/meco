@@ -85,7 +85,7 @@ describe("the Operation table on the MCP Door", () => {
           name: "find_subjects",
           arguments: {
             brand: HELD[0],
-            source: { url: "https://x.test/a.jpg" },
+            source: { url: "https://no-such-host.test/a.jpg" },
           },
         },
       });
@@ -93,7 +93,7 @@ describe("the Operation table on the MCP Door", () => {
       const text = (answer.result as { content: { text: string }[] }).content[0]
         ?.text;
       expect(JSON.parse(text ?? "")).toEqual({
-        error: { code: "not_implemented", message: expect.any(String) },
+        error: { code: "source_unfetchable", message: expect.any(String) },
       });
     },
     TIMEOUT

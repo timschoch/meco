@@ -10,8 +10,8 @@ import { GatewayError, toWire } from "./errors";
 import { healthProbe } from "./health";
 import { type CallerEnv, httpDoor } from "./http";
 import { mcpDoor } from "./mcp";
+import { catalogueOf } from "./catalogue";
 import { OPERATIONS } from "./operations";
-import { probeRoutes } from "./probe";
 
 export interface GatewayDeps {
   /**
@@ -27,9 +27,11 @@ export interface GatewayDeps {
    * pipeline answers `models_unavailable`.
    */
   readonly models: ModelsClient | null;
+  /** Fetches a `{ url }` Source Reference. The global `fetch` by default. */
+  readonly fetch?: typeof fetch;
   /** What `/health` and the MCP server report. */
   readonly version?: string;
-  /** The clock `/health`'s cache reads. */
+  /** The clock `/health`'s cache and a Call's `startedAt` read. */
   now?(): Date;
 }
 
@@ -39,13 +41,11 @@ export function createApp(deps: GatewayDeps): Hono<CallerEnv> {
     records,
     store,
     models,
+    fetch = globalThis.fetch,
     version = "0.0.0",
     now = () => new Date(),
   } = deps;
   const caller = callerLookup(records);
-
-  // Preview only: a temporary door to `models` for #118's measurements.
-  if (process.env["GATEWAY_PROBE"] === "1") app.route("/", probeRoutes());
 
   app.onError((error, c) => {
     const { status, body } = toWire(error);
@@ -77,7 +77,14 @@ export function createApp(deps: GatewayDeps): Hono<CallerEnv> {
   app.use("/v1/*", requireCaller);
   app.use("/mcp", requireCaller);
 
-  const operationDeps = { records, models };
+  const operationDeps = {
+    records,
+    store,
+    models,
+    fetch,
+    catalogue: catalogueOf(models),
+    now,
+  };
   app.route("/v1", httpDoor(OPERATIONS, operationDeps));
 
   const mcp = mcpDoor(OPERATIONS, operationDeps, version);

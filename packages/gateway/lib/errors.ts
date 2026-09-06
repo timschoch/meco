@@ -53,6 +53,8 @@ const MODULE_STATUS: Record<string, number> = {
   too_large: 413,
   bad_response: 502,
   hash_mismatch: 502,
+  /** models failed on its own side; the gateway is the bad gateway here. */
+  internal: 502,
 };
 
 const MODELS_UNAVAILABLE = new Set([

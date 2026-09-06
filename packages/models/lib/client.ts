@@ -45,9 +45,26 @@ export class ModelsError extends Error {
  */
 export type FetchLike = (request: Request) => Response | Promise<Response>;
 
+/**
+ * One entry of the `Server-Timing` header on one `/annotate`: the host's own
+ * clock, `decode` then one per Model in the order they ran. Never inside the
+ * Annotation; the gateway files each as a Step.
+ */
+export interface ServerTimingEntry {
+  readonly name: string;
+  readonly durMs: number;
+}
+
+export interface Annotated {
+  readonly annotation: Annotation;
+  readonly serverTiming: readonly ServerTimingEntry[];
+}
+
 export interface ModelsClient {
   /** Annotate the bytes. The Annotation is parsed before it is returned. */
   annotate(bytes: Uint8Array, options?: AnnotateOptions): Promise<Annotation>;
+  /** The same call, with the host's `Server-Timing` beside the Annotation. */
+  annotateTimed(bytes: Uint8Array, options?: AnnotateOptions): Promise<Annotated>;
   /** The Catalogue this deployment holds. */
   catalogue(): Promise<CatalogueEntry[]>;
   /** The answering instance's liveness, warmth and memory. */
@@ -67,6 +84,26 @@ export interface ModelsClientOptions {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/**
+ * `decode;dur=12.3, yunet;dur=28.1` as stages, in the header's order. An
+ * entry without a `dur` is not a stage of the host's clock and is skipped.
+ */
+function serverTiming(header: string | null): ServerTimingEntry[] {
+  if (header === null) return [];
+  const found: ServerTimingEntry[] = [];
+  for (const entry of header.split(",")) {
+    const [name, ...params] = entry.trim().split(";");
+    const dur = params
+      .map((p) => p.trim())
+      .find((p) => p.startsWith("dur="))
+      ?.slice(4);
+    if (!name || dur === undefined) continue;
+    const durMs = Number(dur);
+    if (Number.isFinite(durMs)) found.push({ name, durMs });
+  }
+  return found;
+}
+
 export function createModelsClient(options: ModelsClientOptions): ModelsClient {
   const base = options.baseUrl.replace(/\/+$/, "");
   const call = options.fetch ?? globalThis.fetch;
@@ -81,7 +118,7 @@ export function createModelsClient(options: ModelsClientOptions): ModelsClient {
     path: string,
     schema: z.ZodType<T>,
     init: RequestInit = {}
-  ): Promise<{ body: T; status: number }> {
+  ): Promise<{ body: T; status: number; headers: Headers }> {
     const signal = AbortSignal.timeout(timeoutMs);
     let response: Response;
     try {
@@ -143,7 +180,7 @@ export function createModelsClient(options: ModelsClientOptions): ModelsClient {
         { cause: parsed.error }
       );
     }
-    return { body: parsed.data, status: response.status };
+    return { body: parsed.data, status: response.status, headers: response.headers };
   }
 
   /**
@@ -173,32 +210,43 @@ export function createModelsClient(options: ModelsClientOptions): ModelsClient {
     );
   }
 
-  return {
-    async annotate(bytes, annotateOptions = {}) {
-      const query = annotateOptions.models
-        ? `?models=${encodeURIComponent(annotateOptions.models.join(","))}`
-        : "";
-      const { body: annotation, status } = await send(
-        `/annotate${query}`,
-        Annotation,
-        {
-          method: "POST",
-          // A copy, so a caller that reuses its buffer cannot change the body
-          // out from under an in-flight request.
-          body: new Uint8Array(bytes),
-        }
-      );
+  const annotateTimed = async (
+    bytes: Uint8Array,
+    annotateOptions: AnnotateOptions = {}
+  ): Promise<Annotated> => {
+    const query = annotateOptions.models
+      ? `?models=${encodeURIComponent(annotateOptions.models.join(","))}`
+      : "";
+    const {
+      body: annotation,
+      status,
+      headers,
+    } = await send(`/annotate${query}`, Annotation, {
+      method: "POST",
+      // A copy, so a caller that reuses its buffer cannot change the body
+      // out from under an in-flight request.
+      body: new Uint8Array(bytes),
+    });
 
-      const { hash } = annotateOptions;
-      if (hash !== undefined && annotation.hash !== hash) {
-        throw new ModelsError(
-          "hash_mismatch",
-          `models annotated ${annotation.hash}, not the ${hash} it was sent`,
-          status
-        );
-      }
-      return annotation;
-    },
+    const { hash } = annotateOptions;
+    if (hash !== undefined && annotation.hash !== hash) {
+      throw new ModelsError(
+        "hash_mismatch",
+        `models annotated ${annotation.hash}, not the ${hash} it was sent`,
+        status
+      );
+    }
+    return {
+      annotation,
+      serverTiming: serverTiming(headers.get("server-timing")),
+    };
+  };
+
+  return {
+    annotate: async (bytes, annotateOptions) =>
+      (await annotateTimed(bytes, annotateOptions)).annotation,
+
+    annotateTimed,
 
     catalogue: async () =>
       (await send("/models", z.array(CatalogueEntry))).body,

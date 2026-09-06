@@ -10,16 +10,33 @@
  * #181 proves it by watching for a module that must not have run.
  */
 import { PLACEMENTS } from "@meco/compose/placements";
-import { Box, CropAnchor, PinTo } from "@meco/contracts";
+import {
+  type Annotation,
+  Box,
+  CropAnchor,
+  type ModelId,
+  PinTo,
+} from "@meco/contracts";
 import type { ModelsClient } from "@meco/models";
 import type { Caller, Records } from "@meco/records";
+import type { Store } from "@meco/store";
 import { z } from "zod";
+import { annotationOf } from "./annotate";
 import { GatewayError } from "./errors";
+import { SourceReference, resolveSource } from "./source";
+import { recorded } from "./trace";
 
 /** The adapters a handler may reach. A module never sees the Caller. */
 export interface OperationDeps {
   readonly records: Records;
+  readonly store: Store;
   readonly models: ModelsClient | null;
+  /** Fetches a `{ url }` Source Reference. */
+  readonly fetch: typeof fetch;
+  /** The `{ name, version }` pairs a cached Annotation must be complete for. */
+  catalogue(): Promise<readonly ModelId[]>;
+  /** The clock a Call's `startedAt` is read from. */
+  now(): Date;
 }
 
 export interface OperationContext extends OperationDeps {
@@ -54,21 +71,6 @@ export interface Operation<I extends z.ZodObject = z.ZodObject> {
 // --- Shared input pieces ----------------------------------------------------
 
 const Brand = z.string().min(1).describe("The Brand this request is for.");
-
-/** How a request names a Source Image: by URL, or by a Content Hash it already sent. */
-const SourceReference = z.union([
-  z.object({
-    url: z
-      .url({ protocol: /^https$/ })
-      .describe("An https URL the gateway fetches and files."),
-  }),
-  z.object({
-    hash: z
-      .string()
-      .regex(/^[0-9a-f]{64}$/)
-      .describe("The Content Hash of bytes this Brand already sent."),
-  }),
-]);
 
 /** What `render` and `crop` share. Every field optional at the door. */
 const FramingOptions = {
@@ -124,6 +126,12 @@ const notImplemented = (name: string) => async (): Promise<never> => {
     `${name} is in the table and its pipeline is not built yet`
   );
 };
+
+/** The Annotation as the wire may carry it: no Face Print on any Region. */
+const withoutPrints = (annotation: Annotation): Annotation => ({
+  ...annotation,
+  regions: annotation.regions.map(({ facePrint: _print, ...region }) => region),
+});
 
 /** People with their Reference Photos as the wire may carry them: no print, no Store Key. */
 const listPeople = async (ctx: OperationContext) => {
@@ -189,7 +197,23 @@ export const OPERATIONS: readonly Operation[] = [
     method: "POST",
     path: "/annotate",
     input: z.object({ brand: Brand, source: SourceReference }),
-    handler: notImplemented("find_subjects"),
+    async handler(ctx, { brand, source }) {
+      const { call, result } = await recorded(
+        ctx,
+        ctx.caller,
+        brand,
+        "annotate",
+        async (trace) => {
+          const resolved = await resolveSource(ctx, brand, source, trace);
+          trace.sourceHash(resolved.hash);
+          trace.request({ brand, source: { hash: resolved.hash } });
+          return annotationOf(ctx, brand, resolved, trace);
+        }
+      );
+      // `identification` arrives with the render ticket (#183), which wires
+      // identify in; until then the Call's `matches` stays empty.
+      return { call: { id: call.id }, annotation: withoutPrints(result) };
+    },
   }),
   define({
     name: "list_templates",
