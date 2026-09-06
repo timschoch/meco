@@ -41,12 +41,8 @@ export interface ComposedSubject {
   /** The composed Subject, in source fractions. */
   subject: Box;
   /**
-   * Every Region this rung keeps in frame, the leader included.
-   *
-   * The `match` rung orders them by tier — the Leading Subject, then a matched
-   * non-leading face, then every other face — so that the drop rung (#104's
-   * tiers, #108's rung) can sacrifice from the end. `face` and `kart` have no
-   * second tier to name and leave them in Region id order.
+   * Every Region this rung keeps in frame, the leader included, in tier order.
+   * `lib/tiers.ts` applies it to whichever rung answered.
    */
   keptRegionIds: string[];
 }
@@ -73,6 +69,16 @@ export interface Framing {
    * Subject would be held by every rung of the ladder without meaning it.
    */
   subject?: Box;
+  /**
+   * Every Region the answering rung kept in frame, **in tier order**: the
+   * Leading Subject, then a matched non-leading Region, then every other kept
+   * Region, each group by Region id.
+   *
+   * The same order on every rung, so the drop rung (#108) has one promise to
+   * read rather than one per rung: the cheapest Subject to sacrifice is the
+   * last one. A Match keeps its middle tier whichever rung answered, since the
+   * `face` rung can answer a request whose Matches `persons` all excluded.
+   */
   keptRegionIds: string[];
   droppedRegionIds: string[];
   satisfied: boolean;

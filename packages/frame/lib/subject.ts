@@ -8,6 +8,7 @@ import { regionWithLargestBox } from "./boxes";
 import type { ComposedSubject } from "./framing";
 import { kartSubject } from "./kart";
 import { matchSubject } from "./match";
+import { inTierOrder, matchesForBrand } from "./tiers";
 
 /**
  * The `face` rung: every face Region is kept and the largest box leads.
@@ -63,15 +64,24 @@ const composeRung = (
  * Walks `pinTo` in order. The first rung that composes a Subject wins and
  * decides `resolvedBy`; nothing composed leaves frame's own last resorts, the
  * Crop Anchor and the centre, to answer.
+ *
+ * The Brand wall is applied once, for the whole ladder, and whatever the
+ * answering rung kept comes back in tier order. Both rules belong to the ladder
+ * rather than to a rung: a rung that kept its own tier order would make
+ * "cheapest last" three promises for the drop rung (#108) to check instead of
+ * one.
  */
 export function composeSubject(
   annotation: Annotation,
   matches: Match[],
   request: FramingRequest
 ): ComposedSubject | undefined {
+  const ours = matchesForBrand(matches, request.brand);
+  const matched = new Set(ours.map((match) => match.regionId));
+
   for (const rung of request.pinTo) {
-    const composed = composeRung(rung, annotation.regions, matches, request);
-    if (composed !== undefined) return composed;
+    const composed = composeRung(rung, annotation.regions, ours, request);
+    if (composed !== undefined) return inTierOrder(composed, matched);
   }
 
   return undefined;
