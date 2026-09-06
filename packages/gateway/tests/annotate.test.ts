@@ -24,6 +24,11 @@ type Answer = {
   body: {
     call?: { id: string };
     annotation?: { hash: string; regions: unknown[] };
+    identification?: {
+      matches: unknown[];
+      faces: { regionId: string; verdict: string }[];
+      unusableReferencePhotos: unknown[];
+    };
     error?: { code: string; message: string };
   };
 };
@@ -45,7 +50,11 @@ async function annotate(
 }
 
 /** Every key named `facePrint` anywhere in a JSON value. */
-function keysNamed(value: unknown, name: string, found: string[] = []): string[] {
+function keysNamed(
+  value: unknown,
+  name: string,
+  found: string[] = []
+): string[] {
   if (Array.isArray(value)) {
     value.forEach((one, i) => keysNamed(one, name, found));
   } else if (typeof value === "object" && value !== null) {
@@ -77,11 +86,14 @@ describe("the Annotation cache", () => {
 
       expect(again.status).toBe(200);
       expect(again.body.annotation?.hash).toBe(HASH);
-      expect(one.modelsSeen.filter((s) => s === "POST /annotate")).toHaveLength(1);
+      expect(one.modelsSeen.filter((s) => s === "POST /annotate")).toHaveLength(
+        1
+      );
       expect(stepNames(recorded)).toEqual([
         "source.fetch",
         "records.annotations.get",
         "records.sources.hold",
+        "identify.match",
       ]);
     },
     TIMEOUT
@@ -114,7 +126,9 @@ describe("the Annotation cache", () => {
       expect(status).toBe(200);
       expect(one.modelsSeen).toContain("POST /annotate");
       expect(stepNames(recorded)).toContain("models.annotate");
-      await expect(one.records.annotations.get(HASH)).resolves.toEqual(complete);
+      await expect(one.records.annotations.get(HASH)).resolves.toEqual(
+        complete
+      );
     },
     TIMEOUT
   );
@@ -169,6 +183,7 @@ describe("a { hash } Source Reference", () => {
         "records.sources.heldBy",
         "records.annotations.get",
         "records.sources.hold",
+        "identify.match",
       ]);
     },
     TIMEOUT
@@ -201,7 +216,9 @@ describe("a { hash } Source Reference", () => {
         "store.get",
         "models.annotate",
       ]);
-      await expect(one.records.annotations.get(HASH)).resolves.toEqual(complete);
+      await expect(one.records.annotations.get(HASH)).resolves.toEqual(
+        complete
+      );
     },
     TIMEOUT
   );
@@ -250,8 +267,12 @@ describe("POST /v1/annotate on a photograph meco has never seen", () => {
       // Filed: the bytes under `sources/`, the File, the Annotation with its
       // prints, and this Brand's Source Hold.
       expect(one.photosSeen).toEqual([`${PHOTOS}/${FILE}`]);
-      expect(one.modelsSeen.filter((s) => s === "POST /annotate")).toHaveLength(1);
-      await expect(one.store.get(`sources/${HASH}.jpg`)).resolves.toEqual(BYTES);
+      expect(one.modelsSeen.filter((s) => s === "POST /annotate")).toHaveLength(
+        1
+      );
+      await expect(one.store.get(`sources/${HASH}.jpg`)).resolves.toEqual(
+        BYTES
+      );
       await expect(one.records.files.get(HASH)).resolves.toMatchObject({
         hash: HASH,
         mime: "image/jpeg",
@@ -282,7 +303,12 @@ describe("POST /v1/annotate on a photograph meco has never seen", () => {
         sourceHash: HASH,
         request: { brand: BRAND, source: { hash: HASH } },
         error: null,
-        matches: null,
+        // identify's whole Identification, stored unread (decision on #162).
+        matches: {
+          matches: [],
+          faces: expect.any(Array),
+          unusableReferencePhotos: [],
+        },
       });
       expect(recorded.durationMs).toBeGreaterThanOrEqual(0);
       expect(recorded.steps.map((s) => s.name)).toEqual([
@@ -297,11 +323,38 @@ describe("POST /v1/annotate on a photograph meco has never seen", () => {
         "records.files.ensure",
         "records.annotations.put",
         "records.sources.hold",
+        "identify.match",
       ]);
       // models' stages carry the host's numbers, not the gateway's wall clock.
       expect(recorded.steps.find((s) => s.name === "models.yunet")?.durMs).toBe(
         43.6
       );
+    },
+    TIMEOUT
+  );
+
+  it(
+    "answers this Brand's Identification beside the Annotation, one verdict per face Region",
+    async () => {
+      const one = await stack();
+      const { body } = await annotate(one, { url: `${PHOTOS}/${FILE}` });
+
+      // One report per face Region, and no Match: the Brand has enrolled
+      // nobody, so nothing could be named. Which of the four verdicts a face
+      // gets is identify's own suite to pin down; what this asserts is that
+      // identify ran and answered for every face.
+      expect(body.identification?.faces.map((f) => f.regionId)).toEqual(
+        fixtureAnnotation(FILE).regions.map((r) => r.id)
+      );
+      for (const face of body.identification?.faces ?? []) {
+        expect([
+          "match",
+          "unknown",
+          "uncompared",
+          "not-identifiable",
+        ]).toContain(face.verdict);
+      }
+      expect(body.identification?.matches).toEqual([]);
     },
     TIMEOUT
   );

@@ -14,9 +14,19 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages packages
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @meco/gateway build
+# The bundle leaves `sharp` and `@takumi-rs/core` external — both load native
+# binaries by their own paths and cannot be inlined — so the runtime stage
+# carries a flat node_modules holding those two and their dependencies, the
+# same recipe `Dockerfile.vercel` uses for `models` (DEPLOY.md, the fourth
+# trap).
+RUN pnpm --filter @meco/gateway --prod deploy --legacy /deploy
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build --chown=node:node /deploy/node_modules ./node_modules
+# After node_modules: the bundle's own folder carries each Look's fonts and
+# wordmark under the Brand's name, which is where compose reads them.
 COPY --from=build --chown=node:node /app/packages/gateway/dist/bundle ./
 USER node
 ENV PORT=80

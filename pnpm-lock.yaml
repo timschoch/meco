@@ -94,6 +94,9 @@ importers:
       '@meco/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@meco/frame':
+        specifier: workspace:*
+        version: link:../frame
       '@meco/identify':
         specifier: workspace:*
         version: link:../identify
@@ -103,6 +106,9 @@ importers:
       '@meco/records':
         specifier: workspace:*
         version: link:../records
+      '@meco/redact':
+        specifier: workspace:*
+        version: link:../redact
       '@meco/store':
         specifier: workspace:*
         version: link:../store
@@ -115,6 +121,9 @@ importers:
       hono:
         specifier: ^4.10.7
         version: 4.13.3
+      sharp:
+        specifier: 0.35.4
+        version: 0.35.4(@types/node@22.20.1)
       zod:
         specifier: ^4.5.4
         version: 4.5.4

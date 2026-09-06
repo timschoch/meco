@@ -169,18 +169,17 @@ describe("the Operation table on the HTTP Door", () => {
   );
 
   it(
-    "answers the pipeline Operations as 501 not_implemented until their tickets land",
+    "answers a pipeline Operation whose ticket has not landed as 501 not_implemented",
     async () => {
       const one = await stack();
-      const res = await one.app().request("/v1/render", {
+      const res = await one.app().request("/v1/crop", {
         ...withKey,
         method: "POST",
         headers: { ...withKey.headers, "content-type": "application/json" },
         body: JSON.stringify({
           brand: HELD[0],
-          template: "laica-post",
-          placement: "linkedin/post",
-          fields: {},
+          width: 1080,
+          height: 1080,
           source: { url: "https://x.test/a.jpg" },
         }),
       });

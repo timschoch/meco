@@ -19,8 +19,6 @@ export const GATEWAY_STATUS = {
   /** An Operation in the table whose pipeline a later ticket lands. */
   not_implemented: 501,
   models_unavailable: 503,
-  /** A module this image does not carry yet: compose until #183. */
-  module_unavailable: 503,
 } as const;
 
 export type GatewayErrorCode = keyof typeof GATEWAY_STATUS;
@@ -64,11 +62,11 @@ const MODELS_UNAVAILABLE = new Set([
 ]);
 
 /**
- * By name, not `instanceof`: importing `ComposeError` from `@meco/compose`
- * would put compose's whole index in the bundle, which cannot load without
- * the Looks' font files beside it (blocker on #181). Each class sets `name`
- * itself, so the check is as exact as the import would be; identify's is
- * read the same way so the two module errors are one branch.
+ * By name, not `instanceof`: one branch answers compose's errors and
+ * identify's, and neither class has to be imported to be recognised. Each sets
+ * `name` itself, so the check is as exact as an `instanceof` would be, and
+ * this file stays a table of statuses rather than a second place two modules
+ * are reached from.
  */
 const isModuleError = (
   error: unknown
