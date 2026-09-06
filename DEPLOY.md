@@ -169,6 +169,21 @@ curl http://127.0.0.1:8790/health
 Or through Vercel's own dev server, which honours the bindings and needs a
 running Docker daemon: `vercel dev`.
 
+### An exported variable beats `.env.local`
+
+`process.loadEnvFile` never overrides a variable already exported in the shell,
+so a stale export wins silently and `vercel env pull` does not dislodge it. Cost
+an afternoon on 6 Sep 2026: an exported `RECORDS_DATABASE_URL_UNPOOLED` from the
+deleted `us-east-1` project beat the file, and the failure read as a password
+rejection from `meco-records-eu` rather than as the wrong host.
+
+`vitest.live.config.ts` is therefore immune by construction — it parses
+`.env.local` with `util.parseEnv` and forwards those values by name, so the file
+`vercel env pull` just wrote is what the live suites use. That matters most for
+`pnpm test:records:live`, which creates and drops databases: pointed at the wrong
+server by a stale export, it would drop them there. `unset` anything you exported
+by hand before running one, and check the host each suite prints.
+
 ## Images
 
 Each service builds from its own root-level file: multi-stage, pnpm install
