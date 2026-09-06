@@ -141,18 +141,3 @@ export const referencePrints = async (): Promise<ReferencePrint[]> =>
       prints: ReferencePrint[];
     }
   ).prints;
-
-/** Cosine of two vectors. Two of different lengths are as unalike as can be. */
-export const cosine = (a: number[], b: number[]): number => {
-  if (a.length !== b.length) return -1;
-  let dot = 0;
-  let squaredA = 0;
-  let squaredB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i]! * b[i]!;
-    squaredA += a[i]! * a[i]!;
-    squaredB += b[i]! * b[i]!;
-  }
-  const scale = Math.sqrt(squaredA) * Math.sqrt(squaredB);
-  return scale === 0 ? -1 : dot / scale;
-};

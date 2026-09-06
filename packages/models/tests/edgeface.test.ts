@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { AdapterRegion } from "@meco/contracts";
+import type { AdapterRegion, ModelAdapter } from "@meco/contracts";
+import { adapterConformance, cosine } from "@meco/contracts/conformance";
 import { catalogue, decode, enricherConformance } from "../catalogue";
 import {
   blankImage,
-  cosine,
   expectedFaces,
   fixture,
   matchGolden,
@@ -15,7 +15,11 @@ const yunet = catalogue.detectors.find((d) => d.model.name === "yunet")!;
 
 const CREW = "artemis-2-crew.jpg";
 
-/** How alike a print and its committed reference must be. #75's number. */
+/**
+ * How alike a print and its committed reference must be. #121's number, set
+ * against the spec's "Why 1600": the bound moves the smallest face's print by
+ * 0.96 cosine, so a floor below that is what the general case needs.
+ */
 const MIN_PRINT_COSINE = 0.95;
 
 /** The host's own decode and the Regions the Detector drew in it. */
@@ -62,6 +66,31 @@ describe("edgeface passes enricherConformance", async () => {
       score: 0.8,
       model: { name: "not-a-real-detector", version: "1" },
     },
+  })) {
+    it(check.name, check.run);
+  }
+});
+
+/**
+ * The two stages as one Model Adapter, so that contracts' own
+ * `adapterConformance` sees Regions that carry a Face Print. Run over `yunet`
+ * alone those checks are vacuous — a Detector emits no print — and the two
+ * they were written for, the determinism cosine and the unit length, would
+ * never fire. This is the same pipeline `POST /annotate` runs, behind
+ * contracts' `run(image)`, stamped with the Model that drew the boxes.
+ */
+const printedFaces = (): ModelAdapter => ({
+  model: yunet.model,
+  licence: yunet.licence,
+  kinds: yunet.kinds,
+  run: async (image) => edgeface.run(image, await yunet.run(image)),
+});
+
+describe("the printed pipeline passes contracts' adapterConformance", async () => {
+  const { image } = await crew();
+  for (const check of adapterConformance(printedFaces(), {
+    image,
+    blank: blankImage(),
   })) {
     it(check.name, check.run);
   }

@@ -25,17 +25,14 @@ export type CatalogueEntry = ModelId & {
   readonly warm: boolean;
 };
 
-/** Every Catalogue entry in the order it runs, warms and is listed. */
-const entries = (catalogue: Catalogue) => [
-  ...catalogue.detectors,
-  ...catalogue.enrichers,
-];
-
-/** The two roles a request selected, each still in Catalogue order. */
-interface Chosen {
-  detectors: Detector[];
-  enrichers: Enricher[];
+/** The two roles, of the whole Catalogue or of what a request selected. */
+interface Roles {
+  readonly detectors: readonly Detector[];
+  readonly enrichers: readonly Enricher[];
 }
+
+/** Both roles as one list, in the order they run, warm and are listed. */
+const entries = (roles: Roles) => [...roles.detectors, ...roles.enrichers];
 
 /**
  * Which Catalogue entries a request names, in Catalogue order. Absent runs
@@ -44,7 +41,7 @@ interface Chosen {
  * kind it serves runs and enriches nothing: the Detector is never implied,
  * because that would hide a cost the caller did not ask for.
  */
-function selectModels(catalogue: Catalogue, query: string | undefined): Chosen {
+function selectModels(catalogue: Catalogue, query: string | undefined): Roles {
   if (query === undefined) {
     return {
       detectors: [...catalogue.detectors],
@@ -124,12 +121,21 @@ export function createApp(catalogue: Catalogue): Hono {
   });
 
   app.get("/models", (c) => {
-    const body: CatalogueEntry[] = entries(catalogue).map((m) => ({
-      ...m.model,
-      kinds: "kinds" in m ? m.kinds : [],
-      licence: m.licenceId,
-      warm: m.isWarm(),
-    }));
+    const body: CatalogueEntry[] = [
+      ...catalogue.detectors.map((d) => ({
+        ...d.model,
+        kinds: d.kinds,
+        licence: d.licenceId,
+        warm: d.isWarm(),
+      })),
+      // An Enricher draws no Region of its own, so it lists no Kind.
+      ...catalogue.enrichers.map((e) => ({
+        ...e.model,
+        kinds: [],
+        licence: e.licenceId,
+        warm: e.isWarm(),
+      })),
+    ];
     return c.json(body);
   });
 
@@ -168,9 +174,7 @@ export function createApp(catalogue: Catalogue): Hono {
         mime,
         width,
         height,
-        producedBy: [...chosen.detectors, ...chosen.enrichers].map(
-          (m) => m.model
-        ),
+        producedBy: entries(chosen).map((m) => m.model),
         regions: assignRegionIds(regions),
       });
 

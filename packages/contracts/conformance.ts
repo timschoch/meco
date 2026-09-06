@@ -9,4 +9,8 @@ export {
 export {
   adapterConformance,
   type AdapterFixtures,
+  // The Face Print comparison the checks are written against. models' own
+  // Enricher suite holds the same rule over the same vectors.
+  cosine,
+  PRINT_COSINE,
 } from "./lib/adapter-conformance";

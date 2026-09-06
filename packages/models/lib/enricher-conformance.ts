@@ -4,7 +4,7 @@ import {
   type DecodedImage,
   isUnitLength,
 } from "@meco/contracts";
-import type { Check } from "@meco/contracts/conformance";
+import { type Check, cosine, PRINT_COSINE } from "@meco/contracts/conformance";
 import type { Enricher } from "./enricher";
 
 /**
@@ -25,24 +25,6 @@ export interface EnricherFixtures {
   /** A Region of a kind this Enricher does not serve. */
   unserved: AdapterRegion;
 }
-
-/** How alike two runs' Face Prints must be, as a cosine. contracts' number. */
-const PRINT_COSINE = 0.9999;
-
-/** Cosine of two vectors. Two of different lengths are as unalike as can be. */
-const cosine = (a: number[], b: number[]): number => {
-  if (a.length !== b.length) return -1;
-  let dot = 0;
-  let squaredA = 0;
-  let squaredB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i]! * b[i]!;
-    squaredA += a[i]! * a[i]!;
-    squaredB += b[i]! * b[i]!;
-  }
-  const scale = Math.sqrt(squaredA) * Math.sqrt(squaredB);
-  return scale === 0 ? -1 : dot / scale;
-};
 
 /** Where a red run points: which region of which run broke which rule. */
 const at = (index: number) => `region ${index}`;
