@@ -86,6 +86,23 @@ describe("the framing_mismatch tolerance", () => {
       cut(await cutInputFor({ source, window, format: "png" }))
     ).resolves.toBeDefined();
   });
+
+  it("accepts a window one pixel wide of ideal, whatever the target's aspect", async () => {
+    // The case the two above miss, and the one that says `cut` reads the
+    // smaller of the two deviations. A 1126x2000 window is exactly 1 px wider
+    // than the ideal 1125x2000, so it must pass — but read down the height axis
+    // the same deviation is 1.78 px, and taking the larger of the two would
+    // refuse a window frame could not improve on.
+    const source = await decode(CUT_CASE.fixture);
+    const tall = { ...source, width: 2252, height: 2000 };
+    tall.data = Buffer.alloc(tall.width * tall.height * 3, 90);
+    const window = { x: 0, y: 0, width: 1126 / tall.width, height: 1 };
+    expect(Math.round(window.width * tall.width)).toBe(1126);
+
+    await expect(
+      cut(await cutInputFor({ source: tall, window, format: "png" }))
+    ).resolves.toBeDefined();
+  });
 });
 
 describe("cut and render", () => {
@@ -132,6 +149,14 @@ describe("cut and render", () => {
     );
 
     expect([bare.width, bare.height]).toEqual([drawn.width, drawn.height]);
-    expect(region(bare)).toEqual(region(drawn));
+    // Counted rather than compared with `toEqual`: the region is 1.2 MB, and
+    // vitest builds an element-by-element diff for a failing Buffer comparison
+    // that takes longer than the render it is checking.
+    const [a, b] = [region(bare), region(drawn)];
+    let differing = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) differing++;
+    expect(`${differing} of ${a.length} bytes differ`).toBe(
+      `0 of ${a.length} bytes differ`
+    );
   });
 });
