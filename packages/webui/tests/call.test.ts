@@ -63,6 +63,25 @@ const sources = (html: string): string[] =>
     (match) => match[1] ?? ""
   );
 
+/** A Source Image records knows about, held by one Brand. 800 × 600. */
+async function writeSource(
+  one: Records,
+  brand: string,
+  word: string
+): Promise<string> {
+  const hash = hashOf(word);
+  await one.files.ensure({
+    hash,
+    mime: "image/png",
+    width: 800,
+    height: 600,
+    bytes: 4096,
+    storeKey: `sources/${hash}.png`,
+  });
+  await one.sources.hold(brand, hash);
+  return hash;
+}
+
 describe("the Call View", () => {
   it(
     "shows every Step in order with its duration, and the error of a failed Call",
@@ -282,6 +301,163 @@ describe("the Call View", () => {
 
       const html = await (await app.request(`/calls/${call.id}`)).text();
       expect(hrefs(html)).toContain("/ui");
+    },
+    TIMEOUT
+  );
+});
+
+describe("the Source Thumbnail", () => {
+  it(
+    "puts the redirect route in the img src and no Signed URL anywhere in the page",
+    async () => {
+      const { one, caller } = await openRecords();
+      const hash = await writeSource(one, "laica", "source");
+      const call = await one.calls.record({
+        callerId: caller.id,
+        brand: "laica",
+        kind: "crop",
+        sourceHash: hash,
+        status: "ok",
+      });
+
+      const app = webui({
+        records: one,
+        store: memoryStore(),
+        caller: always(holding(caller, "laica")),
+      });
+
+      const html = await (await app.request(`/calls/${call.id}`)).text();
+
+      expect(sources(html)).toContain(`/ui/calls/${call.id}/source`);
+      // The in-memory store's private host. A saved page must hold no URL that
+      // hands over a photograph, so it may not appear anywhere on the page.
+      expect(html).not.toContain("private.memory.store.invalid");
+      expect(html).not.toContain("validUntil");
+    },
+    TIMEOUT
+  );
+
+  it(
+    "answers 302 to a 60 second Signed URL when the Brand holds the Source Image",
+    async () => {
+      const { one, caller } = await openRecords();
+      const hash = await writeSource(one, "laica", "source");
+      const call = await one.calls.record({
+        callerId: caller.id,
+        brand: "laica",
+        kind: "crop",
+        sourceHash: hash,
+        status: "ok",
+      });
+
+      const before = Date.now();
+      const app = webui({
+        records: one,
+        store: memoryStore(),
+        caller: always(holding(caller, "laica")),
+      });
+
+      const res = await app.request(`/calls/${call.id}/source`);
+
+      expect(res.status).toBe(302);
+      const location = res.headers.get("Location") ?? "";
+      expect(location).toContain(
+        `private.memory.store.invalid/sources/${hash}.png`
+      );
+      // Sixty seconds and not the store's 300 second maximum: the URL outlives
+      // the page load and nothing more.
+      const validUntil = Number(
+        new URL(location).searchParams.get("validUntil")
+      );
+      expect(validUntil).toBeGreaterThanOrEqual(before + 60_000);
+      expect(validUntil).toBeLessThan(before + 61_000);
+    },
+    TIMEOUT
+  );
+
+  it(
+    "answers 404 for a Source Image the Brand holds no Source Hold on",
+    async () => {
+      const { one, caller } = await openRecords();
+      const hash = await writeSource(one, "laica", "source");
+      // Another Brand's Call over the same bytes. That the File exists is not
+      // that this Brand may see it.
+      await one.sources.release("laica", hash);
+      const call = await one.calls.record({
+        callerId: caller.id,
+        brand: "laica",
+        kind: "crop",
+        sourceHash: hash,
+        status: "ok",
+      });
+
+      const app = webui({
+        records: one,
+        store: memoryStore(),
+        caller: always(holding(caller, "laica")),
+      });
+
+      const res = await app.request(`/calls/${call.id}/source`);
+
+      expect(res.status).toBe(404);
+      expect(await res.text()).not.toContain("private.memory.store.invalid");
+    },
+    TIMEOUT
+  );
+
+  it(
+    "answers the same 404 for a Call of a Brand not held and for an unknown id",
+    async () => {
+      const { one, caller } = await openRecords();
+      const hash = await writeSource(one, "hopefamily", "source");
+      const theirs = await one.calls.record({
+        callerId: caller.id,
+        brand: "hopefamily",
+        kind: "crop",
+        sourceHash: hash,
+        status: "ok",
+      });
+
+      const app = webui({
+        records: one,
+        store: memoryStore(),
+        caller: always(holding(caller, "laica")),
+      });
+
+      const notHeld = await app.request(`/calls/${theirs.id}/source`);
+      const unknown = await app.request(`/calls/${crypto.randomUUID()}/source`);
+
+      expect(notHeld.status).toBe(404);
+      expect(unknown.status).toBe(404);
+      expect(await notHeld.text()).toBe(await unknown.text());
+    },
+    TIMEOUT
+  );
+
+  it(
+    "answers 401 without a Caller, and never asks records for the Call",
+    async () => {
+      const { one, caller } = await openRecords();
+      const hash = await writeSource(one, "laica", "source");
+      const call = await one.calls.record({
+        callerId: caller.id,
+        brand: "laica",
+        kind: "crop",
+        sourceHash: hash,
+        status: "ok",
+      });
+
+      const app = webui({
+        records: one,
+        store: memoryStore(),
+        caller: always(null),
+      });
+
+      const res = await app.request(`/calls/${call.id}/source`);
+
+      expect(res.status).toBe(401);
+      expect(res.headers.get("WWW-Authenticate")).toBe('Basic realm="meco"');
+      expect(res.headers.get("Location")).toBe(null);
     },
     TIMEOUT
   );

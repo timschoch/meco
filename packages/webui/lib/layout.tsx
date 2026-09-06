@@ -67,6 +67,7 @@ const STYLE = `
   .step-dur { text-align: right; font-variant-numeric: tabular-nums; }
   .bar { display: block; background: #eceef1; border-radius: 999px; height: .5rem; }
   .bar-fill { display: block; background: #16181d; border-radius: 999px; height: 100%; }
+  .source { display: block; width: 100%; height: auto; background: #eceef1; border-radius: .5rem; }
 `;
 
 export function Layout(props: { title: string; children?: Child }) {

@@ -10,7 +10,7 @@ import type { Caller, Records } from "@meco/records";
 import type { Store } from "@meco/store";
 import { type Context, Hono } from "hono";
 import { CallView } from "./call";
-import { callView } from "./call-page";
+import { callView, sourceUrl } from "./call-page";
 import { Calls } from "./calls";
 import { callsPage } from "./calls-page";
 import { Gallery } from "./gallery";
@@ -245,6 +245,31 @@ export function webui(options: WebuiOptions): Hono {
         cursor={page.cursor}
       />
     );
+  });
+
+  /**
+   * The Source Thumbnail. The mint runs here, inside the gateway's container
+   * and behind its door, with a records row as the authorisation — so the page
+   * itself never holds a URL that hands over a photograph.
+   */
+  app.get("/calls/:id/source", async (c) => {
+    const caller = await seen(c);
+    if (caller instanceof Response) return caller;
+
+    let url;
+    try {
+      url = await sourceUrl(
+        options.records,
+        options.store,
+        caller,
+        c.req.param("id")
+      );
+    } catch {
+      return noAnswer(c);
+    }
+    if (url === null) return notFound(c);
+
+    return c.redirect(url, 302);
   });
 
   app.get("/calls/:id", async (c) => {

@@ -168,6 +168,24 @@ export function CallView(props: CallProps) {
         </div>
       )}
 
+      {call.sourceHash === null ? null : (
+        <>
+          <h2>Source</h2>
+          {/*
+            The redirect route and never a Signed URL. The route checks the
+            Source Hold and mints a URL that lives a minute, so a saved page
+            holds no photograph.
+          */}
+          <img
+            class="source"
+            src={`${props.basePath}/calls/${call.id}/source`}
+            alt="the Source Image of this Call"
+            loading="lazy"
+            decoding="async"
+          />
+        </>
+      )}
+
       <h2>Steps</h2>
       <Steps steps={call.steps} />
 
