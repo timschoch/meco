@@ -1,5 +1,5 @@
 import type { Annotation, FramingRequest, Region } from "@meco/contracts";
-import { largestBox } from "./boxes";
+import { regionWithLargestBox } from "./boxes";
 import type { ComposedSubject } from "./framing";
 import { kartSubject } from "./kart";
 
@@ -17,7 +17,7 @@ import { kartSubject } from "./kart";
  */
 const faceSubject = (regions: Region[]): ComposedSubject | undefined => {
   const faces = regions.filter((region) => region.kind === "face");
-  const lead = largestBox(faces);
+  const lead = regionWithLargestBox(faces);
 
   return lead === undefined
     ? undefined

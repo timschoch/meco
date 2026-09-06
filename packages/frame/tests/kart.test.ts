@@ -14,8 +14,23 @@ const KART_ONLY = { pinTo: ["kart"] };
  */
 const TOLERANCE = 1.5e-3;
 
-/** Every side of a Box, in the order the failure message should read them. */
-const sides = (box: Box): number[] => [box.x, box.y, box.width, box.height];
+/**
+ * Which sides are within {@link TOLERANCE} of the recording, side by side, so
+ * that a failure names the one that drifted rather than handing back a number.
+ */
+const within = (got: Box, want: Box): Record<keyof Box, boolean> => ({
+  x: Math.abs(got.x - want.x) <= TOLERANCE,
+  y: Math.abs(got.y - want.y) <= TOLERANCE,
+  width: Math.abs(got.width - want.width) <= TOLERANCE,
+  height: Math.abs(got.height - want.height) <= TOLERANCE,
+});
+
+/** One `frameCrop` on the `kart` rung alone, so nothing else can answer. */
+const frameOnKart = (raw: unknown, extra: Record<string, unknown> = {}) =>
+  frameCrop({
+    annotation: Annotation.parse(raw),
+    request: requestFor(SQUARE_TARGET, { ...KART_ONLY, ...extra }),
+  });
 
 describe("the kart fixtures", () => {
   for (const { name, raw } of KART_FIXTURES) {
@@ -45,24 +60,19 @@ describe("the kart rung", () => {
     subject,
   } of KART_FIXTURES) {
     it(`composes the Subject the prototype recorded: ${name}`, () => {
-      const framing = frameCrop({
-        annotation: Annotation.parse(raw),
-        request: requestFor(SQUARE_TARGET, KART_ONLY),
-      });
+      const framing = frameOnKart(raw);
 
       expect(framing.subject).toBeDefined();
-      for (const [i, side] of sides(framing.subject!).entries()) {
-        expect(Math.abs(side - sides(subject)[i]!)).toBeLessThanOrEqual(
-          TOLERANCE
-        );
-      }
+      expect(within(framing.subject!, subject)).toEqual({
+        x: true,
+        y: true,
+        width: true,
+        height: true,
+      });
     });
 
     it(`names the seed Region and everything joined to it: ${name}`, () => {
-      const framing = frameCrop({
-        annotation: Annotation.parse(raw),
-        request: requestFor(SQUARE_TARGET, KART_ONLY),
-      });
+      const framing = frameOnKart(raw);
 
       expect(framing.resolvedBy).toBe("kart");
       expect(framing.leadRegionId).toBe(leadRegionId);
@@ -86,6 +96,8 @@ describe("overlap measured against the smaller box", () => {
   const kart = annotation.regions.find((r) => r.id === "vehicle-1")!;
   const driver = annotation.regions.find((r) => r.id === "person-1")!;
 
+  // Re-derived here rather than imported: `lib/boxes.ts` is private to the
+  // package, and a check on the rule's own arithmetic would prove nothing.
   const area = (b: Box) => b.width * b.height;
   const intersection =
     Math.max(
@@ -109,10 +121,7 @@ describe("overlap measured against the smaller box", () => {
   });
 
   it("joins the driver anyway, and the Subject reaches over the helmet", () => {
-    const framing = frameCrop({
-      annotation,
-      request: requestFor(SQUARE_TARGET, KART_ONLY),
-    });
+    const framing = frameOnKart(raw);
 
     expect(framing.keptRegionIds).toContain(driver.id);
     // The kart box stops below the helmet; the recorded Subject does not.
@@ -147,10 +156,7 @@ describe("no vehicle Region", () => {
   });
 
   it("seeds on the driver, who has the largest box", () => {
-    const framing = frameCrop({
-      annotation,
-      request: requestFor(SQUARE_TARGET, KART_ONLY),
-    });
+    const framing = frameOnKart(raw);
 
     expect(framing.leadRegionId).toBe(leadRegionId);
     expect(framing.leadRegionId).toBe("person-1");
@@ -177,10 +183,7 @@ describe("a paddock full of people", () => {
   });
 
   it("keeps only the eight people at the kart", () => {
-    const framing = frameCrop({
-      annotation,
-      request: requestFor(SQUARE_TARGET, KART_ONLY),
-    });
+    const framing = frameOnKart(raw);
     const keptPeople = framing.keptRegionIds.filter((id) =>
       id.startsWith("person-")
     );
@@ -190,21 +193,16 @@ describe("a paddock full of people", () => {
   });
 
   it("leaves the other seventeen standing in the paddock out of it", () => {
-    const framing = frameCrop({
-      annotation,
-      request: requestFor(SQUARE_TARGET, KART_ONLY),
-    });
+    const framing = frameOnKart(raw);
     const standing = annotation.regions.filter(
       (r) => r.kind === "person" && !framing.keptRegionIds.includes(r.id)
     );
 
+    // 25 people, 8 joined. None of the rest widened the union — and some of
+    // them still fall inside the Subject it came out at, `person-5` among
+    // them, which is what a kept Region does not mean: it names what the rung
+    // composed on, not what the window happens to hold.
     expect(standing).toHaveLength(17);
-    // None of them widened the union. Some still fall inside the Subject the
-    // union came out at — `person-5` does — which is what "kept" does not mean:
-    // it names what the rung composed on, not what the window happens to hold.
-    for (const person of standing) {
-      expect(framing.keptRegionIds).not.toContain(person.id);
-    }
   });
 });
 
@@ -228,17 +226,7 @@ describe("the kart rung never reads a Label", () => {
         })),
       });
 
-      expect(
-        frameCrop({
-          annotation: relabelled,
-          request: requestFor(SQUARE_TARGET, KART_ONLY),
-        })
-      ).toEqual(
-        frameCrop({
-          annotation,
-          request: requestFor(SQUARE_TARGET, KART_ONLY),
-        })
-      );
+      expect(frameOnKart(relabelled)).toEqual(frameOnKart(raw));
     });
   }
 });
@@ -258,10 +246,7 @@ describe("the kart rung with no vehicle and no person Region", () => {
   });
 
   it("falls through to the centre when no anchor is named", () => {
-    const framing = frameCrop({
-      annotation: faceOnly,
-      request: requestFor(SQUARE_TARGET, KART_ONLY),
-    });
+    const framing = frameOnKart(faceOnly);
 
     expect(framing.resolvedBy).toBe("center");
     expect(framing.leadRegionId).toBeUndefined();
@@ -270,10 +255,7 @@ describe("the kart rung with no vehicle and no person Region", () => {
   });
 
   it("falls through to the anchor when one is named", () => {
-    const framing = frameCrop({
-      annotation: faceOnly,
-      request: requestFor(SQUARE_TARGET, { ...KART_ONLY, anchor: "top-left" }),
-    });
+    const framing = frameOnKart(faceOnly, { anchor: "top-left" });
 
     expect(framing.resolvedBy).toBe("anchor");
     expect(framing.window).toEqual({ x: 0, y: 0, width: 800, height: 800 });

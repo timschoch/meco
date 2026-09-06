@@ -1,4 +1,4 @@
-import type { Box } from "@meco/contracts";
+import type { Box, Region } from "@meco/contracts";
 
 /** A Box's area, in the square of the source fraction. Never a pixel count. */
 export const area = (box: Box): number => box.width * box.height;
@@ -37,11 +37,15 @@ export const union = (first: Box, ...rest: Box[]): Box => {
   };
 };
 
-/** The Region with the largest box, the first of equals winning. */
-export const largestBox = <T extends { box: Box }>(
-  candidates: T[]
-): T | undefined =>
-  candidates.reduce<T | undefined>(
+/**
+ * The Region with the largest box. The first of equals wins, which is the
+ * lowest Region id without a rule of its own to say so: contracts hands the
+ * Regions over in the order it numbered them.
+ */
+export const regionWithLargestBox = (
+  candidates: Region[]
+): Region | undefined =>
+  candidates.reduce<Region | undefined>(
     (best, candidate) =>
       best === undefined || area(candidate.box) > area(best.box)
         ? candidate

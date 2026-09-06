@@ -1,5 +1,5 @@
 import type { Region } from "@meco/contracts";
-import { largestBox, overlapOfSmaller, union } from "./boxes";
+import { regionWithLargestBox, overlapOfSmaller, union } from "./boxes";
 import type { ComposedSubject } from "./framing";
 
 /**
@@ -39,7 +39,7 @@ const seedRegion = (regions: Region[]): Region | undefined => {
       ? vehicles
       : regions.filter((region) => region.kind === "person");
 
-  return largestBox(pool);
+  return regionWithLargestBox(pool);
 };
 
 /**
