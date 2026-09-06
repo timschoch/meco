@@ -106,6 +106,12 @@ importers:
       '@meco/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@meco/records':
+        specifier: workspace:*
+        version: link:../records
+      '@meco/store':
+        specifier: workspace:*
+        version: link:../store
 
   packages/models:
     dependencies:

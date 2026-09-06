@@ -7,6 +7,8 @@
     ".": "./index.ts"
   },
   "dependencies": {
-    "@meco/contracts": "workspace:*"
+    "@meco/contracts": "workspace:*",
+    "@meco/records": "workspace:*",
+    "@meco/store": "workspace:*"
   }
 }
