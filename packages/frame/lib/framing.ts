@@ -70,9 +70,17 @@ export interface Framing {
   droppedRegionIds: string[];
   satisfied: boolean;
   fallback?: FallbackRung;
-  /** Only when the request named a Subject Area. */
+  /**
+   * Whether the Subject filled the Subject Area, measured on the window
+   * actually cut. Only when the request named an area.
+   */
   subjectAreaSatisfied?: boolean;
-  /** 1 when satisfied, the factor short otherwise. */
+  /**
+   * A ratio of sizes: 1 when the Source Image was big enough to fill the area,
+   * the factor it fell short by otherwise. An area missed for any other reason
+   * — a window the picture's edge pushed off it — is an unsatisfied area at a
+   * shortfall of 1.
+   */
   subjectAreaShortfall?: number;
   /** Only when `occlusion` was non-empty. */
   occlusionClear?: boolean;

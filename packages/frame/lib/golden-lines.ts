@@ -1,5 +1,5 @@
-import type { Box, Size } from "@meco/contracts";
-import { PHI_LINES, type CropWindow } from "./framing";
+import type { Box, Point } from "@meco/contracts";
+import { PHI_LINES } from "./framing";
 
 /**
  * The Golden Line nearest to where the Subject already sat, `subjectCentre`
@@ -21,42 +21,16 @@ const nearestGoldenLine = (subjectCentre: number): number => {
 };
 
 /**
- * Where the window starts on one axis, in whole Source Image pixels: the
- * offset that puts the Subject's centre on its nearest Golden Line, clamped to
- * the Source Image.
+ * Where the Subject aims when nobody declared a Subject Area: its nearest
+ * Golden Line on each axis, as a fraction of the window.
  *
- * An axis with no slack clamps to 0, which is the shape's answer rather than
- * this one's: a cover window touches the Source Image on one axis by
- * construction. An axis with slack can still run out of it, and then the
- * window sits against the edge and the line is simply out of reach.
- */
-const originOnAxis = (
-  subjectCentre: number,
-  sourceExtent: number,
-  windowExtent: number
-): number => {
-  const wanted =
-    subjectCentre * sourceExtent -
-    nearestGoldenLine(subjectCentre) * windowExtent;
-
-  return Math.min(sourceExtent - windowExtent, Math.max(0, Math.round(wanted)));
-};
-
-/**
- * Puts a window of a given size where the Subject lands on its Golden Lines.
- * Each axis is solved on its own: the two are independent, and the Golden Line
+ * Each axis is chosen on its own. The two are independent, and the Golden Line
  * a Subject is nearest to across says nothing about the one it is nearest to
  * down.
  */
-export function placeOnGoldenLines(
-  subject: Box,
-  size: Size,
-  source: Size
-): CropWindow {
+export function goldenAim(subject: Box): Point {
   return {
-    x: originOnAxis(subject.x + subject.width / 2, source.width, size.width),
-    y: originOnAxis(subject.y + subject.height / 2, source.height, size.height),
-    width: size.width,
-    height: size.height,
+    x: nearestGoldenLine(subject.x + subject.width / 2),
+    y: nearestGoldenLine(subject.y + subject.height / 2),
   };
 }
