@@ -10,7 +10,8 @@
 import type { Brand, Output, OutputKind } from "@meco/records";
 import type { Store } from "@meco/store";
 import { Layout } from "./layout";
-import { KINDS, type Filterable, type GalleryQuery, linkTo } from "./query";
+import { Filter, Older, Pages } from "./nav";
+import { GALLERY_FIELDS, KINDS, type GalleryQuery } from "./query";
 
 export interface GalleryProps {
   readonly basePath: string;
@@ -31,38 +32,6 @@ const placementsOf = (outputs: readonly Output[]): string[] =>
         .filter((one): one is string => one !== null)
     ),
   ].sort();
-
-function Filter(props: {
-  basePath: string;
-  query: GalleryQuery;
-  heading: string;
-  field: Filterable;
-  options: readonly { value: string; label: string }[];
-}) {
-  const selected = props.query[props.field];
-  return (
-    <section>
-      <h2>{props.heading}</h2>
-      <a
-        href={linkTo(props.basePath, props.query, { field: props.field })}
-        aria-current={selected === undefined ? "true" : "false"}
-      >
-        all
-      </a>
-      {props.options.map((option) => (
-        <a
-          href={linkTo(props.basePath, props.query, {
-            field: props.field,
-            value: option.value,
-          })}
-          aria-current={selected === option.value ? "true" : "false"}
-        >
-          {option.label}
-        </a>
-      ))}
-    </section>
-  );
-}
 
 function Card(props: {
   basePath: string;
@@ -102,9 +71,11 @@ export function Gallery(props: GalleryProps) {
     <Layout title="meco — Gallery">
       <h1>Gallery</h1>
       <nav>
+        <Pages basePath={props.basePath} here="gallery" />
         <Filter
-          basePath={props.basePath}
+          path={props.basePath}
           query={props.query}
+          fields={GALLERY_FIELDS}
           heading="brand"
           field="brand"
           options={props.brands.map((one) => ({
@@ -114,16 +85,18 @@ export function Gallery(props: GalleryProps) {
         />
         {placements.length === 0 ? null : (
           <Filter
-            basePath={props.basePath}
+            path={props.basePath}
             query={props.query}
+            fields={GALLERY_FIELDS}
             heading="placement"
             field="placement"
             options={placements.map((one) => ({ value: one, label: one }))}
           />
         )}
         <Filter
-          basePath={props.basePath}
+          path={props.basePath}
           query={props.query}
+          fields={GALLERY_FIELDS}
           heading="kind"
           field="kind"
           options={KINDS.map((one: OutputKind) => ({ value: one, label: one }))}
@@ -144,14 +117,12 @@ export function Gallery(props: GalleryProps) {
         </div>
       )}
 
-      {props.cursor === null ? null : (
-        <a
-          class="older"
-          href={linkTo(props.basePath, props.query, { cursor: props.cursor })}
-        >
-          older →
-        </a>
-      )}
+      <Older
+        path={props.basePath}
+        query={props.query}
+        fields={GALLERY_FIELDS}
+        cursor={props.cursor}
+      />
     </Layout>
   );
 }

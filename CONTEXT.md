@@ -479,6 +479,10 @@ _Avoid_: preview, before image, original, source URL
 The Regions and the Crop Window drawn over the Source Thumbnail as fractions of its box, so they hold at any display width without a script. A Region shows its Person's name when it is a Match, `hidden` when it is in the Redaction Records, and its Region id otherwise.
 _Avoid_: annotation layer, bounding boxes, markup, canvas
 
+**Calls list**:
+The page of the Caller's Calls newest first — when, Brand, kind, status, duration, and the module and code of a failed one — narrowed by Brand, by status, or by both. `?status=failed` is what makes a failure a page: a failed Call has no Output, so without this list an error is a gap in the Gallery rather than something a person can read. Every row links its Call View.
+_Avoid_: history, log, activity feed, jobs, runs, error log
+
 ## gateway
 
 The one door. Every request enters here over HTTP or MCP, is tied to a Caller, refused for a Brand the Caller does not hold, run through the modules in a fixed order, and written down as a Call. The gateway holds no model, no pixel arithmetic and no rows of its own: it sequences the other modules and owns the two things none of them can, the door and the order. Caller, Call, Step, Output, Request Hash and Source Hold are records' terms; Annotation, FramingRequest and Match are contracts'.
