@@ -17,30 +17,11 @@ const read = (name: string): unknown =>
   JSON.parse(readFileSync(`${FACES}${name}`, "utf8"));
 
 /**
- * The one karting photograph the gateway tests use, and the Annotation the
- * fake models host answers for it.
- *
- * `detected.json` beside it is faces alone, and YuNet finds none here — which
- * is why this photograph exists. What frame needs is the `vehicle` Regions
- * D-FINE found, so the fixture is a whole recorded Annotation rather than
- * something assembled from the detection files: assembling one would put
- * D-FINE's label-to-Kind rule in a test, where it would be a second copy of
- * the adapter's.
- *
- * A copy of `packages/frame/tests/fixtures/on-track-dark-visor.json`, re-record
- * both with `pnpm --filter @meco/frame record <models url>`. Copied because a
- * package may not import another package's tests, and the two are held together
- * by the hash check in {@link fixtureAnnotation}: a recording that is not of
- * these bytes fails every test that reads it.
+ * The one karting photograph the gateway tests use. YuNet finds no face
+ * through those visors, which is why it exists: only frame's `kart` rung can
+ * place a window on it.
  */
 export const KART_FILE = "on-track-dark-visor.jpg";
-const kartRecording = (): unknown =>
-  JSON.parse(
-    readFileSync(
-      fileURLToPath(new URL("./fixtures/on-track-dark-visor.json", import.meta.url)),
-      "utf8"
-    )
-  );
 
 const detected = read("detected.json") as {
   readonly images: Record<
@@ -75,28 +56,63 @@ const modelNamed = (name: string): ModelId => {
 export const sha256 = (bytes: Uint8Array): string =>
   createHash("sha256").update(bytes).digest("hex");
 
+/**
+ * Every photograph the fake hosts serve and answer for: where its bytes are,
+ * and where its Annotation comes from.
+ *
+ * A photograph under `fixtures/faces/` has its Annotation assembled below from
+ * `detected.json` and `face-prints.json`. A photograph with a `recording` has a
+ * whole Annotation on disk instead, because what frame needs from it is
+ * D-FINE's `vehicle` Regions, and assembling those here would put the adapter's
+ * label-to-Kind rule in a test as a second copy of itself.
+ *
+ * `on-track-dark-visor.json` is a copy of the recording under
+ * `packages/frame/tests/fixtures/`; re-record both with
+ * `pnpm --filter @meco/frame record <models url>`. Copied because a package may
+ * not import another package's tests, and held to its photograph by the hash
+ * check in {@link fixtureAnnotation}.
+ */
+const SOURCES: Record<string, { dir: string; recording?: string }> = {
+  ...Object.fromEntries(
+    Object.keys(detected.images).map((file) => [file, { dir: FACES }])
+  ),
+  [KART_FILE]: { dir: KARTS, recording: "on-track-dark-visor.json" },
+};
+
+const sourceOf = (file: string): { dir: string; recording?: string } => {
+  const found = SOURCES[file];
+  if (found === undefined) throw new Error(`no fixture photograph ${file}`);
+  return found;
+};
+
 /** A fixture photograph's bytes. */
 export const fixtureBytes = (file: string): Uint8Array =>
-  new Uint8Array(readFileSync(`${file === KART_FILE ? KARTS : FACES}${file}`));
+  new Uint8Array(readFileSync(`${sourceOf(file).dir}${file}`));
 
 /** Every photograph the fake hosts serve and answer for. */
-export const FIXTURE_FILES: readonly string[] = [
-  ...Object.keys(detected.images),
-  KART_FILE,
-];
+export const FIXTURE_FILES: readonly string[] = Object.keys(SOURCES);
 
 /**
  * The Annotation the fake models host answers for one fixture photograph:
- * every recorded face as a face Region with a print, every Catalogue entry in
- * `producedBy`, and the hash of the file's own bytes.
+ * the recording where there is one, and otherwise every recorded face as a
+ * face Region with a print, every Catalogue entry in `producedBy`, and the
+ * hash of the file's own bytes.
  */
 export function fixtureAnnotation(file: string): Annotation {
-  if (file === KART_FILE) {
-    const recorded = Annotation.parse(kartRecording());
+  const { recording } = sourceOf(file);
+  if (recording !== undefined) {
+    const recorded = Annotation.parse(
+      JSON.parse(
+        readFileSync(
+          fileURLToPath(new URL(`./fixtures/${recording}`, import.meta.url)),
+          "utf8"
+        )
+      )
+    );
     const bytes = sha256(fixtureBytes(file));
     if (recorded.hash !== bytes) {
       throw new Error(
-        `the ${file} recording is of ${recorded.hash}, not of the committed bytes (${bytes})`
+        `the ${recording} recording is of ${recorded.hash}, not of the committed bytes of ${file} (${bytes})`
       );
     }
     return recorded;

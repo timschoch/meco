@@ -20,11 +20,9 @@ import type { RenderResult } from "@meco/compose";
 import {
   type Annotation,
   type Box,
-  type CropAnchor,
   DEFAULT_PIN_TO,
   type DecodedImage,
   FramingRequest,
-  type PinTo,
   type Size,
 } from "@meco/contracts";
 import { type Framing, frameCrop, projectIntoFrame } from "@meco/frame";
@@ -32,8 +30,10 @@ import type { FaceVerdict, Identification, Identify } from "@meco/identify";
 import { type RedactionRecord, redact } from "@meco/redact";
 import type { Caller, Records } from "@meco/records";
 import type { Namespace, Store } from "@meco/store";
+import type { z } from "zod";
 import { type AnnotateDeps, annotationOf } from "./annotate";
 import { decodeAt } from "./decode";
+import type { FramingOptions } from "./inputs";
 import { requestHash } from "./request-hash";
 import { type SourceReference, resolveSource } from "./source";
 import type { Trace } from "./trace";
@@ -50,26 +50,23 @@ export interface PipelineDeps extends AnnotateDeps {
 
 /**
  * What every Operation that produces an Output takes at the door: the Brand,
- * the bytes and the Framing options `lib/inputs.ts` declares. A kind's own
- * fields — a Template, a size — are its own type's business.
+ * the bytes and the Framing options. A kind's own fields — a Template, a
+ * size — are its own type's business.
+ *
+ * The options are read off `FramingOptions` rather than restated, so an option
+ * added there reaches this without a second edit that nothing would fail for.
  */
-export interface FramingInput {
+export type FramingInput = {
   readonly brand: string;
   readonly source: SourceReference;
-  readonly pinTo?: readonly PinTo[];
-  readonly persons?: readonly string[];
-  readonly anchor?: CropAnchor;
-  readonly redaction?: { readonly blurUnknownFaces?: boolean };
-  readonly format?: "png" | "jpeg" | "webp";
-  readonly quality?: number;
-}
+} & z.output<z.ZodObject<typeof FramingOptions>>;
 
 /**
- * What the output must fill and what will be drawn over it: compose's Plan for
- * a Render, the request's own size for a Crop. Read by the FramingRequest and
- * by nothing else.
+ * The Fill: what the output must fill and what will be drawn over it. compose's
+ * Plan answers it for a Render; the request itself answers it for a Crop. Read
+ * by the FramingRequest and by nothing else.
  */
-export interface Layout {
+export interface Fill {
   /** The Image Slot, in whole pixels. */
   readonly target: Size;
   /** What the Template will cover, in Image Slot fractions. Empty for a Crop. */
@@ -80,21 +77,20 @@ export interface Layout {
 
 /** The two stages of the pipeline one Call kind fills in. */
 export interface Stages<I extends FramingInput> {
-  /** The Call kind, the Output kind and the `store.put` Namespace in one. */
-  readonly kind: "render" | "crop";
+  /** Where the bytes are filed. `renders` for a Render, `crops` for a Crop. */
   readonly namespace: Namespace;
   /**
-   * Before frame: what is being filled. A Step of its own where a module
-   * answers it (`compose.plan`), and none where the request already said.
+   * Before frame: the Fill. A Step of its own where a module answers it
+   * (`compose.plan`), and none where the request already said.
    */
-  layout(input: I, trace: Trace): Promise<Layout>;
+  fill(input: I, trace: Trace): Promise<Fill>;
   /**
    * After redact: the pixels. Records its own Step, because `compose.render`
    * and `compose.cut` are two names for two different amounts of work.
    */
   paint(
     input: I,
-    layout: Layout,
+    fill: Fill,
     image: DecodedImage,
     window: Box,
     trace: Trace
@@ -158,7 +154,7 @@ export async function pipeline<I extends FramingInput>(
   );
   trace.matches(identification);
 
-  const layout = await stages.layout(input, trace);
+  const fill = await stages.fill(input, trace);
 
   // The contract refuses the request, not the gateway: a 17th Occlusion Zone
   // or a ladder naming a rung twice is a `400 invalid_request` from the same
@@ -167,17 +163,17 @@ export async function pipeline<I extends FramingInput>(
     brand,
     source: { hash: source.hash },
     target: {
-      ...layout.target,
+      ...fill.target,
       ...(input.format === undefined ? {} : { format: input.format }),
       ...(input.quality === undefined ? {} : { quality: input.quality }),
     },
     pinTo: input.pinTo ?? DEFAULT_PIN_TO,
     ...(input.persons === undefined ? {} : { persons: input.persons }),
     ...(input.anchor === undefined ? {} : { anchor: input.anchor }),
-    ...(layout.subjectArea === undefined
+    ...(fill.subjectArea === undefined
       ? {}
-      : { subjectArea: layout.subjectArea }),
-    occlusion: [...layout.occlusion],
+      : { subjectArea: fill.subjectArea }),
+    occlusion: [...fill.occlusion],
     // The safe answer is the default one (ADR-0014, Decision 6).
     redaction: {
       blurUnknownFaces: input.redaction?.blurUnknownFaces ?? true,
@@ -209,7 +205,7 @@ export async function pipeline<I extends FramingInput>(
 
   const painted = await stages.paint(
     input,
-    layout,
+    fill,
     hidden.image,
     framing.windowFraction,
     trace

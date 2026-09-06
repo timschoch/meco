@@ -3,7 +3,7 @@
  * over it.
  *
  * The order is `lib/pipeline.ts`, which every Output-producing kind shares.
- * What is here is what only a Crop knows: the request itself is the Layout —
+ * What is here is what only a Crop knows: the request itself is the Fill —
  * its own `width` and `height`, nothing occluded, and the `subjectArea` the
  * caller named rather than one a Plan derived — and compose's `cut` is the
  * paint. No Placement: a Crop is a size, not a Channel (ADR-0014).
@@ -56,13 +56,12 @@ export type CropAnswer = {
 
 /** The two stages a Crop fills in. */
 const CROP: Stages<CropInput> = {
-  kind: "crop",
   namespace: "crops",
 
   // No Step and nothing awaited: no module answers this, the request does.
   // `occlusion: []` because nothing will be drawn over the picture, which is
   // what makes frame free to use the whole window.
-  layout: async (input) => ({
+  fill: async (input) => ({
     target: { width: input.width, height: input.height },
     occlusion: [],
     ...(input.subjectArea === undefined
@@ -70,12 +69,12 @@ const CROP: Stages<CropInput> = {
       : { subjectArea: input.subjectArea }),
   }),
 
-  paint(input, layout, image, window, trace) {
+  paint(input, fill, image, window, trace) {
     return trace.step("compose.cut", () =>
       composeCut({
         source: image,
         window,
-        target: layout.target,
+        target: fill.target,
         ...(input.format === undefined ? {} : { format: input.format }),
         ...(input.quality === undefined ? {} : { quality: input.quality }),
       })

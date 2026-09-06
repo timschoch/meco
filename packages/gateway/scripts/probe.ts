@@ -389,11 +389,12 @@ const sources = process.env["MECO_STORY_URL"]
       commons("Challenge_kart.JPG"),
     ];
 
+/** What `render` and `crop` both answer. A Crop names no Placement. */
 type RenderAnswer = {
   output?: {
     url: string;
     key: string;
-    placement: string;
+    placement?: string;
     width: number;
     height: number;
     mime: string;
@@ -409,6 +410,21 @@ type RenderAnswer = {
   }[];
   error?: { code: string; message: string };
 };
+
+/**
+ * The bytes themselves, for whoever asked to see the picture. Written only
+ * when `MECO_SAVE_DIR` names a folder, so an ordinary probe run writes nothing.
+ */
+async function save(answer: RenderAnswer | undefined): Promise<void> {
+  const into = process.env["MECO_SAVE_DIR"];
+  const output = answer?.output;
+  if (into === undefined || into === "" || output === undefined) return;
+  const fetched = await fetch(output.url);
+  const name = output.key.split("/").pop() ?? "output";
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(`${into}/${name}`, new Uint8Array(await fetched.arrayBuffer()));
+  console.log(`     saved ${into}/${name}`);
+}
 
 if (template === undefined) {
   line(false, "no Template to render: skipping the story");
@@ -469,19 +485,7 @@ if (template === undefined) {
       }
     }
 
-    // The bytes themselves, for whoever asked to see the picture. Written only
-    // when a path is named, so an ordinary probe run writes nothing.
-    const save = process.env["MECO_SAVE_DIR"];
-    if (save !== undefined && save !== "" && first?.output?.url !== undefined) {
-      const bytes = await fetch(first.output.url);
-      const name = first.output.key.split("/").pop() ?? "render";
-      const { writeFile } = await import("node:fs/promises");
-      await writeFile(
-        `${save}/${name}`,
-        new Uint8Array(await bytes.arrayBuffer())
-      );
-      console.log(`     saved ${save}/${name}`);
-    }
+    await save(first);
   }
 }
 
@@ -496,29 +500,8 @@ const cropSource =
   process.env["MECO_CROP_URL"] ?? commons("Giuseppe_Gnazzo_-_Kart_driver.jpg");
 const CROP_SIZE = { width: 1080, height: 1350 };
 
-type CropAnswer = {
-  output?: {
-    url: string;
-    key: string;
-    kind: string;
-    width: number;
-    height: number;
-    mime: string;
-    bytes: number;
-  };
-  call?: { id: string; replayed: boolean };
-  framing?: { resolvedBy: string; leadRegionId?: string; fallback?: string };
-  faces?: {
-    regionId: string;
-    verdict: string;
-    hidden: boolean;
-    inFrame: boolean;
-  }[];
-  error?: { code: string; message: string };
-};
-
 console.log(`\n--- crop ${CROP_SIZE.width}x${CROP_SIZE.height} on ${cropSource}`);
-let firstCrop: CropAnswer | undefined;
+let firstCrop: RenderAnswer | undefined;
 
 for (const round of ["first", "replay"] as const) {
   const answer = await post("/v1/crop", {
@@ -526,7 +509,7 @@ for (const round of ["first", "replay"] as const) {
     source: { url: cropSource },
     ...CROP_SIZE,
   });
-  const body = answer.body as CropAnswer;
+  const body = answer.body as RenderAnswer;
   const replayed = body.call?.replayed === true;
 
   line(
@@ -577,7 +560,7 @@ const asPng = await post("/v1/crop", {
   ...CROP_SIZE,
   format: "png",
 });
-const pngBody = asPng.body as CropAnswer;
+const pngBody = asPng.body as RenderAnswer;
 line(
   asPng.status === 200 && pngBody.output?.mime === "image/png",
   `POST /v1/crop format png -> ${asPng.status}, mime ${pngBody.output?.mime ?? "-"}, ${pngBody.output?.url ?? "-"}`
@@ -592,22 +575,6 @@ if (pngBody.output?.url !== undefined) {
   );
 }
 
-// The Crop itself, for whoever asked to see the picture. Written only when a
-// path is named, as the story block above does it.
-const saveCropTo = process.env["MECO_SAVE_DIR"];
-if (
-  saveCropTo !== undefined &&
-  saveCropTo !== "" &&
-  firstCrop?.output?.url !== undefined
-) {
-  const bytes = await fetch(firstCrop.output.url);
-  const name = firstCrop.output.key.split("/").pop() ?? "crop";
-  const { writeFile } = await import("node:fs/promises");
-  await writeFile(
-    `${saveCropTo}/${name}`,
-    new Uint8Array(await bytes.arrayBuffer())
-  );
-  console.log(`     saved ${saveCropTo}/${name}`);
-}
+await save(firstCrop);
 
 process.exit(failed ? 1 : 0);

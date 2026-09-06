@@ -301,6 +301,36 @@ describe("the framing options a Crop carries", () => {
   );
 
   it(
+    "honours anchor, where nothing on the ladder yields and frame falls back",
+    async () => {
+      const one = await stack();
+      const app = one.app();
+      // A ladder of `match` alone, on a Brand that enrolled nobody: no rung
+      // yields, so the anchor is the only thing left placing the window.
+      const ladder = { pinTo: ["match"] };
+      const topLeft = await crop(
+        one,
+        KART,
+        { ...ladder, anchor: "top-left" },
+        app
+      );
+      const bottomRight = await crop(
+        one,
+        KART,
+        { ...ladder, anchor: "bottom-right" },
+        app
+      );
+
+      expect(topLeft.status).toBe(200);
+      expect(bottomRight.status).toBe(200);
+      expect(topLeft.body.framing?.windowFraction.x).toBeLessThan(
+        bottomRight.body.framing?.windowFraction.x ?? 0
+      );
+    },
+    TIMEOUT
+  );
+
+  it(
     "honours format and quality: png in, PNG bytes out",
     async () => {
       const one = await stack();

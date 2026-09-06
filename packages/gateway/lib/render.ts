@@ -3,7 +3,7 @@
  * Render.
  *
  * The order is `lib/pipeline.ts`, which every Output-producing kind shares.
- * What is here is what only a Render knows: compose's Plan is the Layout, and
+ * What is here is what only a Render knows: compose's Plan is the Fill, and
  * compose's `render` is the paint.
  */
 import { plan as composePlan, render as composeRender } from "@meco/compose";
@@ -58,10 +58,9 @@ export type RenderAnswer = {
 
 /** The two stages a Render fills in. */
 const RENDER: Stages<RenderInput> = {
-  kind: "render",
   namespace: "renders",
 
-  async layout(input, trace) {
+  async fill(input, trace) {
     const plan = await trace.step("compose.plan", () =>
       composePlan({
         template: input.template,
@@ -79,7 +78,7 @@ const RENDER: Stages<RenderInput> = {
     };
   },
 
-  paint(input, _layout, image, window, trace) {
+  paint(input, _fill, image, window, trace) {
     return trace.step("compose.render", () =>
       composeRender({
         template: input.template,
