@@ -34,6 +34,9 @@ export interface Database {
  */
 export type Drizzle = PgDatabase<any>;
 
+/** A drizzle handle inside a transaction, as `orm.transaction` hands it over. */
+export type Tx = Parameters<Parameters<Drizzle["transaction"]>[0]>[0];
+
 /** What records needs from a backend. Private to this package. */
 export interface DatabaseDriver {
   readonly kind: DatabaseKind;

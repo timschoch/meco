@@ -412,11 +412,15 @@ How many rows still name one Store Key or one Content Hash. A delete reaches the
 _Avoid_: refcount, usage count, links, dependents
 
 **Sweep**:
-The periodic delete of Files with no Source Hold and no Reference Photo for longer than the Retention Window, with their Annotation and their source bytes. It is how a stranger's Face Print stops living forever. Never touches an Output.
+The periodic delete of Files with no Source Hold and no Reference Photo for longer than the Retention Window, with their Annotation and their source bytes. It is how a stranger's Face Print stops living forever. Never touches an Output. Runs when a Vercel cron posts to the gateway's `/internal/sweep`; there is no timer inside a container, which sleeps.
 _Avoid_: garbage collection, cleanup, purge, TTL, expiry
 
+**Sweep Report**:
+What one Sweep answers with: the instant it measured the Retention Window from, the window it used, the Content Hashes whose File and Annotation went, and the Store Keys whose bytes went. The owner reads a Sweep nowhere else, so a Sweep that deleted nothing still says what it looked at.
+_Avoid_: result, summary, log, stats, receipt
+
 **Retention Window**:
-How long a File with no Source Hold and no Reference Photo may stay before the Sweep removes it. Thirty days by default, a configuration value the owner can change.
+How long a File with no Source Hold and no Reference Photo may stay before the Sweep removes it. Thirty days by default, a configuration value the owner can change. How long a stranger's face is kept is a data-protection decision, so it is never a number in a build.
 _Avoid_: TTL, expiry, grace period, lifetime
 
 **Migration**:

@@ -21,8 +21,16 @@ const openDatabase = (): Database => {
   return database;
 };
 
-const over = (database: Database, store: Store = memoryStore()): Records =>
-  records({ database, store });
+const over = (
+  database: Database,
+  store: Store = memoryStore(),
+  retentionDays?: number
+): Records =>
+  records({
+    database,
+    store,
+    ...(retentionDays === undefined ? {} : { retentionDays }),
+  });
 
 const empty = async () => {
   const database = openDatabase();
@@ -42,8 +50,11 @@ const open = async (): Promise<Records> => {
 };
 
 /** The same, over the store the check will watch the bytes cross. */
-const withStore = async (store: Store): Promise<Records> => {
-  const migrated = over(openDatabase(), store);
+const withStore = async (
+  store: Store,
+  retentionDays?: number
+): Promise<Records> => {
+  const migrated = over(openDatabase(), store, retentionDays);
   await migrated.migrate();
   return migrated;
 };

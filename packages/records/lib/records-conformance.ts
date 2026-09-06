@@ -26,6 +26,7 @@ import { verifying } from "./neon-database";
 import { peoplePrefix } from "./people";
 import { type Records, driverOf } from "./records";
 import { BOOTSTRAP_BRANDS, seedRecords } from "./seed";
+import type { SweepReport } from "./sweep";
 
 /** A database with no tables, and however many Records over that one database. */
 export interface EmptyDatabase {
@@ -44,13 +45,18 @@ export interface RecordsFixtures {
    */
   empty(): Promise<EmptyDatabase>;
   /**
-   * A fresh, migrated `Records` over the store handed in.
+   * A fresh, migrated `Records` over the store handed in, and over the
+   * Retention Window handed in when one is.
    *
    * `open()` builds its own store, so a check that has to watch bytes cross the
    * store's seam — Erasure is nothing but that — cannot see it. This is how a
    * check supplies the one it will assert on.
+   *
+   * `retentionDays` is here for one reason: a window the checks could not
+   * change would be a window they could not tell from a constant, and "read
+   * from configuration" is the acceptance criterion.
    */
-  withStore(store: Store): Promise<Records>;
+  withStore(store: Store, retentionDays?: number): Promise<Records>;
 }
 
 /**
@@ -260,6 +266,82 @@ async function calling(records: Records, label: string) {
 /** `2026-09-06T09:<minute>`, so a check's Calls have distinct start times. */
 const at = (minute: number): string =>
   `2026-09-06T09:${String(minute).padStart(2, "0")}:00.000Z`;
+
+/**
+ * A Source Image nobody holds: bytes in the store and a `files` row naming
+ * them, and no `sources` or `reference_photos` row anywhere. This is what the
+ * Sweep is for, and {@link enrolled} cannot make one because a Reference Photo
+ * is a reference.
+ */
+async function filed(
+  records: Records,
+  store: Store,
+  label: string
+): Promise<{ readonly hash: string; readonly key: string }> {
+  const bytes = bytesFor(label);
+  const put = await store.put("sources", bytes, "image/png");
+  await records.files.ensure({
+    hash: put.hash,
+    mime: "image/png",
+    width: 1200,
+    height: 800,
+    bytes: bytes.byteLength,
+    storeKey: put.key,
+  });
+  return { hash: put.hash, key: put.key };
+}
+
+/** An Output on one Store Key, with the Caller and the Call it hangs off. */
+async function outputOn(
+  records: Records,
+  options: {
+    readonly brand: string;
+    readonly storeKey: string;
+    readonly label: string;
+  }
+): Promise<void> {
+  const caller = await records.callers.create({
+    name: options.label,
+    key: `bearer-${hashOf(`the output on ${options.label}`)}`,
+    brands: [options.brand],
+  });
+  const call = await records.calls.record({
+    callerId: caller.id,
+    brand: options.brand,
+    kind: "crop",
+    status: "ok",
+    startedAt: at(0),
+  });
+  await records.outputs.record({
+    brand: options.brand,
+    storeKey: options.storeKey,
+    callId: call.id,
+    kind: "crop",
+    requestHash: records.requestHash(options.brand, "crop", {
+      label: options.label,
+    }),
+  });
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * The instant the Sweep measures its window from. The Files a check writes are
+ * written now, so moving the check's clock forward is how they get old — and it
+ * needs no control over `first_seen_at`, which the database sets and no seam
+ * method may.
+ */
+const daysFromNow = (days: number): Date =>
+  new Date(Date.now() + days * DAY_MS);
+
+/**
+ * The live host runs every data check against one database, so a Sweep sees
+ * every other check's Files as well as its own. Every assertion below is
+ * therefore about this check's own hashes and keys and never about the whole
+ * report, which is the honest statement in both hosts.
+ */
+const swept = (report: SweepReport, hash: string): boolean =>
+  report.files.includes(hash);
 
 export function recordsConformance(
   open: () => Promise<Records>,
@@ -1660,6 +1742,183 @@ export function recordsConformance(
         for (const brand of BOOTSTRAP_BRANDS) {
           strictEqual(await records.brands.get(brand.id), null);
         }
+      },
+    },
+    {
+      name: "sources.heldBy is false for a Brand that never held the hash, true after hold, false after release, and never answers from files",
+      async run() {
+        const records = await open();
+        const store = memoryStore();
+        const holder = brandFor("holds the source");
+        const stranger = brandFor("never held the source");
+        await records.brands.ensure({ id: holder, name: "Holder" });
+        await records.brands.ensure({ id: stranger, name: "Stranger" });
+        const file = await filed(records, store, "held and released");
+
+        const before = await records.sources.heldBy(holder, file.hash);
+        await records.sources.hold(holder, file.hash);
+        const held = await records.sources.heldBy(holder, file.hash);
+        // Idempotent: a Brand that uploads the same photograph twice is one
+        // row, and a second hold must not become a second reference the
+        // Reference Count would then never reach zero on.
+        await records.sources.hold(holder, file.hash);
+        await records.sources.release(holder, file.hash);
+        const after = await records.sources.heldBy(holder, file.hash);
+
+        strictEqual(before, false);
+        strictEqual(held, true);
+        strictEqual(after, false);
+        // The `files` row stood the whole way through, so an implementation
+        // answering from `files` would have said `true` at every step. This is
+        // the lookup the gateway makes before minting a Signed URL: whether
+        // the bytes exist is not whether this Brand may see them.
+        ok(await records.files.get(file.hash));
+        strictEqual(await records.sources.heldBy(stranger, file.hash), false);
+      },
+    },
+    {
+      name: "sources.release of a hold that is not there is not an error",
+      async run() {
+        const records = await open();
+        const store = memoryStore();
+        const brand = brandFor("releases what it never held");
+        await records.brands.ensure({ id: brand, name: "Never held" });
+        const file = await filed(records, store, "released without a hold");
+
+        // The gateway releases on a path it may already have taken. A throw
+        // would make "this Brand no longer uses this source" a call nobody
+        // could safely repeat, which is the rule `unenrol` and `erase` follow.
+        await records.sources.release(brand, file.hash);
+
+        strictEqual(await records.sources.heldBy(brand, file.hash), false);
+      },
+    },
+    {
+      name: "sweep removes a File with no Source Hold older than the window, with its Annotation and its bytes, and leaves a held one",
+      async run() {
+        const store = watching();
+        const records = await fixtures.withStore(store);
+        const brand = brandFor("holds one of two sources");
+        await records.brands.ensure({ id: brand, name: "Holds one" });
+
+        const orphan = await filed(records, store, "swept, held by nobody");
+        const held = await filed(records, store, "swept over, still held");
+        await records.annotations.put(annotationOf(orphan.hash));
+        await records.sources.hold(brand, held.hash);
+
+        const at = daysFromNow(31);
+        const report = await records.sweep(at);
+
+        // The report says what it swept and what it swept it by, because a
+        // cron's answer is the only place the owner ever reads either.
+        strictEqual(report.retentionDays, 30);
+        strictEqual(report.sweptAt, at.toISOString());
+        ok(swept(report, orphan.hash), "the orphan was not swept");
+        ok(report.keys.includes(orphan.key), "the orphan's key was not swept");
+        strictEqual(await records.files.get(orphan.hash), null);
+        // Every Face Print of every stranger in that photograph went with the
+        // File. That is the whole point of the Sweep.
+        strictEqual(await records.annotations.get(orphan.hash), null);
+        strictEqual(await store.head(orphan.key), null);
+        strictEqual(
+          store.deletes.filter((key) => key === orphan.key).length,
+          1,
+          "the orphan's bytes were deleted more than once"
+        );
+
+        // One Source Hold from one Brand, and the File stands.
+        ok(!swept(report, held.hash), "a held File was swept");
+        ok(await records.files.get(held.hash));
+        ok(await store.head(held.key));
+        strictEqual(await records.sources.heldBy(brand, held.hash), true);
+      },
+    },
+    {
+      name: "sweep leaves a File under a Reference Photo, and a File younger than the window",
+      async run() {
+        const store = watching();
+        const records = await fixtures.withStore(store);
+        const brand = brandFor("keeps its reference photo through a sweep");
+        await records.brands.ensure({ id: brand, name: "Enrolled" });
+
+        const enrolment = await enrolled(records, store, {
+          brand,
+          label: "enrolled and therefore kept",
+        });
+        const young = await filed(records, store, "younger than the window");
+
+        // At the moment they were written nothing is thirty days old, so the
+        // Sweep of now is the check that a young File is safe.
+        const early = await records.sweep();
+        ok(!swept(early, young.hash), "a File written just now was swept");
+        ok(await records.files.get(young.hash));
+
+        const later = await records.sweep(daysFromNow(31));
+
+        // Thirty-one days on the young one is old and goes; the enrolled one
+        // is the same age and stays, because age is not the only condition.
+        ok(swept(later, young.hash), "an old orphan was not swept");
+        strictEqual(await store.head(young.key), null);
+        ok(!swept(later, enrolment.hash), "an enrolled File was swept");
+        ok(await records.files.get(enrolment.hash));
+        // Both of its keys: the Source Key of the File, and the Person's own.
+        ok(await store.head(enrolment.sourceKey));
+        ok(await store.head(enrolment.photo.storeKey));
+      },
+    },
+    {
+      name: "sweep takes the File of an Output's key and never the bytes",
+      async run() {
+        const store = watching();
+        const records = await fixtures.withStore(store);
+        const brand = brandFor("owns an output on a swept key");
+        await records.brands.ensure({ id: brand, name: "Output" });
+
+        const label = "swept out from under an output";
+        const orphan = await filed(records, store, label);
+        await outputOn(records, { brand, storeKey: orphan.key, label });
+
+        const report = await records.sweep(daysFromNow(31));
+
+        // An Output is not a reference to a File: `calls.source_hash` carries
+        // no foreign key on purpose, so an old Call can never block the Sweep.
+        ok(swept(report, orphan.hash), "the File was not swept");
+        // The bytes are another matter. `store.delete` is unconditional
+        // (ADR-0010), so records counts the rows naming a key before it calls
+        // one, and an Output naming that key is a row.
+        ok(!report.keys.includes(orphan.key), "an Output's key was swept");
+        deepStrictEqual(
+          store.deletes.filter((key) => key === orphan.key),
+          []
+        );
+        ok(await store.head(orphan.key));
+      },
+    },
+    {
+      name: "the Retention Window is thirty days by default and is read from configuration",
+      async run() {
+        const store = watching();
+        const byDefault = await fixtures.withStore(store);
+        const usual = await filed(byDefault, store, "swept after thirty days");
+
+        const short = await byDefault.sweep(daysFromNow(29));
+        const long = await byDefault.sweep(daysFromNow(31));
+
+        strictEqual(short.retentionDays, 30);
+        ok(!swept(short, usual.hash), "a File 29 days old was swept");
+        ok(swept(long, usual.hash), "a File 31 days old was not swept");
+
+        // The same File age, a different window, a different answer. A window
+        // compiled in rather than configured would give the same one twice.
+        const configured = await fixtures.withStore(store, 1);
+        const early = await filed(configured, store, "swept after one day");
+
+        const none = await configured.sweep();
+        const one = await configured.sweep(daysFromNow(2));
+
+        strictEqual(none.retentionDays, 1);
+        ok(!swept(none, early.hash), "a File written just now was swept");
+        ok(swept(one, early.hash), "a File 2 days old outlived a 1 day window");
       },
     },
   ];
