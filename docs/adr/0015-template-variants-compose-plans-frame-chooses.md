@@ -1,4 +1,4 @@
-# ADR-0015 — Template Variants: compose plans every layout, frame chooses, the Framing names it
+# ADR-0015 — Template Variants: compose plans every one, frame chooses, the Framing names it
 
 Status: **accepted, 7 Sep 2026**. Ticket: [compose+frame: Template variants so the caption moves out of the Subject's way (#228)](https://github.com/timschoch/meco/issues/228). Amends [ADR-0009](0009-compose-takumi-measured-zones-look-in-code.md) (the Plan) and [ADR-0006](0006-frame-solves-in-closed-form-over-regions.md) (occlusion aims but does not size). Specs: [`../specs/compose.md`](../specs/compose.md), [`../specs/frame.md`](../specs/frame.md), [`../specs/gateway.md`](../specs/gateway.md). Vocabulary: [`CONTEXT.md`, Variant](../../CONTEXT.md#compose). Decided by the implementing agent, the owner away; ledgered on #228.
 

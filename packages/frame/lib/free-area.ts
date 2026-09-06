@@ -16,9 +16,10 @@ const WHOLE_FRAME: Box = { x: 0, y: 0, width: 1, height: 1 };
  * two quadrants of a cross, three strips between two bands — and arrive by
  * different sums of the same coordinates. Without a tolerance the tie-break
  * order would be decided by the last bit of a float rather than by the rule
- * `docs/specs/frame.md` writes down.
+ * `docs/specs/frame.md` writes down. `lib/variants.ts` reads the same one when
+ * it compares two Variants' Free Areas, for the same reason.
  */
-const TIE = 1e-9;
+export const TIE = 1e-9;
 
 /** The rectangle both hold, or nothing when they only touch. */
 const intersection = (a: Box, b: Box): Box | undefined => {

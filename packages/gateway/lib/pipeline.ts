@@ -79,8 +79,8 @@ export interface Fill {
   /** Where the Subject must land, in Image Slot fractions. */
   readonly subjectArea?: Box;
   /**
-   * The Template Variant this Fill is the layout of, when the Template offers
-   * any. What frame's choice comes back naming, and what the paint then draws.
+   * The Template Variant this Fill belongs to, when the Template offers any.
+   * What frame's choice comes back naming, and what the paint then draws.
    */
   readonly variant?: string;
 }

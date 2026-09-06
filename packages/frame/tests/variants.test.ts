@@ -173,6 +173,21 @@ describe("which Variant answers", () => {
     expect(framing.occlusionClear).toBe(true);
   });
 
+  it("counts a Variant with no zone as clear, ahead of one whose zone the Subject is under", () => {
+    // `occlusionClear` is absent when nothing was declared to keep off, and a
+    // Subject nothing covers is as clear as one that missed every zone.
+    const framing = frameVariants({
+      annotation: vehicleAnnotation(RACE, FRONT_KARTS),
+      variants: [
+        ...variantsOf([CAPTION_BOTTOM]),
+        { variant: "no-caption", request: requestFor(STORY, KART_ONLY) },
+      ],
+    });
+
+    expect(framing.variant).toBe("no-caption");
+    expect("occlusionClear" in framing).toBe(false);
+  });
+
   it("prefers the Variant that leaves the larger Free Area, other things equal", () => {
     // A tall source with slack down the frame, so both bands are cleared and
     // both windows hold the Subject; the shorter band leaves more picture.
