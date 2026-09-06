@@ -17,6 +17,13 @@ await build({
   target: "node24",
   external: ["onnxruntime-node", "sharp"],
   outfile: "dist/bundle/server.js",
+  // An ESM bundle has no `require`; a CommonJS dependency inside it dies at
+  // runtime with "Dynamic require of ... is not supported" after a healthy
+  // build (the gateway hit it via @vercel/blob → jose). Nothing in this bundle
+  // needs it today; the guard costs nothing and the trap is silent.
+  banner: {
+    js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);',
+  },
 });
 
 const adapters = new URL("lib/adapters/", import.meta.url);
