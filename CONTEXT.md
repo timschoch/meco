@@ -354,3 +354,55 @@ _Avoid_: overlay, stencil, alpha, blur box, censor
 **Redaction Record**:
 What redact reports for one face it hid: the Region id and why. Kept in the call record so the webui can say which face, not how many. Never says whether that face survived the crop — redact does not know the window, and frame answers that question.
 _Avoid_: blur log, count, blurred, audit entry
+
+## records
+
+What meco remembers: every File it has seen, every Call that entered the gateway, every Output a Brand owns, and the People and Callers a Brand has. It is the only module that writes to the database and the one the Gallery reads from. It knows Store Keys and Content Hashes; it never holds bytes, a URL or a pixel.
+
+**File**:
+One photograph's bytes as records knows them: Content Hash, size, type and the Store Key they are filed under. One row per Content Hash, shared by every Brand, whether the bytes are a Source Image or a Reference Photo. The Annotation hangs off the File and dies with it.
+_Avoid_: image, upload, asset, blob, stored object (that is store's)
+
+**Source Hold**:
+The fact that one Brand has used one Source Image, keyed by Brand and Content Hash. What authorises the gateway to mint a Signed URL for that source to that Brand, and what keeps the File alive: a File nobody holds is what the Sweep removes.
+_Avoid_: ownership, upload record, reference, claim, link
+
+**Call**:
+One request that entered the gateway, as records keeps it: which Caller, which Brand, what kind of work, what was asked, what each module answered, how long each Step took, what it cost, and what failed. A failed Call is a Call. Never a key and never cached; a Call is the thing the webui explains.
+_Avoid_: request (a FramingRequest is one part of a Call), job, log entry, event, trace, invocation
+
+**Step**:
+One timed part of a Call, named for the module or Model that did it, with its duration. The gateway assembles Steps from its own timers and from the `Server-Timing` header models returns. "Which modules ran" is read off the Steps.
+_Avoid_: span, phase, stage, timing, segment
+
+**Output**:
+One Render, Crop or Carousel a Brand owns, as a row: the Brand, the Store Key, the Call that made it and the Request Hash it answers. The Gallery is the list of Outputs. Two Brands with byte-identical Outputs have two Outputs on one Store Key, and the bytes go only when the last Output on that key goes.
+_Avoid_: asset, result, artifact, render (a Render is one kind of Output), file (a File is the source side)
+
+**Request Hash**:
+The SHA-256 of the canonical JSON of one request, Brand included. The same request twice finds its existing Output by this hash instead of running the modules again. Records computes it, so canonical means one thing.
+_Avoid_: idempotency key, fingerprint, cache key, dedupe key
+
+**Caller**:
+A bearer key as records knows it: a name, the hash of the key, and the Brands it holds. The gateway looks one up per request; every module downstream receives the Brand and never the Caller.
+_Avoid_: user, account, client, API key, tenant
+
+**Erasure**:
+Deleting a Person so that nothing of them remains: the Person, every Reference Photo row, every Face Print, and the bytes under `people/<brand>/<personId>/`, in one transaction, proved by listing the prefix afterwards and finding nothing. What ADR-0003 promises and a test has to be able to fail.
+_Avoid_: cascade delete, purge, hard delete, GDPR delete, removal
+
+**Reference Count**:
+How many rows still name one Store Key or one Content Hash. A delete reaches the store only when the count is zero, so a Brand deleting its Output cannot take another Brand's URL with it.
+_Avoid_: refcount, usage count, links, dependents
+
+**Sweep**:
+The periodic delete of Files with no Source Hold and no Reference Photo for longer than the Retention Window, with their Annotation and their source bytes. It is how a stranger's Face Print stops living forever. Never touches an Output.
+_Avoid_: garbage collection, cleanup, purge, TTL, expiry
+
+**Retention Window**:
+How long a File with no Source Hold and no Reference Photo may stay before the Sweep removes it. Thirty days by default, a configuration value the owner can change.
+_Avoid_: TTL, expiry, grace period, lifetime
+
+**Records Reach**:
+What the database looks like from inside the deployment: configured, reachable, how many migrations are pending, the server version, and how long one round trip took. Reported in `GET /health` beside Store Health; a database that cannot be reached is reported here rather than by failing the endpoint.
+_Avoid_: db status, connection, ping, healthcheck
