@@ -19,7 +19,7 @@
  * Decode Bound: same-person worst 0.7263, stranger best 0.2979 over 33 pairs.
  * About 0.20 of room in either direction.
  */
-export const MATCH_THRESHOLD = 0.5;
+export const MATCH_THRESHOLD = 0.5 as const;
 
 /**
  * How far ahead of the second-best Person the best has to be.
@@ -28,7 +28,7 @@ export const MATCH_THRESHOLD = 0.5;
  * look-alikes, so nothing here can confirm it — a face between two People is
  * refused rather than decided by the third decimal.
  */
-export const MATCH_MARGIN = 0.05;
+export const MATCH_MARGIN = 0.05 as const;
 
 /**
  * The shortest side, in the Decoded Image, a face must have to be compared.
@@ -37,7 +37,7 @@ export const MATCH_MARGIN = 0.05;
  * the Enricher saw; a face measured in the photograph's own pixels would pass
  * this floor at any resolution.
  */
-export const MIN_FACE_PX = 40;
+export const MIN_FACE_PX = 40 as const;
 
 /**
  * The similarity to a Not-a-Face Print at which a detection stops being a face.
@@ -48,7 +48,7 @@ export const MIN_FACE_PX = 40;
  * re-measurement. Exported here with the rule it belongs to; the Not-a-Face
  * Prints themselves and the verdict that reads them land with their own ticket.
  */
-export const NOT_A_FACE_THRESHOLD = 0.6;
+export const NOT_A_FACE_THRESHOLD = 0.6 as const;
 
 /**
  * The one Model whose Face Prints the numbers above were calibrated on. A print
@@ -63,9 +63,22 @@ export const PRINT_MODEL = { name: "edgeface", version: "1" } as const;
  * photograph (`docs/specs/models.md`, "Decode once"). identify needs it to
  * judge {@link MIN_FACE_PX} at the size the Enricher measured.
  *
- * Hardcoded here and read by nothing else, because `@meco/models` does not
- * export it yet: #175 replaces this constant with `DECODE_BOUND` from the
+ * Private to this package and never re-exported, because `@meco/models` does
+ * not export it yet: #175 replaces this constant with `DECODE_BOUND` from the
  * models client entry the moment #119 lands it. Two copies of a number are one
- * too many, so this one is private and temporary.
+ * too many, so nothing outside `lib/` may read this one.
  */
-export const DECODE_BOUND = 1600;
+export const DECODE_BOUND = 1600 as const;
+
+/**
+ * How many floats a Face Print from {@link PRINT_MODEL} has.
+ *
+ * `@meco/contracts` fixes a Face Print's length to "at least one" and its norm
+ * to one, because the length is a property of the network and not of the
+ * shape. The Print Model is what fixes it, so the check belongs here: EdgeFace
+ * returns 512 (`fixtures/faces/face-prints.json`, every print). A vector of
+ * another length did not come from this Model whatever its `{ name, version }`
+ * says, and scoring it term by term would compare the first few dimensions of
+ * two unrelated networks and could clear the threshold on nothing.
+ */
+export const PRINT_DIMENSIONS = 512 as const;

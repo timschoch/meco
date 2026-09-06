@@ -13,13 +13,25 @@ import {
   MATCH_MARGIN,
   MATCH_THRESHOLD,
   MIN_FACE_PX,
+  PRINT_DIMENSIONS,
   PRINT_MODEL,
 } from "./constants";
 import type { FaceVerdict, Identification } from "./types";
 
-/** Whether a Face Print came from the Model the rule was calibrated on. */
-const isPrintModel = (model: FacePrint["model"]): boolean =>
-  model.name === PRINT_MODEL.name && model.version === PRINT_MODEL.version;
+/**
+ * Whether a Face Print can be compared at all: it names the Print Model, and
+ * it has that Model's number of dimensions.
+ *
+ * The length is checked as well as the name, because contracts fixes a print's
+ * norm and not its length: a four-float vector labelled `edgeface/1` would
+ * otherwise be scored against a 512-float one term by term, and four terms of
+ * two unrelated networks can clear the threshold. A print of the wrong length
+ * did not come from this Model, whatever it says.
+ */
+const isComparablePrint = (print: FacePrint): boolean =>
+  print.model.name === PRINT_MODEL.name &&
+  print.model.version === PRINT_MODEL.version &&
+  print.vector.length === PRINT_DIMENSIONS;
 
 /**
  * The cosine of two Face Prints. Both are on the unit sphere — the contracts
@@ -29,6 +41,8 @@ const isPrintModel = (model: FacePrint["model"]): boolean =>
  */
 const similarity = (a: readonly number[], b: readonly number[]): number => {
   let sum = 0;
+  // Both are PRINT_DIMENSIONS long: nothing that failed `isComparablePrint`
+  // reaches here, which is what makes the index-by-index product a cosine.
   for (const [index, value] of a.entries()) sum += value * (b[index] ?? 0);
   return Math.min(1, Math.max(-1, sum));
 };
@@ -46,7 +60,13 @@ const decodedShorterSide = (region: Region, image: Annotation): number => {
   );
 };
 
-/** `face-10` after `face-2`: the number decides, never the string. */
+/**
+ * `face-10` after `face-2`: the number decides, never the string.
+ *
+ * `@meco/contracts` owns the `<kind>-<n>` format and its schema refuses any
+ * other, so the parse cannot fail. It exports no comparator, and asking it for
+ * one is a contracts change this ticket has no reason to make.
+ */
 const idNumber = (regionId: string): number =>
   Number.parseInt(regionId.slice(regionId.indexOf("-") + 1), 10);
 
@@ -58,10 +78,10 @@ interface Comparable {
 
 /**
  * The Brand's People with the prints the rule may compare, and the Reference
- * Photos it left out. A print from another Print Model is unusable: it would
- * be measured against a threshold nobody calibrated for it.
+ * Photos it left out. A print that is not a comparable one is unusable: it
+ * would be measured against a threshold nobody calibrated for it.
  */
-const usable = (
+const partitionPrints = (
   people: readonly PersonWithPrints[]
 ): { comparable: Comparable[]; unusable: string[] } => {
   const unusable: string[] = [];
@@ -69,7 +89,7 @@ const usable = (
     personId: person.id,
     prints: person.photos
       .filter((photo: ReferencePhoto) => {
-        if (isPrintModel(photo.facePrint.model)) return true;
+        if (isComparablePrint(photo.facePrint)) return true;
         unusable.push(photo.id);
         return false;
       })
@@ -122,7 +142,7 @@ const verdictFor = (
   if (region.facePrint === undefined) {
     return { regionId, verdict: "uncompared", reason: "no-print" };
   }
-  if (!isPrintModel(region.facePrint.model)) {
+  if (!isComparablePrint(region.facePrint)) {
     return { regionId, verdict: "uncompared", reason: "other-model" };
   }
 
@@ -171,7 +191,7 @@ export const matchRule = (
   brand: string,
   people: readonly PersonWithPrints[]
 ): Identification => {
-  const { comparable, unusable } = usable(people);
+  const { comparable, unusable } = partitionPrints(people);
 
   const faces = annotation.regions
     .filter((region) => region.kind === "face")

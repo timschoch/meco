@@ -19,7 +19,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { Annotation, type Region } from "@meco/contracts";
+import { Annotation, type Box, type Point, type Region } from "@meco/contracts";
+import { PRINT_MODEL } from "../index";
 
 const FIXTURES = fileURLToPath(
   new URL("../../../fixtures/faces/", import.meta.url)
@@ -27,16 +28,6 @@ const FIXTURES = fileURLToPath(
 
 const read = (name: string): unknown =>
   JSON.parse(readFileSync(`${FIXTURES}${name}`, "utf8"));
-
-interface Point {
-  readonly x: number;
-  readonly y: number;
-}
-
-interface Box extends Point {
-  readonly width: number;
-  readonly height: number;
-}
 
 interface DetectedFace {
   readonly box: Box;
@@ -75,9 +66,6 @@ const printed = read("face-prints.json") as {
   }[];
 };
 
-/** The Model the fixture prints came from, and the one identify compares. */
-const PRINT_MODEL = { name: "edgeface", version: "1" } as const;
-
 /** The detector the fixture boxes came from. Its own Model, per ADR-0005. */
 const BOX_MODEL = { name: "yunet", version: "1" } as const;
 
@@ -90,29 +78,28 @@ const apart = (a: Box, b: Box): number =>
   Math.hypot(centre(a).x - centre(b).x, centre(a).y - centre(b).y);
 
 /**
- * A Face Print by the photograph and the face it was taken from. The print
- * files key on the hand-marked `label`, which is why the pairing above exists.
+ * One committed print, by the photograph and the face it was taken from. The
+ * print file keys on the hand-marked `label`, which is why the pairing above
+ * exists.
  */
-export const printOf = (file: string, label: string): number[] => {
+const fixturePrint = (file: string, label: string) => {
   const found = printed.prints.find(
     (one) => one.file === file && one.label === label
   );
   if (found === undefined) {
     throw new Error(`no fixture print for ${file} ${label}`);
   }
-  return [...found.print];
+  return found;
 };
 
+/** The Face Print of one fixture face. */
+export const printOf = (file: string, label: string): number[] => [
+  ...fixturePrint(file, label).print,
+];
+
 /** Which human a fixture face is, as a letter. Two letters are two humans. */
-export const personOf = (file: string, label: string): string => {
-  const found = printed.prints.find(
-    (one) => one.file === file && one.label === label
-  );
-  if (found === undefined) {
-    throw new Error(`no fixture print for ${file} ${label}`);
-  }
-  return found.person;
-};
+export const personOf = (file: string, label: string): string =>
+  fixturePrint(file, label).person;
 
 /** A stable Content Hash per fixture, so a test never invents 64 hex digits. */
 export const hashOf = (name: string): string =>

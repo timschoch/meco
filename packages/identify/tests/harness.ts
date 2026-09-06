@@ -13,10 +13,7 @@ import {
   records,
 } from "@meco/records";
 import { type Store, memoryStore } from "@meco/store";
-import type { Annotator } from "../index";
-
-/** The Model the fixture prints came from, and the one the Match Rule reads. */
-export const FIXTURE_PRINT_MODEL = { name: "edgeface", version: "1" } as const;
+import { type Annotator, PRINT_MODEL } from "../index";
 
 /**
  * A check that opens its own database pays a PGlite start, measured at about a
@@ -81,7 +78,7 @@ export async function harness(database: Database): Promise<Harness> {
           storeKey: held.key,
           regionId: "face-1",
           facePrint: {
-            model: model ?? FIXTURE_PRINT_MODEL,
+            model: model ?? PRINT_MODEL,
             vector: [...vector],
           },
           consentAt: "2026-01-01T00:00:00.000Z",

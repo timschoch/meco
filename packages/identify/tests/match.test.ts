@@ -18,6 +18,7 @@ import {
   MATCH_MARGIN,
   MATCH_THRESHOLD,
   MIN_FACE_PX,
+  PRINT_MODEL,
   identify,
 } from "../index";
 import { annotationOf, faceIn, printOf } from "./fixtures";
@@ -55,6 +56,9 @@ const A_PORTRAIT = printOf("astronaut-portrait.jpg", "centre");
 const A_PORTRAIT_2 = printOf("astronaut-portrait-2.jpg", "centre");
 /** A stranger's print, and the nearest one to Person A in the fixture set. */
 const C_GROUP = printOf("artemis-2-crew.jpg", "back centre");
+
+/** A Model that is not the Print Model. Any other `{ name, version }` will do. */
+const ANOTHER_MODEL = { name: "edgeface", version: "2" } as const;
 
 /** The verdict on one face, by Region id, so a check names a face. */
 const verdictOn = (
@@ -362,7 +366,7 @@ describe("identify().match, the faces it will not compare", () => {
         annotation: withRegions([
           edited(A.regionId, {
             facePrint: {
-              model: { name: "edgeface", version: "2" },
+              model: ANOTHER_MODEL,
               vector: A_PORTRAIT,
             },
           }),
@@ -388,7 +392,7 @@ describe("identify().match, the faces it will not compare", () => {
         brand,
         name: "A, before the swap",
         prints: [A_PORTRAIT],
-        model: { name: "edgeface", version: "2" },
+        model: ANOTHER_MODEL,
       });
       await open.enrol({ brand, name: "A", prints: [A_PORTRAIT_2] });
 
@@ -413,6 +417,53 @@ describe("identify().match, the faces it will not compare", () => {
   );
 
   it(
+    "will not compare a print of the wrong length, however it is labelled",
+    async () => {
+      const brand = "wrong-length";
+      // A Person enrolled from a print that names the Print Model and has four
+      // floats. Scored term by term against a 512-float face it would read as
+      // a similarity of 1 and name a stranger; it is unusable instead.
+      const short = await open.enrol({
+        brand,
+        name: "Four floats",
+        prints: [[0.5, 0.5, 0.5, 0.5]],
+      });
+      await open.enrol({ brand, name: "A", prints: [A_PORTRAIT] });
+
+      const found = await identifier().match({
+        annotation: soyuz.annotation,
+        brand,
+      });
+
+      const listed = await open.records.people.list(brand);
+      expect(found.unusableReferencePhotos).toEqual(
+        listed
+          .filter((one) => one.id === short.id)
+          .flatMap((one) => one.photos.map((photo) => photo.id))
+      );
+      expect(verdictOn(found.faces, A.regionId)).toMatchObject({
+        verdict: "match",
+        similarity: expect.closeTo(0.8228, 4),
+      });
+
+      // The same rule on the way in: a face whose print is the wrong length
+      // was not printed by this Model whatever its `{ name, version }` says.
+      const mislabelled = await identifier().match({
+        annotation: withRegions([
+          edited(A.regionId, {
+            facePrint: { model: PRINT_MODEL, vector: [0.5, 0.5, 0.5, 0.5] },
+          }),
+        ]),
+        brand,
+      });
+      expect(mislabelled.faces).toEqual([
+        { regionId: A.regionId, verdict: "uncompared", reason: "other-model" },
+      ]);
+    },
+    PGLITE_TIMEOUT_MS
+  );
+
+  it(
     "judges the size floor in the Decoded Image and not in the photograph",
     async () => {
       const brand = "too-small";
@@ -422,7 +473,7 @@ describe("identify().match, the faces it will not compare", () => {
       // a fifth before any model sees it. The smaller face is 80 px in the
       // photograph and 16 in the Decoded Image; the larger is 240 and 48.
       const print = {
-        model: { name: "edgeface", version: "1" },
+        model: PRINT_MODEL,
         vector: A_PORTRAIT,
       };
       const landmarks = {
@@ -484,7 +535,7 @@ describe("identify().match, the order of the answer", () => {
       const brand = "eleven-faces";
       // One print, and every face carrying it, so the check is about the order
       // of the answer and about nothing else.
-      const vector = [1];
+      const vector = A_PORTRAIT;
       await open.enrol({ brand, name: "Everyone", prints: [vector] });
 
       const regions = Array.from({ length: 11 }, (_unused, index) => ({
@@ -506,7 +557,7 @@ describe("identify().match, the order of the answer", () => {
           rMouth: { x: 0.035 + index * 0.08, y: 0.25 },
           lMouth: { x: 0.055 + index * 0.08, y: 0.25 },
         },
-        facePrint: { model: { name: "edgeface", version: "1" }, vector },
+        facePrint: { model: PRINT_MODEL, vector },
       }));
 
       const shuffled = Annotation.parse({
