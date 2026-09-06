@@ -5,7 +5,9 @@
 export {
   createModelsClient,
   ModelsError,
+  type Annotated,
   type FetchLike,
+  type ModelsStage,
   type ModelsClient,
   type ModelsClientOptions,
   type ModelsErrorCode,

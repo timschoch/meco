@@ -75,6 +75,30 @@ describe("the client over the app", async () => {
     expect(both.producedBy.map((m) => m.name)).toEqual(["a", "b"]);
   });
 
+  it("hands the host's Server-Timing back as stages beside the Annotation", async () => {
+    const { annotation, timing } = await overApp.annotateTimed(bytes, {
+      hash: sha256(bytes),
+    });
+
+    expect(annotation.hash).toBe(sha256(bytes));
+    // `decode` first, then one stage per Model in Catalogue order: the header
+    // is the host's own clock, and the client reads it rather than timing the
+    // hop itself.
+    expect(timing.map((t) => t.stage)).toEqual([
+      "decode",
+      ...annotation.producedBy.map((m) => m.name),
+    ]);
+    for (const { durMs } of timing) expect(durMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("reads no stages off an answer with no Server-Timing header", async () => {
+    const silent = client(
+      answers(JSON.stringify(await overApp.annotate(bytes)), { status: 200 })
+    );
+    const { timing } = await silent.annotateTimed(bytes);
+    expect(timing).toEqual([]);
+  });
+
   it("lists the Catalogue with each Model's licence id", async () => {
     const entries = await overApp.catalogue();
     expect(entries.map((entry) => entry.name)).toContain("yunet");
