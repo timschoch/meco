@@ -59,13 +59,13 @@ const PROBE_TIMEOUT_MS = 2000;
  * this function never chooses.
  *
  * A Namespace maps to exactly one store, so the two probes cannot share one.
- * `health` is the Private Store's and holds nothing else. The Public Store is
- * probed through `renders`, which is the same pollution `health` exists to
- * avoid; a public probe Namespace is on #81 for the orchestrator to name.
+ * `health` is the Private Store's and `health-public` the Public Store's, and
+ * each holds its probe object and nothing else. Probing through `sources` and
+ * `renders` instead would put a 1×1 PNG in a deletion proof and in the Gallery.
  */
 const PROBE_NAMESPACE = {
   private: "health",
-  public: "renders",
+  public: "health-public",
 } as const satisfies Record<Access, string>;
 
 export async function reachStores(

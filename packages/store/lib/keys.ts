@@ -7,10 +7,12 @@ import { createHash } from "node:crypto";
 /**
  * The first segment of a Store Key, saying what kind of thing is filed under it.
  *
- * `health` holds the one probe object `/health` round-trips and nothing else.
- * It is a Namespace of its own rather than a corner of `sources` so that a 1×1
- * PNG never appears in a `list("sources/")` deletion proof, and so `records`
- * never has to explain what a Source Image nothing uploaded is.
+ * `health` and `health-public` hold the two probe objects `/health` round-trips
+ * and nothing else, one per store. They are Namespaces of their own rather than
+ * corners of `sources` and `renders` so that a 1×1 PNG never appears in a
+ * `list("sources/")` deletion proof or in the Gallery, and so `records` never
+ * has to explain a Source Image nothing uploaded. There are two because a
+ * Namespace maps to exactly one store, so the two probes cannot share one.
  */
 export const NAMESPACES = [
   "sources",
@@ -18,6 +20,7 @@ export const NAMESPACES = [
   "crops",
   "people",
   "health",
+  "health-public",
 ] as const satisfies readonly string[];
 
 export type Namespace = (typeof NAMESPACES)[number];

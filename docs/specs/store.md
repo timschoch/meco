@@ -36,6 +36,7 @@ export const NAMESPACES: readonly [
   "crops",
   "people",
   "health",
+  "health-public",
 ];
 export type Namespace = (typeof NAMESPACES)[number];
 export const MAX_OBJECT_BYTES: 33_554_432; // 32 MiB
@@ -106,11 +107,12 @@ The prototype had a second, overwriting verb (`putAt`) because it had no databas
 | `crops`                     | `crops/<sha256>.<ext>`                     | public  | yes                  |
 | `people/<brand>/<personId>` | `people/<brand>/<personId>/<sha256>.<ext>` | private | no                   |
 | `health`                    | `health/<sha256>.<ext>`                    | private | yes                  |
+| `health-public`             | `health-public/<sha256>.<ext>`             | public  | yes                  |
 
 - `<sha256>` is 64 lowercase hex characters, the same string `contracts` fixes as the Annotation's key — not the prototype's 32-character truncation.
 - `<ext>` is derived from `contentType` over a closed map: `image/jpeg → jpg`, `image/png → png`, `image/webp → webp`, `application/pdf → pdf`. An unmapped content type is refused, so an extension is never guessed.
 - A key is validated before it reaches a backend: non-empty, no leading `/`, no empty or `.` or `..` segment. On any backend a key is a path, and `..` is how a path leaves the store it was supposed to be inside.
-- `health` holds the one probe object `/health` round-trips and nothing else, keyed like everything else so a probe writes once and finds itself ever after. It is its own Namespace rather than a corner of `sources` so that the probe never appears in a `list("sources/")` deletion proof, and so `records` never has to explain a Source Image nothing uploaded. Superseding decision on [#81](https://github.com/timschoch/meco/issues/81).
+- `health` and `health-public` hold the two probe objects `/health` round-trips and nothing else, one per store, keyed like everything else so a probe writes once and finds itself ever after. They are Namespaces of their own rather than corners of `sources` and `renders` so that a probe never appears in a `list("sources/")` deletion proof or in the Gallery, and so `records` never has to explain a Source Image nothing uploaded. There are two because a Namespace maps to exactly one store, so the two probes cannot share one. Superseding decision on [#81](https://github.com/timschoch/meco/issues/81).
 - `isPrivate(key)` is a case-insensitive test on the Namespace. Case-insensitive because that one comparison is what stands between a face photo and an open URL, and `People/…` must not be a way out.
 
 ### The two stores

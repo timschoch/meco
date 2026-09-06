@@ -300,7 +300,7 @@ The name a Stored Object is filed under: a Namespace, an optional caller-chosen 
 _Avoid_: path, id, filename, url
 
 **Namespace**:
-The first segment of a Store Key, saying what kind of thing is filed under it: `sources`, `renders`, `crops`, `people`, `health`. It is also what decides public from private, so no call site can choose the wrong store by forgetting. A first segment naming none of the five is refused, because an unknown Namespace is not private and would otherwise land in the Public Store without saying so.
+The first segment of a Store Key, saying what kind of thing is filed under it: `sources`, `renders`, `crops`, `people`, `health`, `health-public`. It is also what decides public from private, so no call site can choose the wrong store by forgetting. A first segment naming none of the six is refused, because an unknown Namespace is not private and would otherwise land in the Public Store without saying so. A Namespace maps to exactly one store, which is why the two health probes need one each.
 _Avoid_: bucket, folder, directory, prefix (a prefix is any leading part of a key)
 
 **Public Store**:
