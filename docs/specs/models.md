@@ -166,6 +166,8 @@ Taken through the same preview probe door on [the PR that closes #121](https://g
 | **Marginal cost per face**             | the `edgeface` stage is 27.4 and 29.1 ms on the one-face portrait, 52.3 to 72.7 ms on the four-face crew: **~14 ms per face on top of a ~14 ms fixed cost** at 1 vCPU. The alignment is per face, the inference is one batch                |
 | `rss` with `yunet` and `edgeface` warm | 139 MB before any inference, 134 MB after several. `yunet` alone was 124 MB warm (#118), so the EdgeFace session costs ~15 MB; the after-inference figure moves with the collector and is not a trend                                       |
 
+Taken again on commit `058bf82`, after the rebase onto D-FINE, with all three Models in the Catalogue: the crew fixture gives eight Regions — four `face`, four `person` — and only the four faces carry a Face Print. `decode;dur=24.2, yunet;dur=51.7, dfine;dur=216.5, edgeface;dur=54.5`; `producedBy` lists all three in Catalogue order, Detectors before the Enricher. `rss` 178 MB with three sessions warm. The Enricher touching no Kind but its own is a Conformance Check; this is that check holding on the running container.
+
 Seen on the way: the gateway's `/health` probe of models uses a 2 s timeout, and the first call after the preview scaled to zero answered `"reachable":false,"status":null` while the second, seconds later, answered `"reachable":true,"status":200`. A cold models instance takes longer than 2 s to answer; the gateway module owns what that report should say.
 
 ## Out of scope
