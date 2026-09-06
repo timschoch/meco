@@ -2,9 +2,9 @@
  * The factory. Everything a caller can do with identify is one of these two
  * methods, and both of them cross `packages/identify/index.ts`.
  */
-import { IdentifyError } from "./errors";
+import { enrolRule } from "./enrol";
 import { matchRule } from "./match";
-import type { Enrolment, Identify, IdentifyDeps } from "./types";
+import type { Identify, IdentifyDeps } from "./types";
 
 export function identify(deps: IdentifyDeps): Identify {
   const { records } = deps;
@@ -18,11 +18,8 @@ export function identify(deps: IdentifyDeps): Identify {
       return matchRule(annotation, brand, people);
     },
 
-    async enrol(): Promise<Enrolment> {
-      throw new IdentifyError(
-        "not_implemented",
-        "@meco/identify: enrol lands with its own ticket; only match is built."
-      );
+    async enrol(input) {
+      return enrolRule(deps, input);
     },
   };
 }

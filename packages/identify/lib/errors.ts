@@ -11,9 +11,7 @@ export type IdentifyErrorCode =
   | "too_small"
   | "not_a_face"
   | "no_print"
-  | "other_model"
-  /** Thrown by a method whose own ticket has not landed. Never a caller's fault. */
-  | "not_implemented";
+  | "other_model";
 
 export class IdentifyError extends Error {
   readonly code: IdentifyErrorCode;
