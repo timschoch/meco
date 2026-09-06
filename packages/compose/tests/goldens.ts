@@ -11,8 +11,8 @@ export const GOLDENS = new URL("./goldens/", import.meta.url);
  * - darwin-arm64 (Apple M4, Node 22.22, takumi 2.13.6, sharp 0.35.4): 0.0000.
  *   takumi is byte-deterministic within a process (ADR-0009) and, as the
  *   determinism check in `render.test.ts` shows, across calls too.
- * - linux-x64 (GitHub Actions ubuntu-latest, Node 22): 0.0000, runs 33998908844
- *   (`swisshutless-story`) and 34004148270 (`laica-post`).
+ * - linux-x64 (GitHub Actions ubuntu-latest, Node 22): 0.0000 for all eight,
+ *   run 34008632848.
  *
  * The threshold has to sit under what a wrong Look makes, and that difference
  * is small because a wordmark is 0.5 % of a story's area: swapping in the Hope
@@ -28,7 +28,7 @@ export const GOLDENS = new URL("./goldens/", import.meta.url);
  * The bare Crop golden has no Look to get wrong, so the mutation it must catch
  * is a wrong resampler. `nearest` for `lanczos3` on that exact cut — the kart
  * fixture's 563x1000 window into 1080x1920 — scores 1.6234 on darwin-arm64,
- * which 0.02 clears by 81x. It scores 0.0000 against its own golden on the same
- * machine.
+ * which 0.02 clears by 81x. It scores 0.0000 against its own golden on both
+ * platforms.
  */
 export const GOLDEN_THRESHOLD = 0.02;
