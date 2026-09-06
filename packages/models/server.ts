@@ -17,21 +17,22 @@ serve({ fetch: createApp(catalogue).fetch, port }, (info) => {
 /**
  * Listen first, then warm: the socket answers `/health` while sessions are
  * created, and a request that arrives early waits on the same create.
- * Sequentially, in Catalogue order: parallel creates compete for the one core
+ * Sequentially, in Catalogue order — every Detector, then every Enricher:
+ * parallel creates compete for the one core
  * and cost the detector ~400 ms on a cold boot in the prototype. A Model that
  * fails to warm is logged and left to the next request's retry; it must not
  * stop the ones after it.
  */
 async function warm(): Promise<void> {
-  for (const detector of catalogue.detectors) {
+  for (const entry of [...catalogue.detectors, ...catalogue.enrichers]) {
     const started = performance.now();
     try {
-      await detector.warm();
+      await entry.warm();
       console.log(
-        `${detector.model.name} warm in ${(performance.now() - started).toFixed(0)}ms`
+        `${entry.model.name} warm in ${(performance.now() - started).toFixed(0)}ms`
       );
     } catch (err) {
-      console.error(`${detector.model.name} failed to warm:`, err);
+      console.error(`${entry.model.name} failed to warm:`, err);
     }
   }
 }

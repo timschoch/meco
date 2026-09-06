@@ -97,13 +97,13 @@ export const MIN_IOU = 0.5;
  * Region claimed once. Two marks collapsing onto one box is the suppression
  * bug that would otherwise pass.
  */
-export function matchGolden(
+export function matchGolden<T extends Pick<Region, "box">>(
   marked: { label: string; box: Box }[],
-  found: Pick<Region, "box">[]
-): { label: string; iou: number; centre: number }[] {
+  found: T[]
+): { label: string; iou: number; centre: number; region: T | undefined }[] {
   const unclaimed = new Set(found);
   return marked.map(({ label, box }) => {
-    let best: Pick<Region, "box"> | undefined;
+    let best: T | undefined;
     let bestIou = -1;
     for (const region of unclaimed) {
       const overlap = iou(box, region.box);
@@ -117,6 +117,42 @@ export function matchGolden(
       label,
       iou: Math.max(0, bestIou),
       centre: best ? centreDistance(box, best.box) : Infinity,
+      region: best,
     };
   });
 }
+
+/**
+ * One committed reference Face Print, as `fixtures/faces/face-prints.json`
+ * records them: the prototype's own ONNX print of every hand-marked fixture
+ * face, named by the same label `expected.json` gives its box.
+ */
+export interface ReferencePrint {
+  name: string;
+  file: string;
+  label: string;
+  person: string;
+  print: number[];
+}
+
+export const referencePrints = async (): Promise<ReferencePrint[]> =>
+  (
+    JSON.parse(await readFile(new URL("face-prints.json", FACES), "utf8")) as {
+      prints: ReferencePrint[];
+    }
+  ).prints;
+
+/** Cosine of two vectors. Two of different lengths are as unalike as can be. */
+export const cosine = (a: number[], b: number[]): number => {
+  if (a.length !== b.length) return -1;
+  let dot = 0;
+  let squaredA = 0;
+  let squaredB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!;
+    squaredA += a[i]! * a[i]!;
+    squaredB += b[i]! * b[i]!;
+  }
+  const scale = Math.sqrt(squaredA) * Math.sqrt(squaredB);
+  return scale === 0 ? -1 : dot / scale;
+};

@@ -11,6 +11,7 @@ export {
   Region,
   RegionKind,
   isComplete,
+  isUnitLength,
 } from "./lib/annotation";
 export {
   CropAnchor,

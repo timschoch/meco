@@ -2,13 +2,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { adapterConformance } from "@meco/contracts/conformance";
-import {
-  assertRuntimeMajor,
-  catalogue,
-  decode,
-  type Detector,
-  ORT_MAJOR,
-} from "../catalogue";
+import { assertRuntimeMajor, catalogue, decode, ORT_MAJOR } from "../catalogue";
 import {
   blankImage,
   expectedFaces,
@@ -18,6 +12,9 @@ import {
 } from "./fixtures";
 
 const yunet = catalogue.detectors.find((d) => d.model.name === "yunet")!;
+
+/** Every Catalogue entry, whatever its role: the folder, pin and licence rules hold for all of them. */
+const catalogueModels = [...catalogue.detectors, ...catalogue.enrichers];
 
 describe("yunet is in the Catalogue", () => {
   it("as a face Detector at version 1", () => {
@@ -90,7 +87,7 @@ describe("every adapter folder", async () => {
 
   it("is in the Catalogue", () => {
     expect(folders.sort()).toEqual(
-      catalogue.detectors.map((d) => d.model.name).sort()
+      catalogueModels.map((m) => m.model.name).sort()
     );
   });
 
@@ -113,11 +110,12 @@ describe("every adapter folder", async () => {
   }
 });
 
-describe.each(
-  catalogue.detectors.map((d): [string, Detector] => [d.model.name, d])
-)("%s ships its licence", (_name, detector) => {
-  it("as non-empty text that names its declared id", () => {
-    expect(detector.licence.trim()).not.toBe("");
-    expect(detector.licence).toContain(detector.licenceId);
-  });
-});
+describe.each(catalogueModels.map((m) => [m.model.name, m] as const))(
+  "%s ships its licence",
+  (_name, entry) => {
+    it("as non-empty text that names its declared id", () => {
+      expect(entry.licence.trim()).not.toBe("");
+      expect(entry.licence).toContain(entry.licenceId);
+    });
+  }
+);
