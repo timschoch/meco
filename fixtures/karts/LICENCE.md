@@ -21,6 +21,10 @@ only the unencumbered ones are committed here.
 | `paddock-mixed.jpg` | <https://commons.wikimedia.org/wiki/File:2.DM_Lauf_MSC_Berlin.22.4.07_(3).jpg> | Ottospe | Public domain |
 | `street-karting-crowd.jpg` | <https://commons.wikimedia.org/wiki/File:Challenge_kart.JPG> | Leffe60 | Public domain (PD-self) |
 
+## The owner's number fixtures
+
+`kart-grid-24.jpg` and `kart-24-target.jpg` are owner-supplied test photographs, used with permission for tests only. They are not public domain and are not for reuse outside this repository's test suite. Committed as supplied ([#227](https://github.com/timschoch/meco/issues/227)), both under the Decode Bound, so the Decoded Image is the file: 1200 x 675 and 574 x 348. Their expected race-number reads are in `numbers.json` beside this file. A third race photograph the reader was measured on carries a third party's watermark and is not committed; its reads are recorded in `docs/specs/models.md` only.
+
 ## The size rule, and why it is a rule
 
 **A fixture must not be smaller than the bound production applies, or it tests a

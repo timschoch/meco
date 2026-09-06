@@ -127,12 +127,16 @@ One rectangle in a Source Image that a Model drew, with its Region Kind, its Lab
 _Avoid_: detection, bbox, detected object, box (a Box is the rectangle alone), subject box (that is frame's)
 
 **Region Kind**:
-meco's closed word for what a Region is: `face`, `person`, `vehicle`, growing by PR. Never a framing conclusion: a kart is a Subject frame composes from a vehicle and the person on it, not a Region Kind.
+meco's closed word for what a Region is: `face`, `person`, `vehicle`, `number`, growing by PR. Never a framing conclusion: a kart is a Subject frame composes from a vehicle and the person on it, not a Region Kind.
 _Avoid_: class, type, category, kart
 
 **Label**:
-The Model's own word for a Region, unaltered: COCO's `motorbike` for a kart. Open vocabulary, never selected on by name outside the module that knows the Model.
+The Model's own word for a Region, unaltered: COCO's `motorbike` for a kart, the digits a text reader read for a Number. Open vocabulary, never selected on by name outside the module that knows the Model; identify compares a Number's Label to a Person's numbers, which is a Match Rule and not a selection.
 _Avoid_: class name, tag, kind
+
+**Number**:
+A race number as read off a photograph: a `number` Region whose Label is the digits and nothing else, one to three of them, leading zeros kept. A fact about the bytes, so it lives in the Annotation with a score and the Model that read it; which kart it sits on and whose it is are conclusions identify draws from geometry and a Brand's People, never fields of the Region. A read the Model made that is not one to three digits is no Number, so the rest of a livery's text never enters the Annotation.
+_Avoid_: bib, plate, id, start number, text, OCR result
 
 **Model**:
 A named network in the models catalogue, with a version. The version changes whenever anything that can change its output changes: weights, preprocessing, class list, thresholds, runtime major. An Annotation names every Model that looked, so a photograph seen before a Model existed is a cache miss, not a wrong answer.
@@ -274,7 +278,7 @@ The fixed list of Models the models service holds, each behind its own Model Ada
 _Avoid_: registry, model zoo, model list, plugins
 
 **Detector**:
-A Model Adapter that draws Regions from the Decoded Image alone. YuNet draws faces, D-FINE draws people and vehicles.
+A Model Adapter that draws Regions from the Decoded Image alone. YuNet draws faces, D-FINE draws people and vehicles, PP-OCR reads Numbers.
 _Avoid_: model, first stage, finder
 
 A `vehicle` is a road vehicle a person rides or drives. D-FINE's COCO Labels become Region Kinds by this table and no other; frame composes the kart Subject on it, so a change here is a change frame sees.

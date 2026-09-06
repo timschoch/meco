@@ -60,12 +60,14 @@ describe("models GET /models", () => {
     expect(body.map((entry) => entry.name)).toEqual([
       "yunet",
       "dfine",
+      "ppocr",
       "edgeface",
     ]);
     const licenceOf = (name: string) =>
       body.find((entry) => entry.name === name)?.licence;
     expect(licenceOf("yunet")).toBe("MIT");
     expect(licenceOf("dfine")).toBe("Apache-2.0");
+    expect(licenceOf("ppocr")).toBe("Apache-2.0");
     expect(licenceOf("edgeface")).toBe("CC-BY-NC-SA-4.0");
   });
 });

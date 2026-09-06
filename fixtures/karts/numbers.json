@@ -1,0 +1,42 @@
+{
+  "note": "The race numbers expected off the two photographs the owner supplied for #227 and two of the Commons fixtures, with the box each number sits in as fractions of the file. The third-party race photograph the reader was also measured on is not in the repository; its reads are in docs/specs/models.md. Boxes were taken from the ppocr Detector's first run at the Decode Bound (6 Sep 2026) and checked by eye against the photograph; `tolerance` is how far a found centre may sit from them. `misses` are numbers a person reads that no candidate reader found (a tilted 2 read as 5 under the score floor): a reader that finds one is better than this file and the entry moves to `numbers` on purpose. `others` are numbers a person can make out in the background that the reader may or may not find. A `number` Region whose label is in none of the three lists is a false read.",
+  "tolerance": 0.03,
+  "images": [
+    {
+      "file": "kart-grid-24.jpg",
+      "note": "Five karts on a grid, the #24 kart central. All four numbers are read.",
+      "numbers": [
+        { "label": "227", "box": { "x": 0.318, "y": 0.344, "width": 0.055, "height": 0.055 } },
+        { "label": "24", "box": { "x": 0.466, "y": 0.382, "width": 0.058, "height": 0.091 } },
+        { "label": "66", "box": { "x": 0.862, "y": 0.456, "width": 0.064, "height": 0.087 } },
+        { "label": "21", "box": { "x": 0.169, "y": 0.579, "width": 0.077, "height": 0.097 } }
+      ],
+      "misses": []
+    },
+    {
+      "file": "kart-24-target.jpg",
+      "note": "The #24 kart alone, driver in a helmet: the target subject of the feature.",
+      "numbers": [
+        { "label": "24", "box": { "x": 0.41, "y": 0.409, "width": 0.074, "height": 0.107 } }
+      ],
+      "misses": []
+    },
+    {
+      "file": "paddock-mixed.jpg",
+      "note": "One kart in a paddock, its number a tilted 2 on the nose. The reader boxes it and reads a 5 at 0.41, under the score floor, so it is a miss and not a false read.",
+      "numbers": [],
+      "misses": [
+        { "label": "2", "box": { "x": 0.36, "y": 0.52, "width": 0.04, "height": 0.08 } }
+      ]
+    },
+    {
+      "file": "street-karting-crowd.jpg",
+      "note": "A street event, the yellow kart's 35 read at 0.54; the karts behind carry 62, 88, 96 and a 9 too small to expect.",
+      "numbers": [
+        { "label": "35", "box": { "x": 0.635, "y": 0.399, "width": 0.031, "height": 0.030 } }
+      ],
+      "misses": [],
+      "others": ["62", "88", "96", "9"]
+    }
+  ]
+}

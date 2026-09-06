@@ -1,5 +1,6 @@
 import { createDfine } from "./adapters/dfine/adapter";
 import { createEdgeface } from "./adapters/edgeface/adapter";
+import { createPpocr } from "./adapters/ppocr/adapter";
 import { createYunet } from "./adapters/yunet/adapter";
 import type { Catalogue } from "./detector";
 import { runtimeVersion } from "./session";
@@ -11,7 +12,7 @@ import { runtimeVersion } from "./session";
  * Enricher over what they found.
  */
 export const catalogue: Catalogue = {
-  detectors: [createYunet(), createDfine()],
+  detectors: [createYunet(), createDfine(), createPpocr()],
   enrichers: [createEdgeface()],
   onnxruntime: runtimeVersion(),
 };

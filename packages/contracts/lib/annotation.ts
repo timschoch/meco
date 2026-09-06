@@ -3,7 +3,7 @@ import { Box, Point, pixels } from "./geometry";
 import { ContentHash } from "./identifiers";
 
 /** What a Model drew a Region around. meco's closed set; it grows by PR. */
-export const RegionKind = z.enum(["face", "person", "vehicle"]);
+export const RegionKind = z.enum(["face", "person", "vehicle", "number"]);
 
 /** A Model, named and versioned. Both halves are needed to tell two runs apart. */
 export const ModelId = z.strictObject({
