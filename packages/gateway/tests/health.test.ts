@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { memoryStore } from "@meco/store";
+import { records } from "@meco/records";
+import { pgliteDatabase } from "@meco/records/pglite";
 import { createApp } from "../app";
 
 describe("gateway GET /health", () => {
@@ -57,4 +60,56 @@ describe("gateway GET /health with neither store configured", () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
+});
+
+describe("gateway GET /health with no records database", () => {
+  it("reports records unconfigured without reaching one", async () => {
+    vi.stubGlobal("fetch", () => {
+      throw new Error("no call should leave the process");
+    });
+
+    const res = await createApp().request("/health");
+
+    await expect(res.json()).resolves.toMatchObject({
+      records: {
+        configured: false,
+        reachable: false,
+        serverVersion: null,
+        pending: null,
+        migrated: null,
+        roundTripMs: null,
+      },
+    });
+
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("gateway GET /health with a migrated records database", () => {
+  it("reports it reachable and on the current schema", async () => {
+    // The in-process adapter, so this asserts the block the container serves
+    // without the test holding a connection to `eu-central-1`.
+    const database = pgliteDatabase();
+    const opened = records({ database, store: memoryStore() });
+    await opened.migrate();
+
+    try {
+      const res = await createApp({ records: opened }).request("/health");
+
+      const body = (await res.json()) as {
+        records: { reachable: boolean; pending: number; migrated: boolean };
+      };
+      expect(body.records).toMatchObject({
+        configured: true,
+        reachable: true,
+        pending: 0,
+        migrated: true,
+        reason: null,
+      });
+    } finally {
+      await opened.close();
+    }
+    // Booting PGlite costs more than Vitest's default five seconds under the
+    // load of a full `pnpm check`.
+  }, 30_000);
 });

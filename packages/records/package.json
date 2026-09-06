@@ -4,9 +4,25 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./pglite": "./pglite.ts",
+    "./conformance": "./conformance.ts",
+    "./health": "./health.ts",
+    "./migrations": "./migrations.ts",
+    "./migrations.generated": "./migrations.generated.ts"
+  },
+  "scripts": {
+    "migrations": "drizzle-kit generate && node migrations.ts"
   },
   "dependencies": {
-    "@meco/contracts": "workspace:*"
+    "@meco/contracts": "workspace:*",
+    "@meco/store": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/pg": "^8.15.6",
+    "drizzle-kit": "^0.31.10"
   }
 }

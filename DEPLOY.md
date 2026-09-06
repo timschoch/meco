@@ -105,17 +105,44 @@ A `models` that is down does not make `gateway` unhealthy — it makes
 `models` is private, so its `/health` is only observable through `gateway`'s
 report or from inside the deployment.
 
+`gateway` applies the `records` Migrations at boot, before it binds the socket,
+and a failed migration is a failed boot with the error on stderr. `/health`'s
+`records` block then reports the schema it is actually on: `pending: 0` and
+`migrated: true` on a healthy container, and `reachable: true` only after a File
+and its Annotation have been written and read back under a fixed hash.
+
 ## Env vars
 
-| Var                     | Set by                               | Purpose                                                                                                                              |
-| ----------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `MODELS_URL`            | the service binding in `vercel.json` | base URL `gateway` uses to reach `models`. Runtime only — it does not resolve during a build, and Routing Middleware cannot read it. |
-| `PORT`                  | Vercel platform                      | container listen port, default 80. Do not set it.                                                                                    |
-| `VERCEL_GIT_COMMIT_SHA` | Vercel platform                      | what `/health` reports as `version`.                                                                                                 |
+| Var                             | Set by                                  | Purpose                                                                                                                                                                   |
+| ------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MODELS_URL`                    | the service binding in `vercel.json`    | base URL `gateway` uses to reach `models`. Runtime only — it does not resolve during a build, and Routing Middleware cannot read it.                                      |
+| `PORT`                          | Vercel platform                         | container listen port, default 80. Do not set it.                                                                                                                         |
+| `VERCEL_GIT_COMMIT_SHA`         | Vercel platform                         | what `/health` reports as `version`.                                                                                                                                      |
+| `RECORDS_DATABASE_URL_UNPOOLED` | the Neon integration, prefix `RECORDS_` | the direct connection string `records` pools on and migrates through. Unset means no database: `/health` reports `records.configured: false` and the gateway still boots. |
 
 Env vars are scoped per Environment (Production / Preview / Development) at the
 project level, not per service: both services see the same set. Use distinct
 names where two services would otherwise collide.
+
+The Neon integration injects sixteen `RECORDS_*` variables. `records` reads the
+one above and no other. It is the **direct** string, not the pooled one: the
+container holds its own pool, and the migration takes a session-level advisory
+lock that PgBouncer's transaction mode would not keep.
+
+`records` pins `sslmode=verify-full` in the query of that string before
+connecting. Neon injects `sslmode=require`, which `pg` 8.23 already treats as
+`verify-full` — but it warns on every connect that pg 9 will give `prefer`,
+`require` and `verify-ca` libpq semantics, which verify nothing. Naming the mode
+is what keeps this connection verified across that change, and it is the fix the
+warning itself names. Neon's certificate comes from a public CA Node already
+trusts, so no root has to be supplied.
+
+The pin edits the query and nothing else. Parsing the string with `new URL` and
+re-serialising it would rewrite the userinfo too, and a rotated password with a
+reserved character in it would come back encoded differently.
+
+Measured on `meco-records-eu`, 6 Sep 2026: `verify-full` connects with no
+warning, and one `/health` round trip from Zürich to `eu-central-1` took 241 ms.
 
 The prototype's `BLOB_READ_WRITE_TOKEN`, `BLOB_PEOPLE_READ_WRITE_TOKEN` and
 `MECO_TOKEN` are still set on the project. Nothing in this repo reads them yet;
