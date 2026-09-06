@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ComposeError, plan, type Plan } from "../index";
+import { COMPOSE_ERROR_CODES, ComposeError, plan, type Plan } from "../index";
 import { planFor, STORY_CASE } from "./cases";
 
 const SLOT = { width: 1080, height: 1920 };
@@ -81,6 +81,19 @@ describe("plan", () => {
 });
 
 describe("plan refusals", () => {
+  it("has one code per way compose refuses, and no more", () => {
+    // Closed, so a caller can branch on the code exhaustively. Four of the five
+    // are exercised below; `framing_mismatch` needs a window and so belongs to
+    // `render`, where `tests/render.test.ts` covers it.
+    expect(COMPOSE_ERROR_CODES).toEqual([
+      "unknown_template",
+      "unknown_brand",
+      "placement_not_supported",
+      "invalid_fields",
+      "framing_mismatch",
+    ]);
+  });
+
   it.each([
     [{ template: "no-such-template" }, "unknown_template"],
     [{ brand: "no-such-brand" }, "unknown_brand"],

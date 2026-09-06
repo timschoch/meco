@@ -17,7 +17,13 @@ export interface TemplateDescription {
   readonly brand: string;
   readonly description: string;
   readonly placements: readonly PlacementId[];
-  /** The Fields as JSON Schema, draft 2020-12. */
+  /**
+   * The Fields as JSON Schema, draft 2020-12.
+   *
+   * A plain object and not zod's own `JSONSchema` type: a description crosses
+   * the gateway as JSON, and typing it to zod would make every reader of the
+   * catalogue depend on compose's validator.
+   */
   readonly fields: Record<string, unknown>;
   /** Real Fields that render. */
   readonly example: unknown;
