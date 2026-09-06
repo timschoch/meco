@@ -38,6 +38,9 @@ const app = createApp({
   records,
   store: blobStore(),
   models,
+  // Vercel sets it on the cron's request; a deployment without it has no
+  // `/internal/*` at all.
+  cronSecret: env["CRON_SECRET"],
   version: env["VERCEL_GIT_COMMIT_SHA"] ?? env["MECO_VERSION"] ?? "0.0.0",
 });
 

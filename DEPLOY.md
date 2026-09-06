@@ -166,14 +166,14 @@ fixture: `fixtures/faces/artemis-2-crew.jpg`.
 
 ## Env vars
 
-| Var                             | Set by                                  | Purpose                                                                                                                                                                                                                                                  |
-| ------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MODELS_URL`                    | the service binding in `vercel.json`    | base URL `gateway` uses to reach `models`. Runtime only — it does not resolve during a build, and Routing Middleware cannot read it.                                                                                                                     |
-| `PORT`                          | Vercel platform                         | container listen port, default 80. Do not set it.                                                                                                                                                                                                        |
-| `VERCEL_GIT_COMMIT_SHA`         | Vercel platform                         | what `/health` reports as `version`.                                                                                                                                                                                                                     |
-| `RECORDS_DATABASE_URL_UNPOOLED` | the Neon integration, prefix `RECORDS_` | the direct connection string `records` pools on and migrates through. Unset is a failed boot with the variable named on stderr: every Operation starts with a Caller lookup, so a gateway with no database has no door.                                  |
-| `MECO_BOOTSTRAP_KEY`            | owner, Sensitive                        | read by `pnpm records:seed` only, never by the gateway. The seed stores its SHA-256 on the bootstrap Caller; the key itself is what a client sends as `Authorization: Bearer`, `Authorization: Basic` (any user, the key as password) or `x-auth-token`. |
-| `CRON_SECRET`                   | owner, Sensitive                        | reserved for `/internal/sweep` (the Sweep ticket, #187): Vercel sends it as `Authorization: Bearer` on a cron. Nothing reads it yet.                                                                                                                     |
+| Var                             | Set by                                  | Purpose                                                                                                                                                                                                                                                            |
+| ------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `MODELS_URL`                    | the service binding in `vercel.json`    | base URL `gateway` uses to reach `models`. Runtime only — it does not resolve during a build, and Routing Middleware cannot read it.                                                                                                                               |
+| `PORT`                          | Vercel platform                         | container listen port, default 80. Do not set it.                                                                                                                                                                                                                  |
+| `VERCEL_GIT_COMMIT_SHA`         | Vercel platform                         | what `/health` reports as `version`.                                                                                                                                                                                                                               |
+| `RECORDS_DATABASE_URL_UNPOOLED` | the Neon integration, prefix `RECORDS_` | the direct connection string `records` pools on and migrates through. Unset is a failed boot with the variable named on stderr: every Operation starts with a Caller lookup, so a gateway with no database has no door.                                            |
+| `MECO_BOOTSTRAP_KEY`            | owner, Sensitive                        | read by `pnpm records:seed` only, never by the gateway. The seed stores its SHA-256 on the bootstrap Caller; the key itself is what a client sends as `Authorization: Bearer`, `Authorization: Basic` (any user, the key as password) or `x-auth-token`.           |
+| `CRON_SECRET`                   | owner, Sensitive                        | the only key `/internal/*` answers to. Vercel sends it as `Authorization: Bearer` on every cron it runs; the gateway compares the whole header in constant time. Unset, and `/internal/sweep` is not registered at all, so it answers `404` like any unknown path. |
 
 Env vars are scoped per Environment (Production / Preview / Development) at the
 project level, not per service: both services see the same set. Use distinct
@@ -204,6 +204,41 @@ The prototype's `BLOB_READ_WRITE_TOKEN`, `BLOB_PEOPLE_READ_WRITE_TOKEN` and
 the `store`, `records` and `gateway` module agents decide what to keep.
 
 Pull them locally: `vercel env pull .env.local`
+
+A **Sensitive** variable is write-only: `vercel env pull` writes a placeholder
+of the wrong length, not the value. `CRON_SECRET` and `MECO_BOOTSTRAP_KEY` are
+Sensitive, so nothing outside the platform can send the header they gate — a
+hand-rolled `curl` against `/internal/sweep` gets `401`, and that is the
+variable working, not a bug.
+
+## Crons
+
+`vercel.json` carries one, and one only: `POST /internal/sweep` at `0 4 * * *`.
+The free plan allows a daily schedule and refused neither the entry nor the
+path. A cron runs against the **production** deployment, so a `crons` entry
+that has only ever been pushed to a branch reads as `not deployed` and
+`vercel crons run /internal/sweep` refuses it:
+
+```
+$ vercel crons list
+  Path               Schedule            Status
+  /internal/sweep    0 4 * * *           not deployed
+WARNING! Run `vercel deploy --prod` to apply local changes.
+
+$ vercel crons run /internal/sweep
+Error: No cron jobs found for timschochs-projects/meco. Define cron jobs in
+your vercel.json file.
+```
+
+A deployment that carries the route answers `POST /internal/sweep` with no
+header as `401 unauthorized`, never `404`: the routes are registered only when
+`CRON_SECRET` is set, so `401` says the request reached the container, the
+variable was injected, and the header check ran. That is the reachability check
+to run after a deploy; `docs/specs/gateway.md`, "The Sweep", carries what it
+measured on 2026-09-06.
+
+There is **no keep-warm cron**. One daily cron is the whole schedule; a cron
+every few minutes spends the free plan's compute (#88, 2026-09-06).
 
 ## Scale to zero
 

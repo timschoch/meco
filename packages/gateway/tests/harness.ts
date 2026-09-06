@@ -34,6 +34,12 @@ export const NOT_HELD = "swisshutless";
 
 export const MODELS_URL = "http://models.internal";
 
+/**
+ * The cron's secret. Never in the default deps: a stack that was handed none
+ * is what proves `/internal/*` does not exist without one.
+ */
+export const CRON_SECRET = "cron_test_the_sweep_secret";
+
 export const basic = (user: string, key: string): string =>
   `Basic ${Buffer.from(`${user}:${key}`).toString("base64")}`;
 
@@ -198,6 +204,28 @@ export function watchingPeopleList(one: Opened): {
           listed.push(brand);
           return one.records.people.list(brand);
         },
+      },
+    },
+  };
+}
+
+/**
+ * The same Records with `sweep` counted, so a test can say whether the Sweep
+ * ran at all and what clock it was handed. The route's whole job is to run it
+ * exactly once, so counting is the assertion.
+ */
+export function countingSweep(one: Opened): {
+  records: Records;
+  swept: (Date | undefined)[];
+} {
+  const swept: (Date | undefined)[] = [];
+  return {
+    swept,
+    records: {
+      ...one.records,
+      sweep: async (now) => {
+        swept.push(now);
+        return one.records.sweep(now);
       },
     },
   };

@@ -9,6 +9,7 @@ import { callerLookup } from "./auth";
 import { GatewayError, toWire } from "./errors";
 import { healthProbe } from "./health";
 import { type CallerEnv, httpDoor } from "./http";
+import { internalRoutes } from "./internal";
 import { mcpDoor } from "./mcp";
 import { catalogueOf } from "./catalogue";
 import { OPERATIONS } from "./operations";
@@ -29,9 +30,18 @@ export interface GatewayDeps {
   readonly models: ModelsClient | null;
   /** Fetches a `{ url }` Source Reference. The global `fetch` by default. */
   readonly fetch?: typeof fetch;
+  /**
+   * `CRON_SECRET`, the only key `/internal/*` answers to. Absent or empty and
+   * those routes are never registered, so `/internal/sweep` is a `404`.
+   */
+  readonly cronSecret?: string;
   /** What `/health` and the MCP server report. */
   readonly version?: string;
-  /** The clock `/health`'s cache and a Call's `startedAt` read. */
+  /**
+   * The clock `/health`'s cache and a Call's `startedAt` read, and the one
+   * the Sweep measures the Retention Window from. One clock, so a check can
+   * move all three.
+   */
   now?(): Date;
 }
 
@@ -42,6 +52,7 @@ export function createApp(deps: GatewayDeps): Hono<CallerEnv> {
     store,
     models,
     fetch = globalThis.fetch,
+    cronSecret,
     version = "0.0.0",
     now = () => new Date(),
   } = deps;
@@ -63,6 +74,13 @@ export function createApp(deps: GatewayDeps): Hono<CallerEnv> {
 
   const health = healthProbe({ records, models, version, now });
   app.get("/health", async (c) => c.json(await health()));
+
+  // The cron's door, mounted only when there is a secret to check against.
+  // Above the Caller middleware and outside it: `/internal/*` never looks a
+  // Caller up.
+  if (cronSecret !== undefined && cronSecret !== "") {
+    app.route("/internal", internalRoutes({ records, cronSecret, now }));
+  }
 
   // The Caller, once per request, on every route behind a Door. No browser
   // challenge here: an API client gets no prompt, and `/ui` sends its own.

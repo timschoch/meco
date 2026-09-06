@@ -151,7 +151,9 @@ The Call's `error` is `{ module, code, message }`; `module` is not on the wire. 
 
 ### The Sweep
 
-`POST /internal/sweep` → `records.sweep(now())`, answers the SweepReport. `vercel.json`: `"crons": [{ "path": "/internal/sweep", "schedule": "0 4 * * *" }]`; Vercel sends `Authorization: Bearer $CRON_SECRET`. No boot timer. Whether a cron reaches a container behind the catch-all rewrite is measured with `vercel crons run /internal/sweep` on the first deployment that carries the route, and the result is written here.
+`POST /internal/sweep` → `records.sweep(now())`, answers the SweepReport. `vercel.json`: `"crons": [{ "path": "/internal/sweep", "schedule": "0 4 * * *" }]`; Vercel sends `Authorization: Bearer $CRON_SECRET`, and the whole header is compared in constant time. No boot timer. With no `cronSecret` the routes are never registered, so the path answers `404 not_found` like any unknown one — a deployment that forgot the variable must not have a door a guess could tell from a right key.
+
+**Measured** (2026-09-06, #187). The route is reachable behind the catch-all rewrite: the branch preview answers `POST /internal/sweep` with no header as `401 unauthorized` where the production deployment without the route answers `404 not_found`, and `401` is only reachable once `CRON_SECRET` was injected and the check ran. The cron **invocation** is not measured on a preview: a cron runs against the production deployment, so `vercel crons list` reads `not deployed` and `vercel crons run /internal/sweep` answers `Error: No cron jobs found for timschochs-projects/meco` until the schedule is on production (`DEPLOY.md`, Crons). `CRON_SECRET` is Sensitive and therefore write-only, so nobody outside the platform can send the header a `200` needs; the first real invocation is the cron's own.
 
 ### The webui
 
