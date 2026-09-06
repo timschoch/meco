@@ -207,6 +207,72 @@ describe("a caption band from y 0.76", () => {
 });
 
 /**
+ * The clamp on its own, and then the Source Image overruling it.
+ *
+ * A Golden Line measured off the Free Area is not enough by itself: a Subject
+ * large enough for the line it is nearest to still runs off the edge of what
+ * the overlay leaves. The clamp is what moves the aim the rest of the way, and
+ * `occlusionClear` is read off the window that came out, not off the aim that
+ * went in — the two disagree exactly when the picture ran out.
+ *
+ * The vehicle fixture carries no landmarks, so no Eye Line sizes anything and
+ * the aim is the only thing under test. 16:9 over a tall source fills the
+ * width, so the vertical is the axis with slack and the zone is a full-width
+ * band across the lower half.
+ */
+describe("the aim clamped into the Free Area", () => {
+  const TALL_BAND: Box = { x: 0, y: 0.5, width: 1, height: 0.5 };
+  const WIDE: Size = { width: 1920, height: 1080 };
+
+  const framed = (source: Size, box: Box) => {
+    const framing = frameCrop({
+      annotation: vehicleAnnotation(source, box),
+      request: requestFor(WIDE, { ...KART_ONLY, occlusion: [TALL_BAND] }),
+    });
+    const { window } = framing;
+
+    return {
+      framing,
+      window,
+      /** The Subject's lower edge as the output frame sees it. */
+      subjectBottom:
+        ((box.y + box.height) * source.height - window.y) / window.height,
+      againstTheEdge: window.y === source.height - window.height,
+    };
+  };
+
+  it("moves the aim off the Golden Line rather than let the Subject touch", () => {
+    // 1000x2000 cuts a 1000x563 window. The Subject's centre sits at 0.625, so
+    // its nearest Golden Line is the lower one, and 0.618 of the Free Area is
+    // 0.309 — which puts 250 px of Subject, 0.444 of the window, from 0.087 to
+    // 0.531 and 0.031 of it under the band. The clamp answers 0.278 instead.
+    const { framing, subjectBottom, againstTheEdge } = framed(
+      { width: 1000, height: 2000 },
+      { x: 0.4, y: 0.5625, width: 0.2, height: 0.125 }
+    );
+
+    expect(againstTheEdge).toBe(false);
+    expect(subjectBottom).toBeLessThanOrEqual(TALL_BAND.y);
+    expect(framing.occlusionClear).toBe(true);
+  });
+
+  it("reports the miss when the picture's own edge overrules the clamp", () => {
+    // The same Subject 1100 px down a 1100 px picture. The clamped aim asks the
+    // window to start at 724 px and the Source Image holds only 537, so the
+    // window slides back up and the Subject lands on the band after all. The
+    // aim was clear; the window is not, and the window is what is reported.
+    const { framing, subjectBottom, againstTheEdge } = framed(
+      { width: 1000, height: 1100 },
+      { x: 0.4, y: 0.6864, width: 0.2, height: 0.2273 }
+    );
+
+    expect(againstTheEdge).toBe(true);
+    expect(subjectBottom).toBeGreaterThan(TALL_BAND.y);
+    expect(framing.occlusionClear).toBe(false);
+  });
+});
+
+/**
  * `occlusionClear` is a measurement, never a verdict on the request. frame
  * answers every geometry it is given, so a zone nothing can clear still gets a
  * window and the miss is what is reported.
