@@ -60,6 +60,8 @@ async function fetchBytes(
     response = await call(url, {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       redirect: "follow",
+      // Named, because a public image host may refuse a bare client.
+      headers: { "user-agent": "meco-gateway (+https://github.com/timschoch/meco)" },
     });
   } catch (cause) {
     throw unfetchable(url, "it did not answer", { cause });

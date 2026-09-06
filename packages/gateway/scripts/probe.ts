@@ -130,4 +130,83 @@ line(
   `POST /mcp tools/call list_brands -> ${call.status}, same JSON as GET /v1/brands: ${String(text === JSON.stringify(brands.body))}`
 );
 
+// annotate (#182): a public photograph by URL, twice. The first is the whole
+// Catalogue over the binding; the second is the cache. `MECO_SOURCE_URL`
+// overrides the default, which is the crew fixture's own source on Commons at
+// a width the binding carries (docs/specs/models.md, measurement (1)).
+const sourceUrl =
+  process.env["MECO_SOURCE_URL"] ??
+  "https://commons.wikimedia.org/wiki/Special:FilePath/Artemis_2_Crew_Portrait.jpg?width=1600";
+
+async function post(
+  path: string,
+  body: unknown
+): Promise<{ status: number; body: unknown; ms: number }> {
+  const at = performance.now();
+  const res = await fetch(`${url}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let parsed: unknown = text;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // not JSON: kept as text
+  }
+  return { status: res.status, body: parsed, ms: performance.now() - at };
+}
+
+/** Every key named `facePrint` anywhere in a JSON value. */
+const prints = (value: unknown): number => {
+  if (Array.isArray(value)) return value.reduce((n, v) => n + prints(v), 0);
+  if (typeof value === "object" && value !== null) {
+    return Object.entries(value).reduce(
+      (n, [k, v]) => n + (k === "facePrint" ? 1 : 0) + prints(v),
+      0
+    );
+  }
+  return 0;
+};
+
+/** The Step names off the Call View's HTML, in order. */
+const stepsOn = (html: string): string[] =>
+  [...html.matchAll(/class="step-name"[^>]*>([^<]+)</g)].map((m) => m[1] ?? "");
+
+type Annotated = {
+  call?: { id: string };
+  annotation?: { hash: string; regions: { kind: string }[]; producedBy: unknown[] };
+  error?: { code: string; message: string };
+};
+
+for (const round of ["first", "second"] as const) {
+  const brand = (brands.body as { id: string }[])[0]?.id ?? "laica";
+  const answer = await post("/v1/annotate", {
+    brand,
+    source: { url: sourceUrl },
+  });
+  const body = answer.body as Annotated;
+  line(
+    answer.status === 200 && body.call?.id !== undefined,
+    `POST /v1/annotate (${round}) -> ${answer.status} in ${answer.ms.toFixed(0)} ms, call ${body.call?.id ?? "-"}, hash ${body.annotation?.hash ?? "-"}, ${body.annotation?.regions.length ?? 0} regions, producedBy ${JSON.stringify(body.annotation?.producedBy ?? [])}`
+  );
+  line(prints(answer.body) === 0, `     no facePrint on the wire`);
+  if (round === "second") console.log(`     ${JSON.stringify(answer.body)}`);
+
+  if (body.call?.id !== undefined) {
+    const view = await get(`/ui/calls/${body.call.id}`, { Authorization: basic });
+    const steps = stepsOn(String(view.body));
+    const modelsRan = steps.some((s) => s.startsWith("models."));
+    line(
+      view.status === 200 &&
+        (round === "first" ? modelsRan : !modelsRan),
+      `GET /ui/calls/${body.call.id} -> ${view.status}, steps: ${steps.join(", ")}`
+    );
+  }
+}
+
 process.exit(failed ? 1 : 0);
