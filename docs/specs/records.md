@@ -85,6 +85,7 @@ export interface Records {
     get(brand: string, id: string): Promise<Person | null>;
     list(brand: string): Promise<PersonWithPrints[]>; // one read for identify
     enrol(photo: NewReferencePhoto): Promise<ReferencePhoto>;
+    unenrol(brand: string, photoId: string): Promise<Unenrolment>; // one photo
     erase(brand: string, id: string): Promise<Erasure>;
   };
   calls: {
@@ -184,7 +185,11 @@ One row per request that entered the gateway, `kind` one of `annotate | crop | r
 - A Reference Photo is a File like any other, so models annotates its bytes and the Annotation is cached under its hash, plus a `reference_photos` row that names the Person, the Region identify chose, the Face Print identify computed, and `consent_at`.
 - `face_print` is a column on the row, not a pointer into the Annotation. The Annotation is shared bytes that a newer Model may re-annotate or the Sweep may remove; the print a Person was enrolled with is the Brand's own fact and stays beside the consent that allowed it.
 - `consent_at` is set when the enroller says so and absent otherwise; records never fills it (ADR-0003, Decision 2).
-- `people.erase(brand, id)` deletes the Person, its Reference Photo rows, and for each hash whose Reference Count reached zero the File and its Annotation, then `store.delete` on every key under `people/<brand>/<id>/`, in one transaction around the rows and before the store calls. It returns the keys it deleted and the result of `store.list("people/<brand>/<id>")` afterwards, which must be empty. Two enrolments of the same file are two rows on one key; deleting one photo does not delete the key while the other row stands.
+- `people.erase(brand, id)` deletes the Person, its Reference Photo rows, and for each hash whose Reference Count reached zero the File and its Annotation, then `store.delete` on the keys, in one transaction around the rows and before the store calls. It returns the keys it deleted and the result of `store.list("people/<brand>/<id>")` afterwards, which must be empty.
+- **Two kinds of key go, not one.** The Reference Photo keys are under `people/<brand>/<id>/`. A File whose Reference Count reached zero also has `files.store_key`, which for a photograph that was also a Source Image is `sources/<hash>.<ext>` and is not under that prefix — and once the row is gone the Sweep can never find those bytes again, because the Sweep reads rows. The Reference Count is what stops this reaching a source another Brand still holds.
+- `people.unenrol(brand, photoId)` withdraws one Reference Photo from a Person who stays, by the same counting: the row goes, and the bytes go only once no row names the key. Two enrolments of the same file are two rows on one key, so deleting one photo does not delete the key while the other row stands. Not on the surface the grilling settled; the Erasure done-condition needs it and nothing else on `people` can delete one Reference Photo.
+- Both are idempotent. A caller retries an Erasure after a timeout, and a second run that threw would make "delete this Person" a call nobody could safely repeat. `erased` and `deleted` say whether a row was there.
+- `Erasure.remaining` is the store's own listing at the moment the bytes went, not an assertion records makes about itself. On a CDN-backed store it may still name a key for as long as that backend documents — Vercel Blob says up to 60 s — so a check against Blob polls to that deadline, as `@meco/store`'s own live checks do.
 - `people.list(brand)` returns every Person with every Reference Photo's Face Print, in one read, because identify needs all of them per call.
 
 ### Brands and the seed
@@ -223,13 +228,25 @@ The Neon connection is `meco-records-eu`, `eu-central-1`, Postgres 18.6 (measure
 | `outputs.byRequest` finds the Output of an equal request with keys in another order                                    | hash the request as given                                   |
 | `outputs.list` is newest first, honours `placement` and `kind`, and a cursor never repeats or skips a row              | paginate by offset                                          |
 | `calls.record` keeps a failed Call with its `error`                                                                    | refuse to insert when `status` is `failed`                  |
+| `people.create` mints a UUID, and `people.get` finds the Person only for its own Brand                                 | look a Person up by id alone                                |
+| `people.enrol` without a File for the hash is refused                                                                  | write the File on the way in                                |
+| `people.enrol` keeps the Region and the print, and leaves `consent_at` absent when none was given                      | default `consent_at` to now                                 |
+| `people.list` gives every Person of the Brand with every print, one with none included, and no other Brand's           | inner join; answer for every Brand                          |
 | `people.erase` leaves no row, no Face Print and `store.list` of the prefix empty                                       | delete the Person and leave the Reference Photo rows        |
 | `people.erase` on a Person with two enrolments of one file deletes the key once, and only after both rows are gone     | delete the key on the first row                             |
+| an Erasure never deletes a File another Brand holds as a Source Image, nor its bytes                                   | drop the `sources` half of the Reference Count              |
+| an Erasure never deletes a File another Brand has a Reference Photo of                                                 | drop the `reference_photos` half of the Reference Count     |
+| `people.unenrol` deletes the bytes and the File of the last Reference Photo naming them, and leaves the Person         | leave an orphaned File to the Sweep                         |
+| `people.unenrol` and `people.erase` of something that is not there are not errors                                      | throw on a Person that is not there                         |
 | `sweep` removes a File with no Source Hold older than the window, with its Annotation and bytes, and leaves a held one | ignore `sources`                                            |
 | `sweep` never removes an Output's bytes                                                                                | count `outputs` as zero references                          |
 | `reachRecords` reports `pending: 0` after `migrate` and a positive number before                                       | report zero always                                          |
 
-pglite runs the suite inside `pnpm check`, in the gate; measured start 966 ms on this laptop, so one pglite per suite file, one schema per check. The live suite `pnpm test:records:live` runs the identical checks against Neon and is named `*.live.ts` so Vitest's default glob cannot collect it, as store does. With `NEON_API_KEY` present it creates a throwaway branch of `meco-records-eu` and deletes it in `finally`; without, it runs on the main branch under a run-scoped schema it drops. The suite prints which path ran. Budget two minutes; the first ticket reports the measured wall time.
+pglite runs the suite inside `pnpm check`, in the gate; measured start 966 ms on this laptop, so one pglite per suite file, one schema per check. The live suite `pnpm test:records:live` runs the identical checks against Neon and is named `*.live.ts` so Vitest's default glob cannot collect it, as store does. With `NEON_API_KEY` present it creates a throwaway branch of `meco-records-eu` and deletes it in `finally`; without, it runs on the main branch under a **run-scoped database** it drops.
+
+A database and not the run-scoped schema this spec first named: `drizzle-kit` writes every foreign key as `references "public"."files"(…)`, so tables created in a schema of one's own point their keys at `public` — at the deployment's rows. Measured 6 Sep 2026 against `meco-records-eu`: the whole People half of the list failed that way while passing on pglite, whose `public` was the run's own. A database has a `public` of its own, so the same SQL means what it says.
+
+The suite prints which path ran, which host it reached and what it cost. It reaches the host through `.env.local` parsed by `vitest.live.config.ts` rather than `process.loadEnvFile`, which never overrides a variable already exported in the shell — a stale export would otherwise silently point a suite that creates and drops databases at another one. Budget two minutes; measured 32 s for 24 checks from Zürich, 6 Sep 2026.
 
 Prior art: `packages/store/tests` for the two-adapter shape and the live config, `vitest.live.config.ts` for forwarding variables by name.
 

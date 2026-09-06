@@ -10,9 +10,12 @@
 import { Annotation } from "@meco/contracts";
 import type { Store } from "@meco/store";
 import { eq, sql } from "drizzle-orm";
+import { type Brands, brandsOver } from "./brands";
 import { type Database, type DatabaseDriver, driverFor } from "./database";
 import { applyMigrations } from "./migrate";
+import { type People, peopleOver } from "./people";
 import { annotations, files } from "./schema";
+import { type Sources, sourcesOver } from "./sources";
 
 export interface RecordsOptions {
   readonly database: Database;
@@ -58,6 +61,9 @@ export interface Records {
     /** Replaces what is stored for that hash. The File must exist. */
     put(annotation: Annotation): Promise<void>;
   };
+  brands: Brands;
+  sources: Sources;
+  people: People;
   /** Releases the database. Idempotent. */
   close(): Promise<void>;
 }
@@ -158,6 +164,10 @@ export function records(options: RecordsOptions): Records {
           });
       },
     },
+
+    brands: brandsOver(driver),
+    sources: sourcesOver(driver),
+    people: peopleOver(driver, options.store),
 
     async close() {
       await driver.close();

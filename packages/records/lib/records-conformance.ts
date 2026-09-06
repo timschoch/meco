@@ -16,10 +16,12 @@ import {
   strictEqual,
 } from "node:assert/strict";
 import { createHash } from "node:crypto";
-import type { Annotation } from "@meco/contracts";
+import type { Annotation, FacePrint } from "@meco/contracts";
 import type { Check } from "@meco/contracts/conformance";
+import { type Listing, type Store, memoryStore } from "@meco/store";
 import { reachRecords, recordsTables } from "./health";
 import { verifying } from "./neon-database";
+import { peoplePrefix } from "./people";
 import type { Records } from "./records";
 
 /** A database with no tables, and however many Records over that one database. */
@@ -38,6 +40,14 @@ export interface RecordsFixtures {
    * need a database that has never been migrated and production has been.
    */
   empty(): Promise<EmptyDatabase>;
+  /**
+   * A fresh, migrated `Records` over the store handed in.
+   *
+   * `open()` builds its own store, so a check that has to watch bytes cross the
+   * store's seam — Erasure is nothing but that — cannot see it. This is how a
+   * check supplies the one it will assert on.
+   */
+  over(store: Store): Promise<Records>;
 }
 
 /**
@@ -113,6 +123,114 @@ const annotationFor = (label: string): Annotation => {
     ],
   };
 };
+
+/**
+ * The same Annotation for bytes whose Content Hash a check already holds,
+ * rather than for a label. The Erasure checks need one hanging off a File they
+ * built through the store, to prove the Face Prints inside it die with it.
+ */
+const annotationOf = (hash: string): Annotation => ({
+  ...annotationFor("a reference photograph"),
+  hash,
+});
+
+/** Distinct bytes per label, so one check's Stored Object is never another's. */
+const bytesFor = (label: string): Uint8Array =>
+  new TextEncoder().encode(`@meco/records conformance bytes: ${label}`);
+
+/**
+ * A Face Print on the unit sphere, distinct per label. The contracts schema
+ * refuses one that is not unit length, so it cannot be two arbitrary numbers.
+ */
+const printFor = (label: string): FacePrint => {
+  const x = (Number.parseInt(hashOf(label).slice(0, 8), 16) % 1000) / 1000;
+  return {
+    model: { name: "edgeface", version: "s-gamma-05-1" },
+    vector: [x, Math.sqrt(1 - x * x)],
+  };
+};
+
+/**
+ * A Brand id derived from the label, so checks sharing one database — which is
+ * what the live host does, one schema for the whole run — never collide.
+ */
+const brandFor = (label: string): string => `b-${hashOf(label).slice(0, 12)}`;
+
+/** A `Store` that also reports which keys it was asked to delete, in order. */
+interface WatchedStore extends Store {
+  readonly deletes: readonly string[];
+}
+
+/**
+ * A store the Erasure checks can watch. "The bytes went once, and only at a
+ * Reference Count of zero" is a statement about calls that crossed the store's
+ * seam, so it has to be asserted there and not inferred from what is left.
+ */
+function watching(): WatchedStore {
+  const store = memoryStore();
+  const deletes: string[] = [];
+  return {
+    ...store,
+    async delete(key) {
+      deletes.push(key);
+      await store.delete(key);
+    },
+    deletes,
+  };
+}
+
+/**
+ * A Person of one Brand with one Reference Photo whose bytes are really in the
+ * store, and whose File is really a row: the Source Key as well as the Person's
+ * own key, because the two-key case is the one Erasure has to get right.
+ */
+async function enrolled(
+  records: Records,
+  store: Store,
+  options: {
+    readonly brand: string;
+    readonly label: string;
+    readonly person?: string;
+    readonly consentAt?: string;
+  }
+) {
+  const bytes = bytesFor(options.label);
+  const person =
+    options.person ??
+    (await records.people.create({ brand: options.brand, name: options.label }))
+      .id;
+
+  const source = await store.put("sources", bytes, "image/png");
+  const held = await store.put(
+    peoplePrefix(options.brand, person),
+    bytes,
+    "image/png"
+  );
+  await records.files.ensure({
+    hash: source.hash,
+    mime: "image/png",
+    width: 1200,
+    height: 800,
+    bytes: bytes.byteLength,
+    storeKey: source.key,
+  });
+
+  const photo = await records.people.enrol({
+    brand: options.brand,
+    personId: person,
+    hash: source.hash,
+    storeKey: held.key,
+    regionId: "face-1",
+    facePrint: printFor(options.label),
+    ...(options.consentAt === undefined
+      ? {}
+      : { consentAt: options.consentAt }),
+  });
+  return { person, photo, hash: source.hash, sourceKey: source.key };
+}
+
+const keysOf = (listed: readonly Listing[]): string[] =>
+  listed.map((one) => one.key);
 
 export function recordsConformance(
   open: () => Promise<Records>,
@@ -315,6 +433,335 @@ export function recordsConformance(
         await rejects(() =>
           records.annotations.put(annotationFor("no file of its own"))
         );
+      },
+    },
+    {
+      name: "people.create mints an id, and people.get finds the Person only for its own Brand",
+      async run() {
+        const records = await open();
+        const mine = brandFor("owns the person");
+        const theirs = brandFor("does not own the person");
+        await records.brands.ensure({ id: mine, name: "Mine" });
+        await records.brands.ensure({ id: theirs, name: "Theirs" });
+
+        const person = await records.people.create({
+          brand: mine,
+          name: "Ada",
+        });
+
+        deepStrictEqual(await records.people.get(mine, person.id), person);
+        // The Brand wall, on the one method a caller reaches a Person by. An id
+        // is not a capability: knowing one must not hand a Person over to
+        // whoever asks with the wrong Brand.
+        strictEqual(await records.people.get(theirs, person.id), null);
+        ok(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+            person.id
+          ),
+          `${person.id} is no UUID, and it lands in a Store Key`
+        );
+      },
+    },
+    {
+      name: "people.get of an id never created is null, not a throw",
+      async run() {
+        const records = await open();
+        const brand = brandFor("has no such person");
+        await records.brands.ensure({ id: brand, name: "Empty" });
+
+        strictEqual(await records.people.get(brand, crypto.randomUUID()), null);
+      },
+    },
+    {
+      name: "people.enrol without a File for the hash is refused",
+      async run() {
+        const records = await open();
+        const brand = brandFor("enrols bytes records never saw");
+        await records.brands.ensure({ id: brand, name: "Unknown bytes" });
+        const person = await records.people.create({ brand, name: "Grace" });
+
+        // A Reference Photo hangs off a File, as an Annotation does. Without
+        // the row there is nothing to count references on and nothing the
+        // Sweep or an Erasure could ever find again.
+        await rejects(() =>
+          records.people.enrol({
+            brand,
+            personId: person.id,
+            hash: hashOf("never ensured"),
+            storeKey: `${peoplePrefix(brand, person.id)}/${hashOf("never ensured")}.png`,
+            regionId: "face-1",
+            facePrint: printFor("never ensured"),
+          })
+        );
+      },
+    },
+    {
+      name: "people.enrol keeps the Region, the print and the consent, and leaves consent absent when none was given",
+      async run() {
+        const records = await open();
+        const store = memoryStore();
+        const brand = brandFor("enrols with and without consent");
+        await records.brands.ensure({ id: brand, name: "Consent" });
+
+        const consented = await enrolled(records, store, {
+          brand,
+          label: "with consent",
+          consentAt: "2026-09-01T10:00:00.000Z",
+        });
+        const silent = await enrolled(records, store, {
+          brand,
+          label: "without consent",
+        });
+
+        strictEqual(consented.photo.regionId, "face-1");
+        deepStrictEqual(consented.photo.facePrint, printFor("with consent"));
+        strictEqual(consented.photo.consentAt, "2026-09-01T10:00:00.000Z");
+        // ADR-0003, Decision 2: records stores the date the enroller gives and
+        // never supplies one. A `consent_at` meco filled in would be meco
+        // asserting a consent nobody recorded.
+        strictEqual(silent.photo.consentAt, null);
+      },
+    },
+    {
+      name: "people.list gives every Person of the Brand with every Face Print, including a Person with none, and no other Brand's",
+      async run() {
+        const records = await open();
+        const store = memoryStore();
+        const mine = brandFor("lists its people");
+        const theirs = brandFor("is listed by nobody else");
+        await records.brands.ensure({ id: mine, name: "Mine" });
+        await records.brands.ensure({ id: theirs, name: "Theirs" });
+
+        const twice = await records.people.create({ brand: mine, name: "Ada" });
+        await enrolled(records, store, {
+          brand: mine,
+          label: "first of two",
+          person: twice.id,
+        });
+        await enrolled(records, store, {
+          brand: mine,
+          label: "second of two",
+          person: twice.id,
+        });
+        const none = await records.people.create({ brand: mine, name: "Alan" });
+        await enrolled(records, store, { brand: theirs, label: "not mine" });
+
+        const listed = await records.people.list(mine);
+
+        deepStrictEqual(
+          new Set(listed.map((one) => one.id)),
+          new Set([twice.id, none.id])
+        );
+        const withPrints = listed.find((one) => one.id === twice.id);
+        ok(withPrints !== undefined);
+        deepStrictEqual(
+          new Set(withPrints.photos.map((one) => one.facePrint.vector[0])),
+          new Set([
+            printFor("first of two").vector[0],
+            printFor("second of two").vector[0],
+          ])
+        );
+        // A Person nobody has enrolled a photograph for is still a Person.
+        // identify reads this list; a Person that vanished from it would look
+        // like a Person who had been deleted.
+        deepStrictEqual(listed.find((one) => one.id === none.id)?.photos, []);
+      },
+    },
+    {
+      name: "people.erase leaves no Person, no Reference Photo, no Face Print, no File and no byte under the prefix",
+      async run() {
+        const store = watching();
+        const records = await fixtures.over(store);
+        const brand = brandFor("erases everything");
+        await records.brands.ensure({ id: brand, name: "Erasing" });
+
+        const first = await enrolled(records, store, {
+          brand,
+          label: "erased first photo",
+        });
+        const second = await enrolled(records, store, {
+          brand,
+          label: "erased second photo",
+          person: first.person,
+        });
+        await records.annotations.put(annotationOf(first.hash));
+        const prefix = peoplePrefix(brand, first.person);
+        strictEqual((await store.list(prefix)).length, 2);
+
+        const erasure = await records.people.erase(brand, first.person);
+
+        strictEqual(erasure.erased, true);
+        strictEqual(erasure.photos, 2);
+        deepStrictEqual(
+          new Set(erasure.files),
+          new Set([first.hash, second.hash])
+        );
+        // The listing is the proof ADR-0003 asks for, and it is the store's
+        // own answer rather than anything records asserts about itself.
+        deepStrictEqual(erasure.remaining, []);
+        deepStrictEqual(await store.list(prefix), []);
+        strictEqual(await records.people.get(brand, first.person), null);
+        deepStrictEqual(await records.people.list(brand), []);
+        // The File went with the last row that named it, and the Annotation —
+        // every Face Print of everyone who was in the photograph — with the
+        // File.
+        strictEqual(await records.files.get(first.hash), null);
+        strictEqual(await records.annotations.get(first.hash), null);
+        // Both keys: the Person's own, and the Source Key of a File nothing
+        // holds any more. The second is not under the prefix, so the listing
+        // above could never have caught it.
+        strictEqual(await store.head(first.sourceKey), null);
+        strictEqual(await store.head(second.sourceKey), null);
+      },
+    },
+    {
+      name: "two enrolments of one photograph are two rows on one key: unenrol leaves the key, erase deletes it once",
+      async run() {
+        const store = watching();
+        const records = await fixtures.over(store);
+        const brand = brandFor("enrols one file twice");
+        await records.brands.ensure({ id: brand, name: "Twice" });
+
+        const first = await enrolled(records, store, {
+          brand,
+          label: "one file twice",
+        });
+        // The same bytes again, for the same Person: `store.put` is keyed by
+        // the hash of its own bytes, so this is a second row on the first row's
+        // key and never a second object.
+        const second = await enrolled(records, store, {
+          brand,
+          label: "one file twice",
+          person: first.person,
+        });
+        strictEqual(second.photo.storeKey, first.photo.storeKey);
+        const prefix = peoplePrefix(brand, first.person);
+        strictEqual((await store.list(prefix)).length, 1);
+
+        const unenrolled = await records.people.unenrol(brand, first.photo.id);
+
+        strictEqual(unenrolled.deleted, true);
+        // Nothing went: the second row still names the key, and the File still
+        // has a Reference Photo.
+        deepStrictEqual(unenrolled.keys, []);
+        deepStrictEqual(keysOf(await store.list(prefix)), [
+          first.photo.storeKey,
+        ]);
+        ok(await records.files.get(first.hash));
+
+        const erasure = await records.people.erase(brand, first.person);
+
+        deepStrictEqual(erasure.remaining, []);
+        strictEqual(
+          store.deletes.filter((key) => key === first.photo.storeKey).length,
+          1,
+          "the shared key was deleted more than once"
+        );
+      },
+    },
+    {
+      name: "an Erasure never deletes a File another Brand still holds as a Source Image, nor its bytes",
+      async run() {
+        const store = watching();
+        const records = await fixtures.over(store);
+        const mine = brandFor("erases a shared source");
+        const theirs = brandFor("still holds the shared source");
+        await records.brands.ensure({ id: mine, name: "Mine" });
+        await records.brands.ensure({ id: theirs, name: "Theirs" });
+
+        const enrolment = await enrolled(records, store, {
+          brand: mine,
+          label: "shared with a source hold",
+        });
+        await records.sources.hold(theirs, enrolment.hash);
+
+        const erasure = await records.people.erase(mine, enrolment.person);
+
+        deepStrictEqual(erasure.remaining, []);
+        // The Person is gone and their own bytes are gone; the photograph the
+        // other Brand is entitled to a Signed URL for is not.
+        deepStrictEqual(erasure.files, []);
+        ok(await records.files.get(enrolment.hash));
+        ok(await store.head(enrolment.sourceKey));
+        strictEqual(await records.sources.heldBy(theirs, enrolment.hash), true);
+      },
+    },
+    {
+      name: "an Erasure never deletes a File another Brand still has a Reference Photo of",
+      async run() {
+        const store = watching();
+        const records = await fixtures.over(store);
+        const mine = brandFor("erases a doubly enrolled file");
+        const theirs = brandFor("enrolled the same photograph");
+        await records.brands.ensure({ id: mine, name: "Mine" });
+        await records.brands.ensure({ id: theirs, name: "Theirs" });
+
+        const label = "enrolled by two brands";
+        const ours = await enrolled(records, store, { brand: mine, label });
+        const yours = await enrolled(records, store, { brand: theirs, label });
+
+        const erasure = await records.people.erase(mine, ours.person);
+
+        deepStrictEqual(erasure.remaining, []);
+        deepStrictEqual(erasure.files, []);
+        ok(await records.files.get(ours.hash));
+        // Same bytes, two Persons, two Brands, two keys: the other Brand's
+        // Reference Photo is still there and still readable.
+        ok(await store.head(yours.photo.storeKey));
+        strictEqual(
+          (await store.list(peoplePrefix(theirs, yours.person))).length,
+          1
+        );
+      },
+    },
+    {
+      name: "people.unenrol deletes the bytes and the File of the last Reference Photo naming them",
+      async run() {
+        const store = watching();
+        const records = await fixtures.over(store);
+        const brand = brandFor("unenrols the only photo");
+        await records.brands.ensure({ id: brand, name: "Only" });
+
+        const only = await enrolled(records, store, {
+          brand,
+          label: "the only reference photo",
+        });
+        await records.annotations.put(annotationOf(only.hash));
+
+        const unenrolled = await records.people.unenrol(brand, only.photo.id);
+
+        strictEqual(unenrolled.deleted, true);
+        deepStrictEqual(
+          new Set(unenrolled.keys),
+          new Set([only.photo.storeKey, only.sourceKey])
+        );
+        strictEqual(await store.head(only.photo.storeKey), null);
+        // The Person stays: withdrawing one photograph is not an Erasure.
+        ok(await records.people.get(brand, only.person));
+        strictEqual(await records.files.get(only.hash), null);
+        strictEqual(await records.annotations.get(only.hash), null);
+      },
+    },
+    {
+      name: "people.unenrol and people.erase of something that is not there are not errors",
+      async run() {
+        const store = watching();
+        const records = await fixtures.over(store);
+        const brand = brandFor("erases nothing at all");
+        await records.brands.ensure({ id: brand, name: "Nothing" });
+        const absent = crypto.randomUUID();
+
+        const unenrolled = await records.people.unenrol(brand, absent);
+        const erasure = await records.people.erase(brand, absent);
+
+        // Erasure is what a caller retries after a timeout. A second run that
+        // threw would make "delete this Person" a call nobody could safely
+        // repeat, and the prefix listing is the honest answer either way.
+        strictEqual(unenrolled.deleted, false);
+        strictEqual(erasure.erased, false);
+        strictEqual(erasure.photos, 0);
+        deepStrictEqual(erasure.remaining, []);
+        deepStrictEqual(store.deletes, []);
       },
     },
   ];

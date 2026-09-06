@@ -7,7 +7,7 @@
  * rather than a surprise in production.
  */
 import { afterAll, describe, expect, it } from "vitest";
-import { memoryStore } from "@meco/store";
+import { type Store, memoryStore } from "@meco/store";
 import { recordsConformance } from "../conformance";
 import { type Database, type Records, records } from "../index";
 import { pgliteDatabase } from "../pglite";
@@ -21,10 +21,8 @@ const openDatabase = (): Database => {
   return database;
 };
 
-const over = (database: Database): Records =>
-  // A counted `memoryStore` is what the deletion checks will assert on; this
-  // slice writes no bytes, so a plain one is the whole of what records needs.
-  records({ database, store: memoryStore() });
+const over = (database: Database, store: Store = memoryStore()): Records =>
+  records({ database, store });
 
 const empty = async () => {
   const database = openDatabase();
@@ -43,6 +41,13 @@ const open = async (): Promise<Records> => {
   return migrated;
 };
 
+/** The same, over the store the check will watch the bytes cross. */
+const overStore = async (store: Store): Promise<Records> => {
+  const migrated = over(openDatabase(), store);
+  await migrated.migrate();
+  return migrated;
+};
+
 afterAll(async () => {
   await Promise.all(opened.map((database) => database.close()));
 });
@@ -55,7 +60,7 @@ afterAll(async () => {
 const PGLITE_TIMEOUT_MS = 30_000;
 
 describe("@meco/records over pglite", () => {
-  for (const check of recordsConformance(open, { empty })) {
+  for (const check of recordsConformance(open, { empty, over: overStore })) {
     it(check.name, check.run, PGLITE_TIMEOUT_MS);
   }
 });

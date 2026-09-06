@@ -396,8 +396,12 @@ A bearer key as records knows it: a name, the hash of the key, and the Brands it
 _Avoid_: user, account, client, API key, tenant
 
 **Erasure**:
-Deleting a Person so that nothing of them remains: the Person, every Reference Photo row, every Face Print, and the bytes under `people/<brand>/<personId>/`, in one transaction, proved by listing the prefix afterwards and finding nothing. What ADR-0003 promises and a test has to be able to fail.
+Deleting a Person so that nothing of them remains: the Person, every Reference Photo row, every Face Print, the bytes under `people/<brand>/<personId>/`, and every File whose Reference Count reached zero with its Annotation and its own bytes, in one transaction around the rows, proved by listing the prefix afterwards and finding nothing. What ADR-0003 promises and a test has to be able to fail.
 _Avoid_: cascade delete, purge, hard delete, GDPR delete, removal
+
+**Unenrolment**:
+Withdrawing one Reference Photo from a Person who stays: the row, its Face Print, and the bytes at its Store Key once no other row names them. Not an Erasure — the Person and every other Reference Photo of them remain, and two enrolments of one photograph keep the key until both rows are gone.
+_Avoid_: unenroll, remove photo, delete reference, revoke, opt out, de-enrolment
 
 **Reference Count**:
 How many rows still name one Store Key or one Content Hash. A delete reaches the store only when the count is zero, so a Brand deleting its Output cannot take another Brand's URL with it.

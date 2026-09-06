@@ -14,7 +14,8 @@
     "lint:boundaries": "depcruise .",
     "check": "pnpm typecheck && pnpm lint:boundaries && pnpm test",
     "prepare": "husky",
-    "test:store:live": "vitest run --config vitest.live.config.ts"
+    "test:store:live": "vitest run --config vitest.live.config.ts packages/store",
+    "test:records:live": "vitest run --config vitest.live.config.ts packages/records"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
