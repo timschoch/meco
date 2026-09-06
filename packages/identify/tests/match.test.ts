@@ -21,7 +21,17 @@ import {
   PRINT_MODEL,
   identify,
 } from "../index";
-import { annotationOf, faceIn, printOf } from "./fixtures";
+import {
+  annotationOf,
+  cosine,
+  faceIn,
+  kartAnnotationOf,
+  kartPhotographs,
+  kartPrint,
+  kartPrints,
+  kartRegionId,
+  printOf,
+} from "./fixtures";
 import {
   type Harness,
   PGLITE_TIMEOUT_MS,
@@ -523,6 +533,254 @@ describe("identify().match, the faces it will not compare", () => {
       // Both faces clear 40 px in the photograph; only one clears it decoded.
       expect(0.01 * 8000).toBeGreaterThan(MIN_FACE_PX);
       expect(found.matches).toHaveLength(1);
+    },
+    PGLITE_TIMEOUT_MS
+  );
+});
+
+describe("identify().match, the things that are not faces", () => {
+  /** The back of a crash helmet: the one print identify commits (ADR-0003). */
+  const HELMET = kartPrint("on-track-rear-helmet.jpg#0");
+  /**
+   * A real face that scores 0.5091 against the helmet — over the Match
+   * Threshold. It is why the gate runs on the enrolled prints as well as on
+   * the detection: no check on this face can catch it, because it is a face.
+   */
+  const REAL_FACE_NEAR_THE_HELMET = kartPrint("paddock-mixed.jpg#4");
+
+  it(
+    "refuses to identify the detection the Not-a-Face Print was taken from, and names it",
+    async () => {
+      const brand = "a-helmet";
+      await open.enrol({ brand, name: "A", prints: [A_PORTRAIT] });
+
+      // The photograph the reference print came from, annotated whole. It is
+      // 41 px in the Decoded Image, so it clears the size floor and the
+      // Not-a-Face check is the only thing that can refuse it.
+      const helmetPhoto = kartAnnotationOf("on-track-rear-helmet.jpg");
+      const regionId = kartRegionId(helmetPhoto, "on-track-rear-helmet.jpg#0");
+
+      const found = await identifier().match({
+        annotation: helmetPhoto.annotation,
+        brand,
+      });
+
+      expect(verdictOn(found.faces, regionId)).toMatchObject({
+        verdict: "not-identifiable",
+        reason: "not-a-face",
+        // The detail names the reference and what a human saw in it, so a
+        // Brand can be told why the refusal happened.
+        detail: expect.stringContaining("on-track-rear-helmet.jpg#0"),
+      });
+      expect(found.matches).toEqual([]);
+    },
+    PGLITE_TIMEOUT_MS
+  );
+
+  it(
+    "refuses a helmet it has never seen, out of the reference set",
+    async () => {
+      const brand = "another-helmet";
+      await open.enrol({ brand, name: "A", prints: [A_PORTRAIT] });
+
+      // A different driver, a different helmet, deliberately held out of the
+      // reference set so its rejection is measured and not assumed.
+      const heldOut = kartAnnotationOf("on-track-visor-open.jpg");
+      const found = await identifier().match({
+        annotation: heldOut.annotation,
+        brand,
+      });
+
+      expect(
+        verdictOn(
+          found.faces,
+          kartRegionId(heldOut, "on-track-visor-open.jpg#0")
+        )
+      ).toMatchObject({ verdict: "not-identifiable", reason: "not-a-face" });
+    },
+    PGLITE_TIMEOUT_MS
+  );
+
+  it(
+    "reports a Person enrolled from a helmet as unusable, and lends their name to nobody",
+    async () => {
+      const brand = "enrolled-a-helmet";
+      // Exactly issue #34: a Person enrolled from the back of a crash helmet,
+      // before any Not-a-Face Print existed to refuse the photograph.
+      const helmeted = await open.enrol({
+        brand,
+        name: "Enrolled from a helmet",
+        prints: [HELMET.vector],
+      });
+
+      // A real face, 0.5091 against that print — over the Match Threshold and
+      // the wrong person's name on a published photograph.
+      const paddock = kartAnnotationOf("paddock-mixed.jpg");
+      const regionId = kartRegionId(paddock, "paddock-mixed.jpg#4");
+
+      const found = await identifier().match({
+        annotation: paddock.annotation,
+        brand,
+      });
+
+      const listed = await open.records.people.list(brand);
+      expect(found.unusableReferencePhotos).toEqual(
+        listed
+          .filter((one) => one.id === helmeted.id)
+          .flatMap((one) => one.photos.map((photo) => photo.id))
+      );
+      expect(found.matches).toEqual([]);
+      // Compared against nobody usable, so there is no best at all — and in
+      // particular not the 0.5091 that would have named them.
+      expect(verdictOn(found.faces, regionId)).toEqual({
+        regionId,
+        verdict: "unknown",
+      });
+      expect(
+        cosine(REAL_FACE_NEAR_THE_HELMET.vector, HELMET.vector)
+      ).toBeGreaterThan(MATCH_THRESHOLD);
+    },
+    PGLITE_TIMEOUT_MS
+  );
+
+  it(
+    "still compares the real faces of the same photograph",
+    async () => {
+      const brand = "a-paddock";
+      // The paddock's own biggest face, enrolled: it must still be named in
+      // the photograph it came from. The Not-a-Face rule refuses detections,
+      // not photographs.
+      const pointing = kartPrint("paddock-mixed.jpg#0");
+      const person = await open.enrol({
+        brand,
+        name: "The man pointing",
+        prints: [pointing.vector],
+      });
+
+      const paddock = kartAnnotationOf("paddock-mixed.jpg");
+      const found = await identifier().match({
+        annotation: paddock.annotation,
+        brand,
+      });
+
+      expect(found.matches).toEqual([
+        {
+          regionId: kartRegionId(paddock, "paddock-mixed.jpg#0"),
+          personId: person.id,
+          brand,
+          similarity: expect.closeTo(1, 4),
+        },
+      ]);
+      // The man seen from behind, 0.6365 to the reference print, is refused.
+      expect(
+        verdictOn(found.faces, kartRegionId(paddock, "paddock-mixed.jpg#7"))
+      ).toMatchObject({ verdict: "not-identifiable", reason: "not-a-face" });
+      // The detection the aligner could not cut a square from carries no
+      // print at all, and is uncompared rather than not-identifiable.
+      expect(
+        verdictOn(found.faces, kartRegionId(paddock, "paddock-mixed.jpg#1"))
+      ).toEqual({
+        regionId: kartRegionId(paddock, "paddock-mixed.jpg#1"),
+        verdict: "uncompared",
+        reason: "no-print",
+      });
+    },
+    PGLITE_TIMEOUT_MS
+  );
+
+  it(
+    "refuses exactly the kart detections ADR-0003 names, through the seam",
+    async () => {
+      const brand = "the-whole-sweep";
+      await open.enrol({ brand, name: "A", prints: [A_PORTRAIT] });
+
+      // The Not-a-Face sweep run as `match` and not as arithmetic beside it.
+      // `tests/calibration.test.ts` recomputes the cosines; this says the rule
+      // on the seam acts on them, over every kart photograph at once.
+      const refused: string[] = [];
+      const compared: string[] = [];
+      for (const file of kartPhotographs()) {
+        const photograph = kartAnnotationOf(file);
+        const found = await identifier().match({
+          annotation: photograph.annotation,
+          brand,
+        });
+        for (const face of found.faces) {
+          const detection = photograph.faces.find(
+            (one) => one.regionId === face.regionId
+          );
+          if (detection?.is === undefined) continue;
+          if (
+            face.verdict === "not-identifiable" &&
+            face.reason === "not-a-face"
+          ) {
+            refused.push(detection.id);
+          } else {
+            compared.push(detection.id);
+          }
+        }
+      }
+
+      expect(refused.sort()).toEqual([
+        // The reference print itself, at a similarity of 1 to itself.
+        "on-track-rear-helmet.jpg#0",
+        // A second driver's helmet, held out of the reference set.
+        "on-track-visor-open.jpg#0",
+        // A man seen from behind: the rejection the rule exists for.
+        "paddock-mixed.jpg#7",
+        // A small child looking down, 40 px: the price, and the only real
+        // face 0.60 refuses.
+        "paddock-mixed.jpg#8",
+      ]);
+      // Every non-face in the fixture set is refused, and only one face is.
+      const stillFaces = compared.map((id) => kartPrint(id).is);
+      expect(stillFaces).not.toContain("not-a-face");
+      expect(compared).toHaveLength(
+        kartPrints().filter((one) => one.is === "face").length - 1
+      );
+    },
+    PGLITE_TIMEOUT_MS
+  );
+
+  it(
+    "asks about the size before it asks whether it is a face",
+    async () => {
+      const brand = "small-helmet";
+      await open.enrol({ brand, name: "A", prints: [A_PORTRAIT] });
+
+      // The helmet print on a face too small to have been printed at all.
+      // Both refusals apply; the size is the one the spec asks first, because
+      // it says what the Brand can do about it.
+      const tiny = Annotation.parse({
+        ...soyuz.annotation,
+        width: 8000,
+        height: 8000,
+        regions: [
+          {
+            id: "face-1",
+            kind: "face",
+            label: "face",
+            box: { x: 0.1, y: 0.1, width: 0.01, height: 0.01 },
+            score: 0.9,
+            model: { name: "yunet", version: "1" },
+            landmarks: {
+              rEye: { x: 0.11, y: 0.11 },
+              lEye: { x: 0.13, y: 0.11 },
+              nose: { x: 0.12, y: 0.12 },
+              rMouth: { x: 0.11, y: 0.13 },
+              lMouth: { x: 0.13, y: 0.13 },
+            },
+            facePrint: { model: PRINT_MODEL, vector: HELMET.vector },
+          },
+        ],
+      });
+
+      const found = await identifier().match({ annotation: tiny, brand });
+
+      expect(verdictOn(found.faces, "face-1")).toMatchObject({
+        verdict: "not-identifiable",
+        reason: "too-small",
+      });
     },
     PGLITE_TIMEOUT_MS
   );

@@ -59,18 +59,6 @@ export const NOT_A_FACE_THRESHOLD = 0.6 as const;
 export const PRINT_MODEL = { name: "edgeface", version: "1" } as const;
 
 /**
- * The long edge the models host resizes to before any adapter sees a
- * photograph (`docs/specs/models.md`, "Decode once"). identify needs it to
- * judge {@link MIN_FACE_PX} at the size the Enricher measured.
- *
- * Private to this package and never re-exported, because `@meco/models` does
- * not export it yet: #175 replaces this constant with `DECODE_BOUND` from the
- * models client entry the moment #119 lands it. Two copies of a number are one
- * too many, so nothing outside `lib/` may read this one.
- */
-export const DECODE_BOUND = 1600 as const;
-
-/**
  * How many floats a Face Print from {@link PRINT_MODEL} has.
  *
  * `@meco/contracts` fixes a Face Print's length to "at least one" and its norm

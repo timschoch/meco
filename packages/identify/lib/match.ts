@@ -7,15 +7,21 @@
  * to whoever was nearest (`CONTEXT.md`, Match).
  */
 import type { Annotation, FacePrint, Match, Region } from "@meco/contracts";
+// The one number identify takes from another module rather than holding: the
+// bound the models host decodes to before any adapter sees a photograph. A
+// second copy of it is what the entry-point boundary exists to prevent, and it
+// is what {@link MIN_FACE_PX} is judged after.
+import { DECODE_BOUND } from "@meco/models";
 import type { PersonWithPrints, ReferencePhoto } from "@meco/records";
 import {
-  DECODE_BOUND,
   MATCH_MARGIN,
   MATCH_THRESHOLD,
   MIN_FACE_PX,
+  NOT_A_FACE_THRESHOLD,
   PRINT_DIMENSIONS,
   PRINT_MODEL,
 } from "./constants";
+import { NOT_A_FACE_PRINTS, type NotAFacePrint } from "./not-a-face-prints";
 import type { FaceVerdict, Identification } from "./types";
 
 /**
@@ -61,6 +67,33 @@ const decodedShorterSide = (region: Region, image: Annotation): number => {
 };
 
 /**
+ * The Not-a-Face Print that takes a Face Print's identity away, and nothing
+ * when none does. It is the nearest of them when several disqualify, so the
+ * refusal names the strongest reason.
+ *
+ * Asked of the detection and of every enrolled print, because both directions
+ * are dangerous and only one of them is catchable on the detection: a real
+ * face can score over the Match Threshold against a helmet
+ * (`paddock-mixed#4`, 0.5091), and no check on that face can refuse it,
+ * because it is a face. Dropping the Reference Photo is what protects the
+ * Brand, and is what protects a Brand that enrolled before the rule existed
+ * (ADR-0003, amendment).
+ */
+const disqualifyingNotAFace = (
+  vector: readonly number[]
+): { print: NotAFacePrint; similarity: number } | null => {
+  let nearest: { print: NotAFacePrint; similarity: number } | null = null;
+  for (const print of NOT_A_FACE_PRINTS) {
+    const scored = similarity(vector, print.vector);
+    if (scored < NOT_A_FACE_THRESHOLD) continue;
+    if (nearest === null || scored > nearest.similarity) {
+      nearest = { print, similarity: scored };
+    }
+  }
+  return nearest;
+};
+
+/**
  * `face-10` after `face-2`: the number decides, never the string.
  *
  * `@meco/contracts` owns the `<kind>-<n>` format and its schema refuses any
@@ -78,22 +111,29 @@ interface Comparable {
 
 /**
  * The Brand's People with the prints the rule may compare, and the Reference
- * Photos it left out. A print that is not a comparable one is unusable: it
- * would be measured against a threshold nobody calibrated for it.
+ * Photos it left out. A print is unusable in two ways: it came from another
+ * Print Model, so it would be measured against a threshold nobody calibrated
+ * for it; or it is a Not-a-Face Print's neighbour, so it would lend its
+ * Person's name to whatever else resembles a crash helmet.
  */
 const partitionPrints = (
   people: readonly PersonWithPrints[]
 ): { comparable: Comparable[]; unusable: string[] } => {
   const unusable: string[] = [];
+  const usable = (photo: ReferencePhoto): boolean => {
+    if (!isComparablePrint(photo.facePrint)) {
+      unusable.push(photo.id);
+      return false;
+    }
+    if (disqualifyingNotAFace(photo.facePrint.vector) !== null) {
+      unusable.push(photo.id);
+      return false;
+    }
+    return true;
+  };
   const comparable = people.map((person) => ({
     personId: person.id,
-    prints: person.photos
-      .filter((photo: ReferencePhoto) => {
-        if (isComparablePrint(photo.facePrint)) return true;
-        unusable.push(photo.id);
-        return false;
-      })
-      .map((photo) => photo.facePrint.vector),
+    prints: person.photos.filter(usable).map((photo) => photo.facePrint.vector),
   }));
   return { comparable, unusable };
 };
@@ -153,6 +193,20 @@ const verdictFor = (
       verdict: "not-identifiable",
       reason: "too-small",
       detail: `${Math.round(shorterSide)} px in the decoded image, under the ${MIN_FACE_PX} px floor`,
+    };
+  }
+
+  // Large enough to have been printed, and printed by the right Model — and
+  // still not a face. The back of a crash helmet is what taught this rule
+  // (issue #34): it was enrolled as a Person, and a stranger in a helmet was
+  // named after them with their face left sharp.
+  const notAFace = disqualifyingNotAFace(region.facePrint.vector);
+  if (notAFace !== null) {
+    return {
+      regionId,
+      verdict: "not-identifiable",
+      reason: "not-a-face",
+      detail: `${notAFace.similarity.toFixed(4)} to the Not-a-Face Print ${notAFace.print.id} (${notAFace.print.saw}), at or over the ${NOT_A_FACE_THRESHOLD} threshold`,
     };
   }
 

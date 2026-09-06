@@ -10,6 +10,7 @@ export {
 } from "./lib/constants";
 export { IdentifyError, type IdentifyErrorCode } from "./lib/errors";
 export { identify } from "./lib/identify";
+export { NOT_A_FACE_PRINTS, type NotAFacePrint } from "./lib/not-a-face-prints";
 export {
   type Annotator,
   type EnrolRequest,

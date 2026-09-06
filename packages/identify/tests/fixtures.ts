@@ -26,8 +26,29 @@ const FIXTURES = fileURLToPath(
   new URL("../../../fixtures/faces/", import.meta.url)
 );
 
-const read = (name: string): unknown =>
-  JSON.parse(readFileSync(`${FIXTURES}${name}`, "utf8"));
+/**
+ * The kart photographs: the other fixture set, and the only one holding
+ * detections a human classified as not being faces at all
+ * (`fixtures/karts/expected.json`). The Not-a-Face rule is calibrated on it.
+ */
+const KARTS = fileURLToPath(
+  new URL("../../../fixtures/karts/", import.meta.url)
+);
+
+const readFrom = (directory: string, name: string): unknown =>
+  JSON.parse(readFileSync(`${directory}${name}`, "utf8"));
+
+const read = (name: string): unknown => readFrom(FIXTURES, name);
+
+const readKart = (name: string): unknown => readFrom(KARTS, name);
+
+/**
+ * The cosine of two Face Prints, computed here and not imported: the suite
+ * crosses `index.ts` only, and the arithmetic under test is not on it. Both
+ * are on the unit sphere, so the dot product is the cosine.
+ */
+export const cosine = (a: readonly number[], b: readonly number[]): number =>
+  a.reduce((sum, value, index) => sum + value * (b[index] ?? 0), 0);
 
 interface DetectedFace {
   readonly box: Box;
@@ -195,6 +216,186 @@ export const annotationOf = (file: string): FixtureAnnotation => {
     }),
     faces,
   };
+};
+
+/**
+ * One kart detection: what a human decided it is, how big it was in the
+ * Decoded Image, and the print the aligner took of it.
+ */
+export interface KartPrint {
+  /** `<file>#<index>`, the name ADR-0003's table uses. */
+  readonly id: string;
+  readonly file: string;
+  readonly index: number;
+  /** What a human saw in the box, cut out at 2.2× its own size. */
+  readonly saw: string;
+  /** The human's classification: a face somebody could be named by, or not. */
+  readonly is: "face" | "not-a-face";
+  /** Whether this is the print identify commits as a Not-a-Face Print. */
+  readonly reference: boolean;
+  /** The shorter side in the Decoded Image, as the dump recorded it. */
+  readonly pixels: number;
+  readonly vector: readonly number[];
+}
+
+const kartPrinted = readKart("face-prints.json") as {
+  readonly prints: readonly {
+    readonly file: string;
+    readonly index: number;
+    readonly label: string;
+    readonly is: "face" | "not-a-face";
+    readonly reference?: boolean;
+    readonly pixels: number;
+    readonly print: readonly number[];
+  }[];
+};
+
+/**
+ * The human's classification of every kart detection, in detection order
+ * (`fixtures/karts/expected.json` says so, and nothing sorts them). This file
+ * and not the print dump is the ground truth: `is` and `reference` are a
+ * judgement about a photograph, and the print file merely copies them.
+ */
+const kartExpected = readKart("expected.json") as {
+  readonly images: readonly {
+    readonly file: string;
+    readonly note?: string;
+    readonly faces: readonly {
+      readonly label: string;
+      readonly is: "face" | "not-a-face";
+      readonly reference?: boolean;
+    }[];
+  }[];
+};
+
+/**
+ * Every committed kart print, in the order the dump wrote them, joined onto
+ * the human's classification. The whole ground truth the Not-a-Face threshold
+ * is measured against.
+ *
+ * A print the classification disagrees with throws here rather than quietly
+ * changing what the sweep measures: marking a new detection `reference: true`
+ * in `expected.json` alone has to fail loudly, not commit nothing.
+ */
+const KART_PRINTS = kartPrinted.prints.map((one): KartPrint => {
+  const id = `${one.file}#${one.index}`;
+  const image = kartExpected.images.find((each) => each.file === one.file);
+  const marked = image?.faces[one.index];
+  if (marked === undefined) {
+    throw new Error(`${id} has a print and no hand-marked classification`);
+  }
+  if (marked.label !== one.label || marked.is !== one.is) {
+    throw new Error(
+      `${id} is "${marked.is}" in expected.json and "${one.is}" in face-prints.json`
+    );
+  }
+  if ((marked.reference === true) !== (one.reference === true)) {
+    throw new Error(
+      `${id} is marked reference in one fixture file and not the other`
+    );
+  }
+  return {
+    id,
+    file: one.file,
+    index: one.index,
+    saw: marked.label,
+    is: marked.is,
+    reference: marked.reference === true,
+    pixels: one.pixels,
+    vector: one.print,
+  };
+});
+
+/** Every committed kart print. */
+export const kartPrints = (): readonly KartPrint[] => KART_PRINTS;
+
+/** One kart print by `<file>#<index>`. */
+export const kartPrint = (id: string): KartPrint => {
+  const found = KART_PRINTS.find((one) => one.id === id);
+  if (found === undefined) throw new Error(`no kart print ${id}`);
+  return found;
+};
+
+/** Every photograph in `fixtures/karts/` a print was taken from. */
+export const kartPhotographs = (): readonly string[] => [
+  ...new Set(KART_PRINTS.map((one) => one.file)),
+];
+
+const kartDetected = readKart("detected.json") as {
+  readonly images: Record<string, DetectedImage>;
+};
+
+/** One detection of a kart photograph, as it lands in the Annotation. */
+export interface KartFace {
+  readonly regionId: string;
+  /** `<file>#<index>`, so a check names the detection ADR-0003 names. */
+  readonly id: string;
+  /** The human's classification, or absent when the print file skipped it. */
+  readonly is?: "face" | "not-a-face";
+}
+
+export interface KartAnnotation {
+  readonly annotation: Annotation;
+  readonly faces: readonly KartFace[];
+}
+
+/**
+ * The Annotation of one kart photograph: every recorded detection as a face
+ * Region, carrying the print the dump took of it. A detection the aligner
+ * could not cut a square from (`skipped` in the print file) carries no print,
+ * which is exactly the Uncompared Face the rule has to survive.
+ *
+ * Region ids follow the detection order, so `face-1` is `#0`: the same face
+ * ADR-0003's table names.
+ */
+export const kartAnnotationOf = (file: string): KartAnnotation => {
+  const image = kartDetected.images[file];
+  if (image === undefined) throw new Error(`no recorded detection for ${file}`);
+
+  const faces: KartFace[] = [];
+  const regions = image.faces.map((face, index) => {
+    const printed = KART_PRINTS.find(
+      (one) => one.file === file && one.index === index
+    );
+    const regionId = `face-${index + 1}`;
+    faces.push({
+      regionId,
+      id: `${file}#${index}`,
+      ...(printed === undefined ? {} : { is: printed.is }),
+    });
+    return {
+      id: regionId,
+      kind: "face",
+      label: "face",
+      box: face.box,
+      score: face.score,
+      model: BOX_MODEL,
+      landmarks: face.landmarks,
+      ...(printed === undefined
+        ? {}
+        : { facePrint: { model: PRINT_MODEL, vector: [...printed.vector] } }),
+    };
+  });
+
+  return {
+    annotation: Annotation.parse({
+      schema: 1,
+      hash: hashOf(file),
+      mime: "image/jpeg",
+      width: image.width,
+      height: image.height,
+      producedBy: [BOX_MODEL, PRINT_MODEL],
+      regions,
+    }),
+    faces,
+  };
+};
+
+/** The Region id one kart detection got, by `<file>#<index>`. */
+export const kartRegionId = (built: KartAnnotation, id: string): string => {
+  const found = built.faces.find((one) => one.id === id);
+  if (found === undefined) throw new Error(`no kart detection ${id}`);
+  return found.regionId;
 };
 
 /** Every same-human and different-human pair among the committed prints. */
