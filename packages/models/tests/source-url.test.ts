@@ -233,6 +233,35 @@ describe("POST /annotate with a { url } body refuses", async () => {
     });
   }
 
+  // An abandoned body holds the connection open while the far side keeps
+  // sending, and the bodies this host abandons are the large ones.
+  for (const [what, headers] of [
+    ["by the length it declares", { "content-length": String(64 * 1024 * 1024) }],
+    ["by the stream, with no length declared", {}],
+  ] as const) {
+    it(`cancels a body it refuses ${what}`, async () => {
+      let cancelled = false;
+      let sent = 0;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (sent++ < 64) controller.enqueue(new Uint8Array(1024 * 1024));
+          else controller.close();
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+
+      const res = await byUrl(
+        createApp(catalogue, {
+          fetch: answering(() => new Response(body, { headers })),
+        })
+      );
+      expect(res.status).toBe(ERROR_STATUS.too_large);
+      expect(cancelled).toBe(true);
+    });
+  }
+
   it("refuses a redirect off https without ever dereferencing it", async () => {
     // The http hop serves a perfectly good photograph, so a host that followed
     // it would answer 200 — and would have pulled the photograph over the wire

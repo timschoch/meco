@@ -33,10 +33,22 @@ export async function collect(
 ): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   let total = 0;
-  for await (const chunk of stream) {
-    total += chunk.byteLength;
-    if (total > MAX_BODY_BYTES) throw tooLarge();
-    chunks.push(chunk);
+  const reader = stream.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        // Cancelled and not merely abandoned: the far side is still sending,
+        // and a body this guard refuses is by definition the large one.
+        await reader.cancel();
+        throw tooLarge();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
   }
 
   const bytes = new Uint8Array(total);

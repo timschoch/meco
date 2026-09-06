@@ -7,6 +7,7 @@ import {
   NOT_HELD,
   PHOTOS,
   TIMEOUT,
+  fakeModels,
   rpc,
   useStacks,
   type Opened,
@@ -261,8 +262,52 @@ describe("a { hash } Source Reference", () => {
   );
 
   it(
-    "answers the models refusal when the Signed URL hands over nothing",
+    "answers try-again when the Signed URL failed but the bytes are still there",
     async () => {
+      // The object is in the store, so nothing is broken: the URL itself did
+      // not hand it over. The caller's remedy is a fresh URL, which is what
+      // the next call mints, so this is `models_unavailable` and not the
+      // gateway's own `source_unfetchable`, which means the caller's URL.
+      const one = await stack({
+        models: fakeModels({
+          annotate: async () =>
+            Response.json(
+              {
+                error: {
+                  code: "source_unfetchable",
+                  message: "it answered 403",
+                },
+              },
+              { status: 502 }
+            ),
+        }),
+      });
+      const complete = fixtureAnnotation(FILE);
+      await one.records.files.ensure({
+        hash: HASH,
+        mime: "image/jpeg",
+        width: 1280,
+        height: 1600,
+        bytes: BYTES.byteLength,
+        storeKey: (await one.store.put("sources", BYTES, "image/jpeg")).key,
+      });
+      await one.records.annotations.put({ ...complete, producedBy: [] });
+      await one.records.sources.hold(BRAND, HASH);
+
+      const { status, body } = await annotate(one, { hash: HASH });
+      expect(status).toBe(503);
+      expect(body.error?.code).toBe("models_unavailable");
+    },
+    TIMEOUT
+  );
+
+  it(
+    "does not call a File whose bytes are gone a transient failure",
+    async () => {
+      // records names bytes the store does not hold. No URL this gateway can
+      // mint will ever hand them over, so telling the caller to try again
+      // would be a lie it could act on forever: this is the same broken
+      // invariant reading the bytes off the store raises.
       const one = await stack();
       const complete = fixtureAnnotation(FILE);
       await one.records.files.ensure({
@@ -271,19 +316,14 @@ describe("a { hash } Source Reference", () => {
         width: 1280,
         height: 1600,
         bytes: BYTES.byteLength,
-        // A key the store does not hold: what an expired or revoked Signed
-        // URL looks like to models, which answers `source_unfetchable`.
         storeKey: `sources/${HASH}.jpg`,
       });
       await one.records.annotations.put({ ...complete, producedBy: [] });
       await one.records.sources.hold(BRAND, HASH);
 
       const { status, body } = await annotate(one, { hash: HASH });
-      // The carrier is meco's own, so the caller is told the one thing it can
-      // act on: try again. Not the gateway's `source_unfetchable`, which means
-      // the URL the caller gave.
-      expect(status).toBe(503);
-      expect(body.error?.code).toBe("models_unavailable");
+      expect(status).toBe(500);
+      expect(body.error?.code).toBe("internal");
     },
     TIMEOUT
   );

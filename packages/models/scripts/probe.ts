@@ -1,16 +1,11 @@
 // The live check every ticket runs: post a fixture to a deployed models
 // container and print what came back.
 //
-//   pnpm --filter @meco/models probe <baseUrl> [fixture] [models] [sourceUrl]
+//   pnpm --filter @meco/models probe <baseUrl> [fixture] [models]
 //
-//   baseUrl    where models answers, e.g. http://127.0.0.1:8791
-//   fixture    a path, default fixtures/faces/artemis-2-crew.jpg
-//   models     the `?models=` value, default every Catalogue entry
-//   sourceUrl  a Signed URL for the same photograph. Given, the probe sends
-//              the `{ url }` Source Carrier instead of the bytes and still
-//              checks the Annotation's hash against the local file, which is
-//              the whole proof that the URL handed over what it should. This
-//              is the only carrier a photograph over 4.5 MB can use (#201).
+//   baseUrl  where models answers, e.g. http://127.0.0.1:8791
+//   fixture  a path, default fixtures/faces/artemis-2-crew.jpg
+//   models   the `?models=` value, default every Catalogue entry
 //
 // Prints `GET /health` and the Catalogue first, then the wall time,
 // `Server-Timing` and the Annotation, and `/health` once more after. It calls
@@ -23,9 +18,9 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { createModelsClient, ModelsError } from "../index";
 
-const [baseUrl, fixtureArg, models, sourceUrl] = process.argv.slice(2);
+const [baseUrl, fixtureArg, models] = process.argv.slice(2);
 if (!baseUrl) {
-  console.error("usage: probe <baseUrl> [fixture] [models] [sourceUrl]");
+  console.error("usage: probe <baseUrl> [fixture] [models]");
   process.exit(2);
 }
 /** The repository's fixtures folder, resolved by the build. */
@@ -61,17 +56,12 @@ try {
   // The gateway's own check: the hash it filed the bytes under must be the
   // hash the Annotation names, or the wire did not carry what it was given.
   const hash = createHash("sha256").update(bytes).digest("hex");
-  // The URL is printed without its query: a Signed URL's signature is what
-  // hands the object over, and a terminal is not a place to leave one.
-  const carrier = sourceUrl
-    ? `{ url } ${new URL(sourceUrl).origin}${new URL(sourceUrl).pathname}`
-    : `${bytes.byteLength} bytes`;
   console.log(
-    `POST ${baseUrl}/annotate (${carrier}, from ${fixture}, sha256 ${hash})`
+    `POST ${baseUrl}/annotate (${bytes.byteLength} bytes from ${fixture}, sha256 ${hash})`
   );
 
   const started = performance.now();
-  const annotation = await client.annotate(sourceUrl ? { url: sourceUrl } : bytes, {
+  const annotation = await client.annotate(bytes, {
     hash,
     ...(models ? { models: models.split(",") } : {}),
   });

@@ -107,7 +107,10 @@ async function answered(call: FetchSource, url: string): Promise<Response> {
       at = new URL(location, at).toString();
       continue;
     }
-    if (!response.ok) throw unfetchable(url, `it answered ${response.status}`);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw unfetchable(url, `it answered ${response.status}`);
+    }
     return response;
   }
   throw unfetchable(url, `it redirected more than ${MAX_REDIRECTS} times`);
@@ -126,7 +129,15 @@ export async function fetchSource(
 ): Promise<Uint8Array> {
   const response = await answered(call, url);
 
-  assertDeclaredLength(response.headers.get("content-length"));
+  // Cancelled and not merely dropped on every refusal below: an abandoned
+  // body holds the connection open while the far side keeps sending, and a
+  // 32 MB refusal is exactly the case where that costs most.
+  try {
+    assertDeclaredLength(response.headers.get("content-length"));
+  } catch (refusal) {
+    await response.body?.cancel();
+    throw refusal;
+  }
   if (response.body === null) throw unfetchable(url, "it answered no bytes");
 
   let bytes: Uint8Array;
