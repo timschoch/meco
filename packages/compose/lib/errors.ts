@@ -4,6 +4,7 @@ export const COMPOSE_ERROR_CODES = [
   "unknown_brand",
   "placement_not_supported",
   "invalid_fields",
+  "unknown_variant",
   "framing_mismatch",
   "look_assets_missing",
 ] as const;

@@ -62,8 +62,10 @@ export type RenderAnswer = {
 const RENDER: Stages<RenderInput> = {
   namespace: "renders",
 
+  // One Fill per Plan, which is one per Template Variant: compose measures
+  // every layout the Template offers and frame chooses among them.
   async fill(input, trace) {
-    const plan = await trace.step("compose.plan", () =>
+    const plans = await trace.step("compose.plan", () =>
       composePlan({
         template: input.template,
         placement: input.placement,
@@ -71,16 +73,18 @@ const RENDER: Stages<RenderInput> = {
         fields: input.fields,
       })
     );
-    return {
+    return plans.map((plan) => ({
       target: plan.imageSlot,
       occlusion: plan.occlusion,
       ...(plan.subjectArea === undefined
         ? {}
         : { subjectArea: plan.subjectArea }),
-    };
+      ...(plan.variant === undefined ? {} : { variant: plan.variant }),
+    }));
   },
 
-  paint(input, _fill, image, window, trace) {
+  // `fill` is the one frame chose, so its Variant is the layout to draw.
+  paint(input, fill, image, window, trace) {
     return trace.step("compose.render", () =>
       composeRender({
         template: input.template,
@@ -89,6 +93,7 @@ const RENDER: Stages<RenderInput> = {
         fields: input.fields,
         source: image,
         window,
+        ...(fill.variant === undefined ? {} : { variant: fill.variant }),
         ...(input.format === undefined ? {} : { format: input.format }),
         ...(input.quality === undefined ? {} : { quality: input.quality }),
       })

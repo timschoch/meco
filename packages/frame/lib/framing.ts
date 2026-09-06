@@ -13,6 +13,27 @@ export interface FrameInput {
 }
 
 /**
+ * One way a Template can lay out, as the gateway hands it to frame: the
+ * Variant's name and what that layout needs. Unnamed for a Template that lays
+ * out one way, and for a Crop, which has no Template at all.
+ */
+export interface VariantRequest {
+  readonly variant?: string;
+  readonly request: FramingRequest;
+}
+
+/**
+ * What `frameVariants` is given: the same Annotation and Matches as
+ * {@link FrameInput}, and one request per Variant in the Template's order of
+ * preference. Never empty — there is nothing to answer with.
+ */
+export interface VariantsInput {
+  annotation: Annotation;
+  matches?: Match[];
+  variants: readonly VariantRequest[];
+}
+
+/**
  * The rectangle to cut, in whole Source Image pixels. Deliberately not a
  * contracts `Box`: a `Box` is fractions, and a type that looked like one and
  * was not would be the `w`/`h` mistake of ADR-0002 in a new costume.
@@ -64,6 +85,26 @@ export interface Framing {
   window: CropWindow;
   /** The same window in source fractions. What `compose` cuts and scales by. */
   windowFraction: Box;
+  /**
+   * The Variant this window was framed for, when the Template offered any:
+   * the one `frameVariants` chose. Absent on a Template that lays out one way
+   * and on a Crop. Derived from the picture, so never part of a Request Hash.
+   */
+  variant?: string;
+  /**
+   * What compose resamples the window by to fill the target: the target over
+   * the window on the constrained axis. Above 1 the picture is upscaled and
+   * every source pixel becomes more than one output pixel; a 300 px window in
+   * a 1080 px story is 3.6 (#228).
+   */
+  scale: number;
+  /**
+   * Present, and true, exactly when `scale` is above 1: the Source Image had
+   * fewer pixels on the window's constrained axis than the target asks for.
+   * A flag beside the number, so a reader of the wire need not know which way
+   * round the ratio is.
+   */
+  lowResolution?: true;
   resolvedBy: ResolvedBy;
   /** Absent when the anchor or the centre answered: neither is a Region. */
   leadRegionId?: string;

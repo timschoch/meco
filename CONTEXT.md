@@ -199,9 +199,10 @@ _Avoid_: viewport, rect, crop box, region, frame
 
 **Framing**:
 Everything frame answers with: the Crop Window, which Subject it was composed
-on, which Subjects survived, and every claim it can and cannot make about the
-result. A Framing is a decision with its reasons attached, never a bare
-rectangle.
+on, which Subjects survived, which Variant it chose when a Template offered
+several, how far the window is upscaled to fill the target, and every claim it
+can and cannot make about the result. A Framing is a decision with its reasons
+attached, never a bare rectangle.
 _Avoid_: result, solution, answer, crop (a Crop is the stored image)
 
 **Pin To**:
@@ -258,8 +259,12 @@ The data a Template asks the caller for, such as a title, a kicker or a date, de
 _Avoid_: data, props, variables, content, payload
 
 **Plan**:
-What a Template will do at one Placement with these Fields, before any picture exists: the Image Slot in pixels, the Occlusion Zones and the Subject Area in Image Slot fractions. Measured from the Template's layout, so a longer title gives a taller zone. Needs no Source Image; the same Template, Placement and Fields always give the same Plan.
+What a Template will do at one Placement with these Fields, before any picture exists: the Image Slot in pixels, the Occlusion Zones and the Subject Area in Image Slot fractions, and the Variant it measures when the Template offers any — one Plan per Variant. Measured from the Template's layout, so a longer title gives a taller zone. Needs no Source Image; the same Template, Placement and Fields always give the same Plans.
 _Avoid_: layout, dry run, preflight, manifest, preview
+
+**Variant**:
+One of the ways a Template can lay itself out at a Placement: the same Fields and the same Look, with its blocks somewhere else — the caption at the top instead of the bottom. A Template names its Variants most preferred first; compose plans every one, frame chooses the one that keeps the Subject clearest, and the Framing names it. Derived from the picture, so never part of the Request Hash and never in the Annotation. A Template that declares none lays out one way and no Framing names one. Not a Placement (a size) and not a Crop (a stored image), which is why both of those avoid the word.
+_Avoid_: layout, version, option, alternative, mode
 
 **Marker**:
 One of the two components a Template uses to name what compose must find in its layout: `ImageSlot`, exactly one, where the picture goes; `Occludes`, any number, around what will cover the picture. A Marker draws nothing of its own.

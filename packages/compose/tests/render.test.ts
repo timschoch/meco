@@ -2,7 +2,13 @@ import fs, { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposeError, render, type RenderInput } from "../index";
-import { GOLDEN_CASES, inputFor, LAICA_CASES, STORY_CASE } from "./cases";
+import {
+  GOLDEN_CASES,
+  inputFor,
+  LAICA_CASES,
+  STORY_CAPTION_TOP,
+  STORY_CASE,
+} from "./cases";
 import { GOLDEN_THRESHOLD, GOLDENS } from "./goldens";
 import { centredWindow, decode, widenBy } from "./fixture";
 import { PLACEMENTS } from "../placements";
@@ -103,7 +109,7 @@ describe("every Template at every Placement it declares", () => {
 
 describe("golden images", () => {
   it.each(GOLDEN_CASES)(
-    "$template at $placement matches its golden",
+    "$template at $placement ($variant) matches its golden",
     async (test) => {
       const fresh = await raster(
         (await render(await inputFor(test, { format: "png" }))).bytes
@@ -217,10 +223,49 @@ describe("refusals", () => {
     [{ placement: "linkedin/wide" }, "placement_not_supported"],
     [{ placement: "no-such-placement" }, "placement_not_supported"],
     [{ fields: { kicker: "only a kicker" } }, "invalid_fields"],
+    [{ variant: "caption-left" }, "unknown_variant"],
   ])("refuses %o with %s", async (overrides, code) => {
     const call = render(await story(overrides));
 
     await expect(call).rejects.toBeInstanceOf(ComposeError);
     await expect(call).rejects.toThrow(expect.objectContaining({ code }));
+  });
+
+  it("refuses any Variant name on a Template that lays out one way", async () => {
+    const [laica] = LAICA_CASES;
+    const call = render(await inputFor(laica!, { variant: "caption-top" }));
+
+    await expect(call).rejects.toThrow(
+      expect.objectContaining({ code: "unknown_variant" })
+    );
+  });
+});
+
+describe("the Variant a render draws", () => {
+  it("draws the Template's first Variant when none is named, byte for byte", async () => {
+    const named = await render(
+      await inputFor(STORY_CASE, { variant: "caption-bottom", format: "png" })
+    );
+    const unnamed = await render(await inputFor(STORY_CASE, { format: "png" }));
+
+    expect(Buffer.from(named.bytes).equals(Buffer.from(unnamed.bytes))).toBe(
+      true
+    );
+  });
+
+  it("draws a different picture for caption-top than for caption-bottom", async () => {
+    // The two goldens above hold each Variant to its own picture; this holds
+    // the pair apart, so a Template that ignores `variant` cannot pass both
+    // by rendering one layout twice.
+    const bottom = await raster(
+      (await render(await inputFor(STORY_CASE, { format: "png" }))).bytes
+    );
+    const top = await raster(
+      (await render(await inputFor(STORY_CAPTION_TOP, { format: "png" }))).bytes
+    );
+
+    expect(meanAbsoluteDifference(bottom, top)).toBeGreaterThan(
+      GOLDEN_THRESHOLD
+    );
   });
 });

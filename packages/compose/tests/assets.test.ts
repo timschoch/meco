@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DecodedImage, PlanInput, RenderInput } from "../index";
+import type { DecodedImage, Plan, PlanInput, RenderInput } from "../index";
 
 /**
  * What `readFileSync` pretends is not on disk, and every path it was asked for.
@@ -92,7 +92,7 @@ function storyPlan(compose: Compose): PlanInput {
 /** The story's Plan call plus the picture and the window its Image Slot asks for. */
 async function storyRender(compose: Compose): Promise<RenderInput> {
   const input = storyPlan(compose);
-  const { imageSlot } = await compose.plan(input);
+  const [{ imageSlot }] = (await compose.plan(input)) as [Plan];
   // A source the size of the Image Slot, cut whole: the window then has the
   // slot's aspect exactly, so nothing can be refused as `framing_mismatch`.
   return {

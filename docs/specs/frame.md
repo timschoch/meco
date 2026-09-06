@@ -8,7 +8,7 @@ A Crop has to keep the right thing in frame at any Placement, on a photograph no
 
 ## Solution
 
-One package, `@meco/frame`, whose only dependency is `@meco/contracts`. It exports one function that turns an Annotation, the Matches and a FramingRequest into a Crop Window with its reasons attached, and one helper that maps a Region into the frame that window cuts.
+One package, `@meco/frame`, whose only dependency is `@meco/contracts`. It exports one function that turns an Annotation, the Matches and a FramingRequest into a Crop Window with its reasons attached, one that does the same over every Variant a Template offers and answers the one that keeps the Subject clearest, and one helper that maps a Region into the frame that window cuts.
 
 ## User stories
 
@@ -23,6 +23,8 @@ One package, `@meco/frame`, whose only dependency is `@meco/contracts`. It expor
 9. As an agent calling frame alone, I want a window back for any geometry I can express, so that a photograph too small for what I asked still gives me a picture and an honest answer.
 10. As a maintainer, I want every claim frame makes to be a number a test can read back with no image, so that the suite runs in milliseconds and says something true.
 11. As `models`' author, I want frame to name Region Kinds and never my Labels, so that I can replace a detector without touching another module.
+12. As a Template author with two layouts, I want frame to frame both and pick the one that keeps the Subject out from under the type, so that a Subject a full-height column cannot move gets a caption that moves instead ([#228](https://github.com/timschoch/meco/issues/228)).
+13. As a caller, I want to be told when the window is smaller than the target and by how much, so that an upscaled Render is a number I can act on and not a soft picture I discover.
 
 ## Implementation decisions
 
@@ -31,12 +33,23 @@ One package, `@meco/frame`, whose only dependency is `@meco/contracts`. It expor
 ```ts
 // packages/frame/index.ts
 export function frameCrop(input: FrameInput): Framing;
+export function frameVariants(input: VariantsInput): Framing; // frameCrop over every Variant; the winner, naming its `variant`
 export function projectIntoFrame(framing: Framing, box: Box): Box;
 
 export interface FrameInput {
   annotation: Annotation; // source size and Regions, from contracts
   matches?: Match[]; // this Brand's Matches for those Regions
   request: FramingRequest; // what this one output needs
+}
+
+export interface VariantRequest {
+  variant?: string; // the Variant's name; unnamed for a Template that lays out one way, and for a Crop
+  request: FramingRequest;
+}
+export interface VariantsInput {
+  annotation: Annotation;
+  matches?: Match[];
+  variants: readonly VariantRequest[]; // most preferred first, never empty
 }
 
 /** The rectangle to cut, in whole Source Image pixels. Not a `Box`. */
@@ -53,6 +66,9 @@ export type FallbackRung = "zoom-out" | "relax" | "drop" | "clip";
 export interface Framing {
   window: CropWindow; // whole Source Image pixels
   windowFraction: Box; // the same window in source fractions
+  variant?: string; // the Variant this window was framed for; absent on one layout and on a Crop
+  scale: number; // target over window on the constrained axis: what compose resamples by
+  lowResolution?: true; // exactly when `scale` is above 1
   resolvedBy: ResolvedBy;
   leadRegionId?: string; // absent when resolved by anchor or center
   subject?: Box; // the composed Subject, source fractions; absent when nothing was composed
@@ -70,6 +86,10 @@ export const MAX_OCCLUSION_ZONES: 16;
 ```
 
 `frameCrop` is the whole module. Subject composition, the ladder, the Golden Lines, the Eye Line, the Free Area and the fallback rungs all sit behind it. The prototype exported `faceSubjectBoxes` and `kartSubjectBox` so a test could reach them; a pure function whose inputs are already plain data does not need that, and the tests cross the same seam as every other caller.
+
+`frameVariants` is `frameCrop` over every Variant a Template offers, each on its own FramingRequest, answering the Framing that scores best with the Variant's name on it. The score, in the order it is read: `occlusionClear` (true first), `satisfied` (true first), the larger Free Area of the request, the smaller `subjectAreaShortfall`, then the Template's own order — a field a Framing does not carry is neutral, and ties within `1e-9` are ties, because two mirrored layouts leave Free Areas equal by construction and arrive at them by different sums. `occlusionClear` leads `satisfied` on a measurement (#228, production Call `e0466f34`): a 3:2 photograph into a story is a full-height column, so on the race photograph every Variant clips (a 411 px Subject in a 300 px window), leaves the same Free Area and the same shortfall, and whether the karts sit under the type is the one number that separates a caption at the top from one at the bottom. The gateway calls `frameVariants` for every Output-producing Call; a Crop and a Template that lays out one way are the one-candidate case, unnamed, whose Framing carries no `variant`. An empty list is a `RangeError`: there is nothing to answer with.
+
+`scale` is on every Framing: the target over the window on the constrained axis, the larger of the two axes' ratios, which differ only by the window's whole-pixel rounding. Above 1 the picture is upscaled and `lowResolution: true` says so beside it; the race photograph's 300 px column into a 1080 px story reads 3.6.
 
 `projectIntoFrame` maps a source-fraction `Box` into output-frame fractions given a Framing. It is a small implementation with one caller, the gateway, which uses it to say which faces landed where in the finished frame for the call record that `records` keeps and `webui` shows. `redact` blurs on the source and `compose` takes the window as a plain `Box`, so neither needs it. It lives here because frame owns what the window means; a division re-derived elsewhere is another chance to round it differently.
 
@@ -169,7 +189,7 @@ rung kept before the ladder ran. Shipped in
 
 ### Tie-breaking, all of it
 
-Written down because determinism is a promise the tests check: the Golden Line tie goes to the upper-left line; the Match tie goes to the lowest `regionId`; the Free Area tie goes to the largest area, then the rectangle nearest the frame centre, then lowest `y`, then lowest `x`.
+Written down because determinism is a promise the tests check: the Golden Line tie goes to the upper-left line; the Match tie goes to the lowest `regionId`; the Free Area tie goes to the largest area, then the rectangle nearest the frame centre, then lowest `y`, then lowest `x`; the Variant tie goes to the Template's earlier one.
 
 ### What frame relies on from other modules
 

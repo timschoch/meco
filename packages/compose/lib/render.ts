@@ -5,7 +5,7 @@ import type { RgbaImage } from "@takumi-rs/helpers";
 import type { Node } from "@takumi-rs/core";
 import type { Box, DecodedImage, Size } from "@meco/contracts";
 import { ComposeError } from "./errors";
-import { layout, resolve, type PlanInput } from "./plan";
+import { layout, resolve, resolveVariant, type PlanInput } from "./plan";
 import { lookImages, sharedRenderer } from "./renderer";
 
 /** The formats compose encodes, the same set as the contracts `Target`. */
@@ -40,6 +40,11 @@ export interface RenderInput extends PlanInput {
   readonly source: DecodedImage;
   /** What frame chose, in Source Image fractions. */
   readonly window: Box;
+  /**
+   * The Variant frame chose, off the Plan it framed. The Template's first
+   * when absent; a name the Template does not declare is `unknown_variant`.
+   */
+  readonly variant?: string;
   readonly format?: RenderFormat;
   readonly quality?: number;
 }
@@ -194,11 +199,12 @@ export async function cut(input: CutInput): Promise<RenderResult> {
 export async function render(input: RenderInput): Promise<RenderResult> {
   const resolved = resolve(input);
   const { template, look, placement } = resolved;
+  const variant = resolveVariant(template, input.variant);
 
   // Re-planned rather than carried over from the caller's own `plan` call:
   // the layout costs 0.6–3.6 ms (ADR-0009 decision 1), and a handle passed
   // between two calls would be a Plan that no longer matches these Fields.
-  const { slot } = await layout(resolved);
+  const { slot } = await layout(resolved, undefined, variant);
   const src = await fitToSlot(input.source, input.window, slot);
 
   const { node, css } = await fromJsx(
@@ -207,6 +213,7 @@ export async function render(input: RenderInput): Promise<RenderResult> {
       look,
       placement,
       image: { src, width: slot.width, height: slot.height },
+      ...(variant === undefined ? {} : { variant }),
     })
   );
 

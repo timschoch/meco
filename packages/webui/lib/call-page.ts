@@ -73,6 +73,8 @@ export interface CallView {
   /** The Source Image's File, for the Overlay's own arithmetic. */
   readonly file: FileRecord | null;
   readonly overlay: Overlay | null;
+  /** The Template Variant frame chose, off the Framing; `null` when it names none. */
+  readonly variant: string | null;
   /** `null` when `matches` is not identify's shape: the page prints it raw. */
   readonly faces: readonly FaceVerdictRow[] | null;
   /** The Matches this Call made, with their rule. Empty when it made none. */
@@ -108,6 +110,10 @@ function pixelWindowOf(framing: unknown): PixelWindow | null {
   }
   return { x, y, width, height };
 }
+
+/** The Variant frame chose, as frame writes it: a string on the Framing, or nothing. */
+const variantOf = (framing: unknown): string | null =>
+  isObject(framing) && isString(framing["variant"]) ? framing["variant"] : null;
 
 /**
  * The Crop Window over the Source Thumbnail, as a fraction of the picture the
@@ -352,6 +358,7 @@ export function viewOf(read: CallRead): CallView {
             regions,
             window: window === null ? null : windowFraction(window, file),
           },
+    variant: variantOf(call.framing),
     faces: faceVerdictsOf(call.matches),
     matches: matchesOf(call.matches),
     redactions: redactionsOf(call.redactions),

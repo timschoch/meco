@@ -326,6 +326,19 @@ export function CallView(props: CallProps) {
       <Verbatim value={call.request} absent="No request was recorded." />
 
       <h2>Framing</h2>
+      {/*
+        The one field of the Framing read out on its own: which layout of the
+        Template the picture got is the first thing a reader asks of a Render
+        whose caption is not where the design puts it.
+      */}
+      {props.view.variant === null ? null : (
+        <dl class="facts">
+          <dt>variant</dt>
+          <dd>
+            <code>{props.view.variant}</code>
+          </dd>
+        </dl>
+      )}
       <Verbatim value={call.framing} absent="No window was framed." />
 
       <h2>Matches</h2>

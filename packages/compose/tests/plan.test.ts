@@ -54,23 +54,48 @@ const blockAt = (height: number) => ({
   height,
 });
 
-describe("plan", () => {
-  it("gives the Image Slot in pixels, the text block as one zone and the declared Subject Area", async () => {
-    const result = await plan(planFor(STORY_CASE));
+/** Under `caption-top` the same block sits at the top of the padded canvas and grows downwards. */
+const blockAtTop = (height: number) => ({
+  x: PAD,
+  y: PAD,
+  width: SLOT.width - 2 * PAD,
+  height,
+});
 
-    expect(result.imageSlot).toEqual(SLOT);
-    expect(inPixels(result)).toEqual([blockAt(ONE_LINE_HEIGHT)]);
-    expect(result.subjectArea).toEqual({
-      x: 0.1,
-      y: 0.08,
-      width: 0.8,
-      height: 0.42,
-    });
+/** The clear half of the frame each Variant declares as its Subject Area. */
+const ABOVE_THE_BLOCK = { x: 0.1, y: 0.08, width: 0.8, height: 0.42 };
+const BELOW_THE_BLOCK = { x: 0.1, y: 0.5, width: 0.8, height: 0.42 };
+
+/** The one Plan of a Template that plans one way; the count is asserted where it matters. */
+const only = (plans: readonly Plan[]): Plan => {
+  if (plans.length !== 1) throw new Error(`${plans.length} Plans, wanted 1.`);
+  return plans[0]!;
+};
+
+describe("plan", () => {
+  it("gives one Plan per Variant, in the Template's order, the text block as one zone in each", async () => {
+    const [bottom, top, ...rest] = await plan(planFor(STORY_CASE));
+
+    expect(rest).toEqual([]);
+    expect(bottom?.variant).toBe("caption-bottom");
+    expect(top?.variant).toBe("caption-top");
+    // The same Image Slot and the same block; only where the block sits moves.
+    expect(bottom?.imageSlot).toEqual(SLOT);
+    expect(top?.imageSlot).toEqual(SLOT);
+    expect(inPixels(bottom!)).toEqual([blockAt(ONE_LINE_HEIGHT)]);
+    expect(inPixels(top!)).toEqual([blockAtTop(ONE_LINE_HEIGHT)]);
+  });
+
+  it("gives each Variant the Subject Area it declares", async () => {
+    const [bottom, top] = await plan(planFor(STORY_CASE));
+
+    expect(bottom?.subjectArea).toEqual(ABOVE_THE_BLOCK);
+    expect(top?.subjectArea).toEqual(BELOW_THE_BLOCK);
   });
 
   it("gives a taller Occlusion Zone for a headline that wraps onto a second line", async () => {
-    const short = await plan(planFor(STORY_CASE));
-    const tall = await plan(
+    const [short] = await plan(planFor(STORY_CASE));
+    const [tall, tallTop] = await plan(
       planFor(STORY_CASE, {
         fields: { ...STORY_CASE.fields, headline: LONG_HEADLINE },
       })
@@ -78,8 +103,9 @@ describe("plan", () => {
 
     // Both heights named, because the point of measuring the layout instead of
     // tabulating it is that this pair of numbers differs.
-    expect(inPixels(short)).toEqual([blockAt(ONE_LINE_HEIGHT)]);
-    expect(inPixels(tall)).toEqual([blockAt(TWO_LINE_HEIGHT)]);
+    expect(inPixels(short!)).toEqual([blockAt(ONE_LINE_HEIGHT)]);
+    expect(inPixels(tall!)).toEqual([blockAt(TWO_LINE_HEIGHT)]);
+    expect(inPixels(tallTop!)).toEqual([blockAtTop(TWO_LINE_HEIGHT)]);
   });
 
   it("stays the same call after call", async () => {
@@ -99,29 +125,56 @@ describe("plan", () => {
  * are its padding, and the fourth is what the type measured.
  */
 describe("plan for the Hope Family Templates", () => {
+  const STORY_SLOT = { width: 1080, height: 1920 };
+  const WORDMARK_ABOVE = { x: 84, y: 84, width: 300, height: 169 };
+  const TYPE_BELOW = { x: 84, y: 1415, width: 912, height: 421 };
+  // The other Variant: the same two boxes swapped end for end, each still its
+  // padding from the edge it now sits at.
+  const TYPE_ABOVE = { x: 84, y: 84, width: 912, height: 421 };
+  const WORDMARK_BELOW = { x: 84, y: 1920 - 84 - 169, width: 300, height: 169 };
+
   const cases = [
     {
       template: "hopefamily-story",
       placement: "instagram/story",
-      slot: { width: 1080, height: 1920 },
-      wordmark: { x: 84, y: 84, width: 300, height: 169 },
-      typeBlock: { x: 84, y: 1415, width: 912, height: 421 },
+      variant: "caption-bottom",
+      slot: STORY_SLOT,
+      zones: [WORDMARK_ABOVE, TYPE_BELOW],
+      subject: { x: 0.08, y: 0.18, width: 0.84, height: 0.44 },
+    },
+    {
+      template: "hopefamily-story",
+      placement: "instagram/story",
+      variant: "caption-top",
+      slot: STORY_SLOT,
+      zones: [TYPE_ABOVE, WORDMARK_BELOW],
+      subject: { x: 0.08, y: 0.38, width: 0.84, height: 0.44 },
+    },
+    {
+      template: "hopefamily-story",
+      placement: "facebook/story",
+      variant: "caption-bottom",
+      slot: STORY_SLOT,
+      zones: [WORDMARK_ABOVE, TYPE_BELOW],
       subject: { x: 0.08, y: 0.18, width: 0.84, height: 0.44 },
     },
     {
       template: "hopefamily-story",
       placement: "facebook/story",
-      slot: { width: 1080, height: 1920 },
-      wordmark: { x: 84, y: 84, width: 300, height: 169 },
-      typeBlock: { x: 84, y: 1415, width: 912, height: 421 },
-      subject: { x: 0.08, y: 0.18, width: 0.84, height: 0.44 },
+      variant: "caption-top",
+      slot: STORY_SLOT,
+      zones: [TYPE_ABOVE, WORDMARK_BELOW],
+      subject: { x: 0.08, y: 0.38, width: 0.84, height: 0.44 },
     },
     {
       template: "hopefamily-post",
       placement: "instagram/post",
+      variant: undefined,
       slot: { width: 1080, height: 1350 },
-      wordmark: { x: 76, y: 76, width: 280, height: 157 },
-      typeBlock: { x: 76, y: 904, width: 928, height: 370 },
+      zones: [
+        { x: 76, y: 76, width: 280, height: 157 },
+        { x: 76, y: 904, width: 928, height: 370 },
+      ],
       subject: { x: 0.08, y: 0.2, width: 0.84, height: 0.34 },
     },
     {
@@ -129,28 +182,53 @@ describe("plan for the Hope Family Templates", () => {
       // type is a 58 % column on the left and the Subject Area is the right.
       template: "hopefamily-post",
       placement: "facebook/post",
+      variant: undefined,
       slot: { width: 1200, height: 630 },
-      wordmark: { x: 56, y: 56, width: 220, height: 124 },
-      typeBlock: { x: 56, y: 268, width: 584, height: 306 },
+      zones: [
+        { x: 56, y: 56, width: 220, height: 124 },
+        { x: 56, y: 268, width: 584, height: 306 },
+      ],
       subject: { x: 0.62, y: 0.08, width: 0.32, height: 0.84 },
     },
   ];
 
   it.each(cases)(
-    "$template at $placement covers the wordmark and the type block and leaves the Subject Area clear",
-    async ({ template, placement, slot, wordmark, typeBlock, subject }) => {
-      const result = await plan({
+    "$template at $placement ($variant) covers the wordmark and the type block and leaves the Subject Area clear",
+    async ({ template, placement, variant, slot, zones, subject }) => {
+      const plans = await plan({
         template,
         placement,
         brand: "hopefamily",
         fields: exampleFields(template),
       });
+      const result = plans.find((one) => one.variant === variant);
 
-      expect(result.imageSlot).toEqual(slot);
-      expect(inPixels(result, slot)).toEqual([wordmark, typeBlock]);
-      expect(result.subjectArea).toEqual(subject);
+      expect(result?.imageSlot).toEqual(slot);
+      expect(inPixels(result!, slot)).toEqual(zones);
+      expect(result?.subjectArea).toEqual(subject);
     }
   );
+
+  it("plans hopefamily-post one way and hopefamily-story two", async () => {
+    const post = await plan({
+      template: "hopefamily-post",
+      placement: "instagram/post",
+      brand: "hopefamily",
+      fields: exampleFields("hopefamily-post"),
+    });
+    const story = await plan({
+      template: "hopefamily-story",
+      placement: "instagram/story",
+      brand: "hopefamily",
+      fields: exampleFields("hopefamily-story"),
+    });
+
+    expect("variant" in only(post)).toBe(false);
+    expect(story.map((one) => one.variant)).toEqual([
+      "caption-bottom",
+      "caption-top",
+    ]);
+  });
 });
 
 /**
@@ -174,7 +252,7 @@ const CHIP = { width: 234, height: 62 };
 
 describe("plan for a Template whose Image Slot is a column", () => {
   it("gives the column's own size at linkedin/wide, and no Occlusion Zone", async () => {
-    const result = await plan(planFor(LAICA_AT_WIDE));
+    const result = only(await plan(planFor(LAICA_AT_WIDE)));
 
     // Not 1200x627. This is the number the gateway hands frame as `target`.
     expect(result.imageSlot).toEqual(SLOT_AT_WIDE);
@@ -188,7 +266,7 @@ describe("plan for a Template whose Image Slot is a column", () => {
   });
 
   it("gives the inset plate at linkedin/post, with the chip as one zone", async () => {
-    const result = await plan(planFor(LAICA_AT_POST));
+    const result = only(await plan(planFor(LAICA_AT_POST)));
 
     expect(result.imageSlot).toEqual(SLOT_AT_POST);
     expect(inPixels(result, SLOT_AT_POST)).toEqual([
@@ -207,7 +285,7 @@ describe("plan for a Template whose Image Slot is a column", () => {
   });
 
   it("measures the zone against the Image Slot, not the canvas", async () => {
-    const [zone] = (await plan(planFor(LAICA_AT_POST))).occlusion;
+    const [zone] = only(await plan(planFor(LAICA_AT_POST))).occlusion;
 
     // The two regressions the pixel assertion above cannot catch on its own,
     // named as fractions because that is the form frame receives. Divide by the
@@ -222,9 +300,9 @@ describe("plan for a Template whose Image Slot is a column", () => {
 
 describe("plan refusals", () => {
   it("has one code per way compose refuses, and no more", () => {
-    // Closed, so a caller can branch on the code exhaustively. Four of the six
-    // are exercised below; `framing_mismatch` needs a window and so belongs to
-    // `render`, where `tests/render.test.ts` covers it, and
+    // Closed, so a caller can branch on the code exhaustively. Four of the
+    // seven are exercised below; `unknown_variant` and `framing_mismatch` need
+    // a `render`, where `tests/render.test.ts` covers them, and
     // `look_assets_missing` needs a Look's file to go missing, which
     // `tests/assets.test.ts` arranges.
     expect(COMPOSE_ERROR_CODES).toEqual([
@@ -232,6 +310,7 @@ describe("plan refusals", () => {
       "unknown_brand",
       "placement_not_supported",
       "invalid_fields",
+      "unknown_variant",
       "framing_mismatch",
       "look_assets_missing",
     ]);

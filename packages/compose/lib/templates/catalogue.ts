@@ -18,6 +18,12 @@ export interface TemplateDescription {
   readonly description: string;
   readonly placements: readonly PlacementId[];
   /**
+   * The Variants the Template offers, most preferred first, when it offers
+   * any. A caller cannot ask for one — frame chooses — but can read which
+   * names a Framing may come back with.
+   */
+  readonly variants?: readonly string[];
+  /**
    * The Fields as JSON Schema, draft 2020-12.
    *
    * A plain object and not zod's own `JSONSchema` type: a description crosses
@@ -34,6 +40,9 @@ const describeTemplate = (template: Template): TemplateDescription => ({
   brand: template.brand,
   description: template.description,
   placements: template.placements,
+  ...(template.variants === undefined
+    ? {}
+    : { variants: template.variants.map((variant) => variant.name) }),
   fields: z.toJSONSchema(template.fields) as Record<string, unknown>,
   example: template.example,
 });

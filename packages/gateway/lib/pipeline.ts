@@ -25,7 +25,12 @@ import {
   FramingRequest,
   type Size,
 } from "@meco/contracts";
-import { type Framing, frameCrop, projectIntoFrame } from "@meco/frame";
+import {
+  type Framing,
+  frameVariants,
+  projectIntoFrame,
+  type VariantRequest,
+} from "@meco/frame";
 import type { FaceVerdict, Identification, Identify } from "@meco/identify";
 import { type RedactionRecord, redact } from "@meco/redact";
 import type { Caller, Records } from "@meco/records";
@@ -73,6 +78,11 @@ export interface Fill {
   readonly occlusion: readonly Box[];
   /** Where the Subject must land, in Image Slot fractions. */
   readonly subjectArea?: Box;
+  /**
+   * The Template Variant this Fill is the layout of, when the Template offers
+   * any. What frame's choice comes back naming, and what the paint then draws.
+   */
+  readonly variant?: string;
 }
 
 /** The two stages of the pipeline one Call kind fills in. */
@@ -80,13 +90,16 @@ export interface Stages<I extends FramingInput> {
   /** Where the bytes are filed. `renders` for a Render, `crops` for a Crop. */
   readonly namespace: Namespace;
   /**
-   * Before frame: the Fill. A Step of its own where a module answers it
-   * (`compose.plan`), and none where the request already said.
+   * Before frame: the Fills, one per way the output could lay out, most
+   * preferred first and never empty. One Plan per Template Variant for a
+   * Render, in a Step of its own (`compose.plan`); the request itself, once,
+   * for a Crop. frame is handed every one and names the Variant it chose.
    */
-  fill(input: I, trace: Trace): Promise<Fill>;
+  fill(input: I, trace: Trace): Promise<readonly Fill[]>;
   /**
-   * After redact: the pixels. Records its own Step, because `compose.render`
-   * and `compose.cut` are two names for two different amounts of work.
+   * After redact: the pixels, for the Fill frame chose. Records its own Step,
+   * because `compose.render` and `compose.cut` are two names for two different
+   * amounts of work.
    */
   paint(
     input: I,
@@ -183,40 +196,60 @@ export async function pipeline<I extends FramingInput>(
   );
   trace.matches(identification);
 
-  const fill = await stages.fill(input, trace);
+  const fills = await stages.fill(input, trace);
+
+  // The safe answer is the default one (ADR-0014, Decision 6). Read once and
+  // handed to every candidate and to redact, so the policy is one fact.
+  const redaction = {
+    blurUnknownFaces: input.redaction?.blurUnknownFaces ?? true,
+  };
 
   // The contract refuses the request, not the gateway: a 17th Occlusion Zone
   // or a ladder naming a rung twice is a `400 invalid_request` from the same
-  // schema frame is written against, before frame runs.
-  const framingRequest = FramingRequest.parse({
-    brand,
-    source: { hash: source.hash },
-    target: {
-      ...fill.target,
-      ...(input.format === undefined ? {} : { format: input.format }),
-      ...(input.quality === undefined ? {} : { quality: input.quality }),
-    },
-    pinTo: input.pinTo ?? DEFAULT_PIN_TO,
-    ...(input.persons === undefined ? {} : { persons: input.persons }),
-    ...(input.anchor === undefined ? {} : { anchor: input.anchor }),
-    ...(fill.subjectArea === undefined
-      ? {}
-      : { subjectArea: fill.subjectArea }),
-    occlusion: [...fill.occlusion],
-    // The safe answer is the default one (ADR-0014, Decision 6).
-    redaction: {
-      blurUnknownFaces: input.redaction?.blurUnknownFaces ?? true,
-    },
-  });
+  // schema frame is written against, before frame runs. One request per Fill,
+  // because each Variant covers the picture differently and frame is owed
+  // every one to choose from.
+  const candidates: readonly VariantRequest[] = fills.map((fill) => ({
+    ...(fill.variant === undefined ? {} : { variant: fill.variant }),
+    request: FramingRequest.parse({
+      brand,
+      source: { hash: source.hash },
+      target: {
+        ...fill.target,
+        ...(input.format === undefined ? {} : { format: input.format }),
+        ...(input.quality === undefined ? {} : { quality: input.quality }),
+      },
+      pinTo: input.pinTo ?? DEFAULT_PIN_TO,
+      ...(input.persons === undefined ? {} : { persons: input.persons }),
+      ...(input.anchor === undefined ? {} : { anchor: input.anchor }),
+      ...(fill.subjectArea === undefined
+        ? {}
+        : { subjectArea: fill.subjectArea }),
+      occlusion: [...fill.occlusion],
+      redaction,
+    }),
+  }));
 
+  // One Step whatever the count: what a caller reads off the Call is how long
+  // framing took, and a Variant is frame's business, not a stage of its own.
   const framing = await trace.step("frame.crop", async () =>
-    frameCrop({
+    frameVariants({
       annotation,
       matches: [...identification.matches],
-      request: framingRequest,
+      variants: candidates,
     })
   );
   trace.framing(framing);
+
+  // The Fill frame framed for, found by the name it answered with. Unreachable
+  // when missing: frame names one of the Variants it was handed, so this is
+  // frame and compose disagreeing about a name.
+  const fill = fills.find((one) => one.variant === framing.variant);
+  if (fill === undefined) {
+    throw new Error(
+      `frame chose the Variant ${String(framing.variant)}, which no Fill offered`
+    );
+  }
 
   const decoded = await trace.step("source.decode", async () =>
     decodeAt(await source.bytes(), annotation)
@@ -227,7 +260,7 @@ export async function pipeline<I extends FramingInput>(
       image: decoded,
       regions: annotation.regions,
       matches: identification.matches,
-      redaction: framingRequest.redaction,
+      redaction,
     })
   );
   trace.redactions(hidden.redactions);

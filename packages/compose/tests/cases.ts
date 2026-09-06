@@ -2,6 +2,7 @@ import {
   plan,
   templates,
   type CutInput,
+  type Plan,
   type PlanInput,
   type RenderInput,
 } from "../index";
@@ -21,12 +22,19 @@ import {
 export const SHIPPED: readonly {
   readonly id: string;
   readonly placements: readonly string[];
+  /** The Variants the Template declares, in its order; none for one that lays out one way. */
+  readonly variants?: readonly string[];
 }[] = [
   {
     id: "swisshutless-story",
     placements: ["instagram/story", "facebook/story"],
+    variants: ["caption-bottom", "caption-top"],
   },
-  { id: "hopefamily-story", placements: ["instagram/story", "facebook/story"] },
+  {
+    id: "hopefamily-story",
+    placements: ["instagram/story", "facebook/story"],
+    variants: ["caption-bottom", "caption-top"],
+  },
   { id: "hopefamily-post", placements: ["instagram/post", "facebook/post"] },
   { id: "laica-post", placements: ["linkedin/post", "linkedin/wide"] },
 ];
@@ -35,6 +43,8 @@ export const SHIPPED: readonly {
 export interface GoldenCase {
   readonly template: string;
   readonly placement: string;
+  /** The Variant rendered; the Template's first when absent. */
+  readonly variant?: string;
   readonly brand: string;
   readonly fixture: string;
   readonly fields: Record<string, unknown>;
@@ -65,18 +75,23 @@ function goldensFor(
   template: string,
   brand: string,
   fixture: string,
-  only?: readonly string[]
+  only?: readonly string[],
+  variant?: string
 ): GoldenCase[] {
   const shipped = SHIPPED.find((t) => t.id === template);
   if (!shipped) throw new Error(`${template} is not in SHIPPED.`);
+  if (variant !== undefined && !shipped.variants?.includes(variant)) {
+    throw new Error(`${template} declares no Variant ${variant}.`);
+  }
   const fields = exampleFields(template);
   return (only ?? shipped.placements).map((placement) => ({
     template,
     placement,
+    ...(variant === undefined ? {} : { variant }),
     brand,
     fixture,
     fields,
-    golden: `${template}--${placement.replace("/", "-")}.png`,
+    golden: `${template}--${placement.replace("/", "-")}${variant === undefined ? "" : `--${variant}`}.png`,
   }));
 }
 
@@ -85,10 +100,28 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
   // 1080x1920 like `instagram/story`, so it renders the same bytes. Hope Family
   // takes one per Placement, per #116, which is what makes a Template that ever
   // varies by Placement id visible here.
+  //
+  // A Template's first Variant is what the unnamed golden draws; a second
+  // Variant takes one golden of its own at one Placement, since what it moves
+  // is the layout and not the Look.
   ...goldensFor("swisshutless-story", "swisshutless", KART_FIXTURE, [
     "instagram/story",
   ]),
+  ...goldensFor(
+    "swisshutless-story",
+    "swisshutless",
+    KART_FIXTURE,
+    ["instagram/story"],
+    "caption-top"
+  ),
   ...goldensFor("hopefamily-story", "hopefamily", FACE_FIXTURE),
+  ...goldensFor(
+    "hopefamily-story",
+    "hopefamily",
+    FACE_FIXTURE,
+    ["instagram/story"],
+    "caption-top"
+  ),
   ...goldensFor("hopefamily-post", "hopefamily", FACE_FIXTURE),
   // laica takes a fixture per Placement rather than one for the Template: a
   // centred window is a naive crop, and the upright column and the wide plate
@@ -97,10 +130,17 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
   ...goldensFor("laica-post", "laica", FACE_FIXTURE, ["linkedin/wide"]),
 ];
 
-/** The one golden case for this Template at this Placement. */
-function caseFor(template: string, placement: string): GoldenCase {
+/** The one golden case for this Template at this Placement, under its first Variant unless one is named. */
+function caseFor(
+  template: string,
+  placement: string,
+  variant?: string
+): GoldenCase {
   const found = GOLDEN_CASES.find(
-    (c) => c.template === template && c.placement === placement
+    (c) =>
+      c.template === template &&
+      c.placement === placement &&
+      c.variant === variant
   );
   if (!found)
     throw new Error(`No golden case for ${template} at ${placement}.`);
@@ -109,6 +149,12 @@ function caseFor(template: string, placement: string): GoldenCase {
 
 /** The story every test starts from, so one edit moves the golden and the tests together. */
 export const STORY_CASE = caseFor("swisshutless-story", "instagram/story");
+/** The same story with its caption at the top: the Variant #228 added. */
+export const STORY_CAPTION_TOP = caseFor(
+  "swisshutless-story",
+  "instagram/story",
+  "caption-top"
+);
 
 /** `laica-post` at each of the two Placements it draws for. */
 export const LAICA_AT_POST = caseFor("laica-post", "linkedin/post");
@@ -134,6 +180,25 @@ export function planFor(
 }
 
 /**
+ * The Plan a golden case renders under: `plan` answers one per Variant, and
+ * the case names which — or names none and takes the Template's first, which
+ * is what `render` draws unasked. Thrown for by name, so a Variant the
+ * Template stopped declaring fails here and not as a picture cut to the wrong
+ * slot.
+ */
+export async function thePlan(test: GoldenCase): Promise<Plan> {
+  const plans = await plan(planFor(test));
+  const found =
+    test.variant === undefined
+      ? plans[0]
+      : plans.find((one) => one.variant === test.variant);
+  if (!found) {
+    throw new Error(`${test.template} plans no Variant ${test.variant}.`);
+  }
+  return found;
+}
+
+/**
  * The exact `render` call a golden case stands for, with anything a test wants
  * to vary laid over the top.
  *
@@ -148,9 +213,10 @@ export async function inputFor(
   overrides: Partial<RenderInput> = {}
 ): Promise<RenderInput> {
   const source = await decode(test.fixture);
-  const { imageSlot } = await plan(planFor(test));
+  const { imageSlot } = await thePlan(test);
   return {
     ...planFor(test),
+    ...(test.variant === undefined ? {} : { variant: test.variant }),
     source,
     window: centredWindow(source, imageSlot),
     ...overrides,

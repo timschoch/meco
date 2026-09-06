@@ -62,14 +62,17 @@ const CROP: Stages<CropInput> = {
 
   // No Step and nothing awaited: no module answers this, the request does.
   // `occlusion: []` because nothing will be drawn over the picture, which is
-  // what makes frame free to use the whole window.
-  fill: async (input) => ({
-    target: { width: input.width, height: input.height },
-    occlusion: [],
-    ...(input.subjectArea === undefined
-      ? {}
-      : { subjectArea: input.subjectArea }),
-  }),
+  // what makes frame free to use the whole window. One Fill and no Variant:
+  // there is no Template to lay out another way.
+  fill: async (input) => [
+    {
+      target: { width: input.width, height: input.height },
+      occlusion: [],
+      ...(input.subjectArea === undefined
+        ? {}
+        : { subjectArea: input.subjectArea }),
+    },
+  ],
 
   paint(input, fill, image, window, trace) {
     return trace.step("compose.cut", () =>
@@ -90,8 +93,12 @@ export async function cropImage(
 ): Promise<CropAnswer> {
   const { brand } = input;
 
-  const { call, result } = await recorded(deps, deps.caller, brand, "crop", (trace) =>
-    pipeline(deps, input, CROP, trace)
+  const { call, result } = await recorded(
+    deps,
+    deps.caller,
+    brand,
+    "crop",
+    (trace) => pipeline(deps, input, CROP, trace)
   );
 
   // Not a Step: the row cannot time its own write, and a Replay files no

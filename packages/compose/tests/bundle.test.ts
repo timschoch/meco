@@ -129,7 +129,7 @@ describe("an esbuild bundle of compose", () => {
         `const { plan, render, templates } = await import(${JSON.stringify(bundle)});`,
         `const described = templates("swisshutless").find((t) => t.id === "swisshutless-story");`,
         `const input = { template: "swisshutless-story", placement: "instagram/story", brand: "swisshutless", fields: described.example };`,
-        `const { imageSlot } = await plan(input);`,
+        `const [{ imageSlot }] = await plan(input);`,
         `const source = { width: imageSlot.width, height: imageSlot.height, channels: 3, data: Buffer.alloc(imageSlot.width * imageSlot.height * 3, 90) };`,
         `const out = await render({ ...input, source, window: { x: 0, y: 0, width: 1, height: 1 }, format: "png" });`,
         `console.log(out.bytes.byteLength);`,
