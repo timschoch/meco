@@ -14,7 +14,8 @@
  * database it makes is dropped in `afterAll`, which runs whether the checks
  * passed or not. Why a database and not a schema is in `live-database.ts`.
  */
-import { afterAll, beforeAll, describe, it } from "vitest";
+import { createHash, randomUUID } from "node:crypto";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type Store, memoryStore } from "@meco/store";
 import { recordsConformance } from "../conformance";
 import { type Records, neonDatabase, records } from "../index";
@@ -74,6 +75,55 @@ describe("@meco/records against Neon", () => {
 });
 
 describe("what this live run did", () => {
+  it(
+    "writes one Call and one Output on the live server and prints what came back",
+    async () => {
+      // The rows the conformance list writes are asserted on and never shown.
+      // This one is shown: a shape nobody has read off the real server is a shape
+      // nobody has checked. Nothing here is a secret — a Store Key, a hash and a
+      // duration — and the database is the run's own, dropped in `afterAll`.
+      const meco = over(shared, memoryStore());
+      const brand = "live-row-shape";
+      await meco.brands.ensure({ id: brand, name: "Live row shape" });
+      const caller = await meco.callers.create({
+        name: "live row shape",
+        key: randomUUID(),
+        brands: [brand],
+      });
+      const request = { template: "story", fields: { title: "Ada" } };
+
+      const call = await meco.calls.record({
+        callerId: caller.id,
+        brand,
+        kind: "render",
+        status: "ok",
+        sourceHash: createHash("sha256").update("live row shape").digest("hex"),
+        request,
+        steps: [
+          { name: "models.decode", durMs: 31 },
+          { name: "compose.plan", durMs: 4 },
+        ],
+        durationMs: 96,
+      });
+      const output = await meco.outputs.record({
+        brand,
+        storeKey: `renders/${randomUUID()}.png`,
+        callId: call.id,
+        kind: "render",
+        placement: "ig-story",
+        requestHash: meco.requestHash(brand, "render", request),
+      });
+
+      const listed = await meco.outputs.list({ brand, limit: 10 });
+      console.log(`live call:   ${JSON.stringify(call)}`);
+      console.log(`live output: ${JSON.stringify(listed.rows)}`);
+
+      expect(listed.rows).toEqual([output]);
+      expect((await meco.calls.get(call.id))?.steps).toHaveLength(2);
+    },
+    CHECK_TIMEOUT_MS
+  );
+
   it("says which of the two paths it took, on which host, and what it cost", () => {
     // The spec asks the live suite to record which path ran. It is a test and
     // not an `afterAll` log because Vitest shows a passing file's `afterAll`
