@@ -21,6 +21,12 @@
       "entrypoint": "Dockerfile.vercel"
     }
   },
+  "crons": [
+    {
+      "path": "/internal/sweep",
+      "schedule": "0 4 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/(.*)",
