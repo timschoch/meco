@@ -30,7 +30,7 @@ A Source Image arrives as `{ url }`, which the gateway fetches, bounds at the st
 
 ## Decision 5 — the Sweep runs on a Vercel cron, not a boot timer
 
-Records decided a boot timer for v1 ([#86](https://github.com/timschoch/meco/issues/86)). A container that scales to zero after five idle minutes runs only while someone is calling, which is exactly when a Sweep does not matter. So the gateway ships `POST /internal/sweep`, refused unless `Authorization: Bearer $CRON_SECRET` (Vercel's documented convention), and `vercel.json` gains `crons`. The boot timer is dropped: two triggers are two things to be wrong about. Whether a cron reaches a path served by a container behind the catch-all rewrite is documented nowhere; the ticket proves it with `vercel crons run` and the timer returns only with a measurement that says the cron cannot.
+Records decided a boot timer for v1 ([#86](https://github.com/timschoch/meco/issues/86)). A container that scales to zero after five idle minutes runs only while someone is calling, which is exactly when a Sweep does not matter. So the gateway ships `/internal/sweep`, refused unless `Authorization: Bearer $CRON_SECRET` (Vercel's documented convention), and `vercel.json` gains `crons`. The boot timer is dropped: two triggers are two things to be wrong about. Whether a cron reaches a path served by a container behind the catch-all rewrite was documented nowhere; `vercel crons run` on production showed that it does, and that the dispatcher invokes with `GET`, so the route answers `GET` and `POST` (#187).
 
 ## Decision 6 — the safe defaults and the flat error vocabulary
 

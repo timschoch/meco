@@ -78,7 +78,7 @@ Every Operation is one record: `name` (the MCP tool name), `method` and `path` (
 | `add_person`          | `POST /v1/people`              | –          | records `people.create`                                                                                                         |
 | `erase_person`        | `DELETE /v1/people/:id?brand=` | `erase`    | records `people.erase`; answers the empty listing as proof                                                                      |
 | `add_reference_photo` | `POST /v1/people/:id/photos`   | `enrol`    | identify `enrol`; a `choose` answer is a `200` with the faces, not an error                                                     |
-| `create_upload`       | `POST /v1/sources/uploads`     | –          | a Signed URL to `PUT` a photograph to, scoped to one `sources/` key; see "Bytes in"                                            |
+| `create_upload`       | `POST /v1/sources/uploads`     | –          | a Signed URL to `PUT` a photograph to, scoped to one `sources/` key; see "Bytes in"                                             |
 | `add_source`          | `POST /v1/sources`             | –          | files an uploaded photograph and answers its Content Hash, which the caller then names as `{ hash }`                            |
 
 Dropped from the prototype: `/v1/carousel` (out of compose v1), `/v1/gallery` (webui's), `/v1/channels` (a Placement names its Channel), `/v1/subjects` (renamed `annotate`).
@@ -106,12 +106,12 @@ bytes never cross the gateway's door, because the door will not carry them.
 body reached the container and was read, a `413` is the platform's, ahead of
 it.
 
-| Request body                | Answer                                     |
-| --------------------------- | ------------------------------------------ |
-| 4 493 537 B                 | `400 invalid_request` — the gateway's      |
-| 4 493 538 B                 | `413 FUNCTION_PAYLOAD_TOO_LARGE` — the platform's |
-| 5 424 279 B (`artemis-2-crew-full.jpg`) | `413 FUNCTION_PAYLOAD_TOO_LARGE`         |
-| 6 MB                        | `413 FUNCTION_PAYLOAD_TOO_LARGE`           |
+| Request body                            | Answer                                            |
+| --------------------------------------- | ------------------------------------------------- |
+| 4 493 537 B                             | `400 invalid_request` — the gateway's             |
+| 4 493 538 B                             | `413 FUNCTION_PAYLOAD_TOO_LARGE` — the platform's |
+| 5 424 279 B (`artemis-2-crew-full.jpg`) | `413 FUNCTION_PAYLOAD_TOO_LARGE`                  |
+| 6 MB                                    | `413 FUNCTION_PAYLOAD_TOO_LARGE`                  |
 
 The cap counts the **whole request**, not the body: the same 4 493 537-byte
 body with one extra 1 000-byte header is refused too. So it is a total-request
@@ -129,14 +129,14 @@ because neither carries a photograph:
    `{ key, url, expiresAt, maxBytes }`. `url` is `store.uploadUrl`'s: a Signed
    URL scoped to `put`, to that one `sources/<hash>.<ext>` key, to that one
    content type and to that one size. Over `MAX_OBJECT_BYTES` is `413
-   too_large` before the store is asked.
+too_large` before the store is asked.
 2. The caller `PUT`s the file to `url`.
 3. `add_source` takes `{ brand, key }` and answers `{ hash, key, bytes, mime }`.
    It reads the object and hashes it **itself**, reads the mime, width and
    height off the bytes with sharp's `metadata()` exactly as the models host's
    decoder does (`autoOrient` size included), and asks the store where those
    bytes belong. A key that is not the one `storeKeyFor` gives them is `400
-   invalid_request`. Then `files.ensure`, then `sources.hold(brand, hash)`.
+invalid_request`. Then `files.ensure`, then `sources.hold(brand, hash)`.
    Bytes no decoder can read, or an image in a format no Annotation has a mime
    for, are `415 unsupported_mime`.
 
@@ -241,9 +241,9 @@ The Call's `error` is `{ module, code, message }`; `module` is not on the wire. 
 
 ### The Sweep
 
-`POST /internal/sweep` → `records.sweep(now())`, answers the SweepReport. `vercel.json`: `"crons": [{ "path": "/internal/sweep", "schedule": "0 4 * * *" }]`; Vercel sends `Authorization: Bearer $CRON_SECRET`, and the whole header is compared in constant time. No boot timer. With no `cronSecret` the routes are never registered, so the path answers `404 not_found` like any unknown one — a deployment that forgot the variable must not have a door a guess could tell from a right key.
+`GET /internal/sweep`, and `POST` on the same handler → `records.sweep(now())`, answers the SweepReport. `GET` because that is what Vercel's cron dispatcher sends (measured below); `POST` because the Sweep is idempotent and a hand-run reads better as one. Any other verb is `404`. `vercel.json`: `"crons": [{ "path": "/internal/sweep", "schedule": "0 4 * * *" }]`; Vercel sends `Authorization: Bearer $CRON_SECRET`, and the whole header is compared in constant time. No boot timer. With no `cronSecret` the routes are never registered, so the path answers `404 not_found` like any unknown one — a deployment that forgot the variable must not have a door a guess could tell from a right key.
 
-**Measured** (2026-09-06, #187). The route is reachable behind the catch-all rewrite: the branch preview answers `POST /internal/sweep` with no header as `401 unauthorized` where the production deployment without the route answers `404 not_found`, and `401` is only reachable once `CRON_SECRET` was injected and the check ran. The cron **invocation** is not measured on a preview: a cron runs against the production deployment, so `vercel crons list` reads `not deployed` and `vercel crons run /internal/sweep` answers `Error: No cron jobs found for timschochs-projects/meco` until the schedule is on production (`DEPLOY.md`, Crons). `CRON_SECRET` is Sensitive and therefore write-only, so nobody outside the platform can send the header a `200` needs; the first real invocation is the cron's own.
+**Measured** (2026-09-06, #187). A cron **does** reach a container behind the catch-all rewrite, and it invokes with `GET`. `vercel crons run /internal/sweep` on production at 13:11:05Z logged `requestMethod: "GET"`, `requestPath: "/internal/sweep"`, `responseStatusCode: 404` against `dpl_942v6K3KN7mbTxGNbfQ2s2ovGANX`, whose route was registered on `POST` alone — the `404` is the verb, not the secret, which `vercel env ls` confirms is set on Production. Hence `GET`. The boot timer does not return: the trigger works, the method was wrong. `CRON_SECRET` is Sensitive and therefore write-only, so nobody outside the platform can send the header a `200` needs; the cron is the only caller that can.
 
 ### The webui
 
@@ -271,30 +271,30 @@ The Call's `error` is `{ module, code, message }`; `module` is not on the wire. 
 
 Every test is `createApp(deps).request(...)`: the HTTP Door and, as JSON-RPC bodies to `/mcp`, the MCP Door, through the same seam. Dependencies are real where an adapter exists: `records({ database: pgliteDatabase(), store })`, `memoryStore()`, real `compose`, `frame`, `redact`, `identify`, and the real models client over a `fetch` fake that answers `/annotate` from committed fixture Annotations keyed by the body's sha256 (`fixtures/faces/detected.json` and `face-prints.json` lifted into contracts `Annotation` JSON, as frame's and identify's tests do) and `/health`, `/models` from fixtures. No models host code enters the gateway graph (ADR-0014). Prior art: `packages/gateway/tests/health.test.ts`, `packages/webui`'s plan, `packages/identify`'s fixture Annotator.
 
-| Check                                                                                                                                               | Mutation that must turn it red       |
-| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| no key is `401`; a wrong key is `401`; `Bearer`, `Basic` and `x-auth-token` reach the same Caller                                                   | accept any key; drop one header form |
-| a `brand` the Caller does not hold is `403 brand_not_held` on HTTP and as an MCP tool error, and no module ran                                      | check the Brand after the pipeline   |
-| `tools/list` names every Operation and each `inputSchema` equals `z.toJSONSchema` of the route's input                                              | register one tool by hand            |
-| `render` on the tracer-bullet fixture returns a `renders/` URL, a Framing with `resolvedBy` from the request's ladder, and one Face Report per face | drop the Face Report                 |
-| the same `render` twice is one Output and two Calls, the second with one Step `records.replay`                                                      | hash the request with the URL in it  |
-| two URLs serving the same bytes give one Output                                                                                                     | same                                 |
-| `blurUnknownFaces` omitted hides every face with no Match; `false` hides none                                                                       | default to false                     |
-| `pinTo` omitted reaches frame as `DEFAULT_PIN_TO`                                                                                                   | pass undefined                       |
-| a 17-zone Template is refused `400 invalid_request` by the FramingRequest schema before frame                                                       | skip the schema                      |
-| a Source over `MAX_OBJECT_BYTES` by `Content-Length` is `413` without reading the body; over by stream is `413`                                     | drop either check                    |
-| a `hash` Source Reference without a Source Hold is `404`, identical to an unknown hash                                                              | answer 403                           |
-| `create_upload` answers the key `put` would give those bytes, files nothing, and is `413` over `MAX_OBJECT_BYTES`                                   | mint the key from anything else      |
-| `add_source` hashes the object itself: bytes that do not hash to their key are `400` and deleted, and no File is written                            | trust the caller's hash              |
-| `add_source` is `415` for bytes no decoder reads and for an image whose format no Annotation names, and `400` for a key outside `sources/`          | file whatever sharp opened           |
-| a cached, complete Annotation reaches no `models.annotate`; an incomplete one does and is replaced                                                  | skip `isComplete`                    |
-| `annotate`'s response carries no `facePrint`                                                                                                        | forget to strip                      |
-| a Decoded Image of the wrong size is `500 resolution_mismatch` and a failed Call                                                                    | drop the assert                      |
-| every module's typed error maps to its code and status, and the Call's `error.module` names the module                                              | map one wrong                        |
-| a failed Call is a row with `status: failed` before the error is answered                                                                           | record only on success               |
-| `/health` answers from the cache within 30 s and probes again after; `models.warm` follows models' body                                             | probe per request                    |
-| `/internal/sweep` is `401` without `CRON_SECRET`, `404` when none is configured, runs the Sweep with it                                             | skip the header check                |
-| `GET /ui` without a header is `401` with `WWW-Authenticate: Basic`; `/v1/brands` without one is `401` without it                                    | send the challenge everywhere        |
+| Check                                                                                                                                                       | Mutation that must turn it red               |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| no key is `401`; a wrong key is `401`; `Bearer`, `Basic` and `x-auth-token` reach the same Caller                                                           | accept any key; drop one header form         |
+| a `brand` the Caller does not hold is `403 brand_not_held` on HTTP and as an MCP tool error, and no module ran                                              | check the Brand after the pipeline           |
+| `tools/list` names every Operation and each `inputSchema` equals `z.toJSONSchema` of the route's input                                                      | register one tool by hand                    |
+| `render` on the tracer-bullet fixture returns a `renders/` URL, a Framing with `resolvedBy` from the request's ladder, and one Face Report per face         | drop the Face Report                         |
+| the same `render` twice is one Output and two Calls, the second with one Step `records.replay`                                                              | hash the request with the URL in it          |
+| two URLs serving the same bytes give one Output                                                                                                             | same                                         |
+| `blurUnknownFaces` omitted hides every face with no Match; `false` hides none                                                                               | default to false                             |
+| `pinTo` omitted reaches frame as `DEFAULT_PIN_TO`                                                                                                           | pass undefined                               |
+| a 17-zone Template is refused `400 invalid_request` by the FramingRequest schema before frame                                                               | skip the schema                              |
+| a Source over `MAX_OBJECT_BYTES` by `Content-Length` is `413` without reading the body; over by stream is `413`                                             | drop either check                            |
+| a `hash` Source Reference without a Source Hold is `404`, identical to an unknown hash                                                                      | answer 403                                   |
+| `create_upload` answers the key `put` would give those bytes, files nothing, and is `413` over `MAX_OBJECT_BYTES`                                           | mint the key from anything else              |
+| `add_source` hashes the object itself: bytes that do not hash to their key are `400` and deleted, and no File is written                                    | trust the caller's hash                      |
+| `add_source` is `415` for bytes no decoder reads and for an image whose format no Annotation names, and `400` for a key outside `sources/`                  | file whatever sharp opened                   |
+| a cached, complete Annotation reaches no `models.annotate`; an incomplete one does and is replaced                                                          | skip `isComplete`                            |
+| `annotate`'s response carries no `facePrint`                                                                                                                | forget to strip                              |
+| a Decoded Image of the wrong size is `500 resolution_mismatch` and a failed Call                                                                            | drop the assert                              |
+| every module's typed error maps to its code and status, and the Call's `error.module` names the module                                                      | map one wrong                                |
+| a failed Call is a row with `status: failed` before the error is answered                                                                                   | record only on success                       |
+| `/health` answers from the cache within 30 s and probes again after; `models.warm` follows models' body                                                     | probe per request                            |
+| `/internal/sweep` is `401` without `CRON_SECRET`, `404` when none is configured, runs the Sweep on `GET` and on `POST` with it, and `404`s an unlisted verb | skip the header check; register `POST` alone |
+| `GET /ui` without a header is `401` with `WWW-Authenticate: Basic`; `/v1/brands` without one is `401` without it                                            | send the challenge everywhere                |
 
 Every check is proved able to fail by its mutation before it ships. Commit the green state first, then mutate, then `git restore`.
 

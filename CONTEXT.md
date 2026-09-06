@@ -426,7 +426,7 @@ How many rows still name one Store Key or one Content Hash. A delete reaches the
 _Avoid_: refcount, usage count, links, dependents
 
 **Sweep**:
-The periodic delete of Files with no Source Hold and no Reference Photo for longer than the Retention Window, with their Annotation and their source bytes. It is how a stranger's Face Print stops living forever. Never touches an Output. Runs when a Vercel cron posts to the gateway's `/internal/sweep`; there is no timer inside a container, which sleeps.
+The periodic delete of Files with no Source Hold and no Reference Photo for longer than the Retention Window, with their Annotation and their source bytes. It is how a stranger's Face Print stops living forever. Never touches an Output. Runs when a Vercel cron calls the gateway's `/internal/sweep`; there is no timer inside a container, which sleeps.
 _Avoid_: garbage collection, cleanup, purge, TTL, expiry
 
 **Sweep Report**:

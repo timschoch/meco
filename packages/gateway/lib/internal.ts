@@ -3,7 +3,7 @@
  *
  * The Sweep runs when nobody is calling, which is exactly when it matters: a
  * container that scales to zero after five idle minutes has no timer of its
- * own, so a Vercel cron posts here instead (#88, Q8; #164 dropped the boot
+ * own, so a Vercel cron calls here instead (#88, Q8; #164 dropped the boot
  * timer for it). Vercel sends `Authorization: Bearer $CRON_SECRET` and nothing
  * else, so that header is the whole door — no Caller lookup runs here, and a
  * Caller's key opens nothing.
@@ -14,7 +14,7 @@
  * could tell apart from a right one.
  */
 import { timingSafeEqual } from "node:crypto";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { Records } from "@meco/records";
 import { GatewayError } from "./errors";
 
@@ -52,9 +52,17 @@ export function internalRoutes(deps: InternalDeps): Hono {
     await next();
   });
 
-  internal.post("/sweep", async (c) =>
-    c.json(await deps.records.sweep(deps.now()))
-  );
+  // GET and POST, and nothing else. Vercel's cron dispatcher invokes with
+  // GET: measured on production, where `vercel crons run /internal/sweep`
+  // logged `requestMethod: "GET" … responseStatusCode: 404` against a route
+  // registered on POST alone (2026-09-06, `dpl_942v6K3KN7mbTxGNbfQ2s2ovGANX`,
+  // #187). POST stays because the Sweep is idempotent and a hand-run reads
+  // better as one; an unlisted verb still falls through to `404`, so this is
+  // two doors and not any door.
+  const sweep = async (c: Context) =>
+    c.json(await deps.records.sweep(deps.now()));
+  internal.get("/sweep", sweep);
+  internal.post("/sweep", sweep);
 
   return internal;
 }
