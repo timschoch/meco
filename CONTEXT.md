@@ -458,3 +458,31 @@ _Avoid_: preview, before image, original, source URL
 **Overlay**:
 The Regions and the Crop Window drawn over the Source Thumbnail as fractions of its box, so they hold at any display width without a script. A Region shows its Person's name when it is a Match, `hidden` when it is in the Redaction Records, and its Region id otherwise.
 _Avoid_: annotation layer, bounding boxes, markup, canvas
+
+## gateway
+
+The one door. Every request enters here over HTTP or MCP, is tied to a Caller, refused for a Brand the Caller does not hold, run through the modules in a fixed order, and written down as a Call. The gateway holds no model, no pixel arithmetic and no rows of its own: it sequences the other modules and owns the two things none of them can, the door and the order. Caller, Call, Step, Output, Request Hash and Source Hold are records' terms; Annotation, FramingRequest and Match are contracts'.
+
+**Door**:
+One of the two protocols a request may arrive by, HTTP or MCP. Both doors run the same Caller lookup, the same Brand Wall and the same Operations, so a client learns meco once. There is no third door, and `/health` is the one route outside both.
+_Avoid_: endpoint, transport, API surface, interface, channel (a Channel is where a Render is published)
+
+**Operation**:
+One thing the gateway does for a Caller, defined once with its input schema and offered on both Doors: as a route and as an MCP tool. Its input schema is one object, so the HTTP body, the tool's declared schema and the validation are the same fact. Its Call kind is records'.
+_Avoid_: endpoint, route, tool (the MCP face of an Operation), handler, command, action
+
+**Brand Wall**:
+The refusal, before any module runs, of a request naming a Brand the Caller does not hold. Answered as `brand_not_held` on both Doors. The privacy wall every other module relies on and none of them can enforce, because every module downstream receives the Brand and never the Caller.
+_Avoid_: authorisation, permission check, tenant check, ACL, scope
+
+**Source Reference**:
+How a caller names a Source Image in a request: by URL, which the gateway fetches and files, or by Content Hash, which names bytes the Brand already holds a Source Hold on. Never bytes in the request body in v1, and never a Store Key: a key names a store and a caller must not know one.
+_Avoid_: source URL, upload, attachment, image input, key
+
+**Replay**:
+A Call answered from the Output an earlier Call already produced, found by Request Hash, so a retry costs a lookup and no module runs. Recorded as its own Call with one Step, so the Gallery shows one Output and two Calls, which is what happened.
+_Avoid_: cache hit, dedupe, idempotent response, short-circuit
+
+**Face Report**:
+What the gateway says on the wire about each face Region of one output: identify's verdict, whether redact hid it, and whether frame's window kept it. Assembled by the gateway because no single module knows all three, and never stored: the webui reads the three parts off the Call and draws them.
+_Avoid_: face summary, faces blurred, face count, redaction summary
