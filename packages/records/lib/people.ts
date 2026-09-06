@@ -25,7 +25,7 @@ import { FacePrint } from "@meco/contracts";
 import type { Listing, Store } from "@meco/store";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DatabaseDriver, Tx } from "./database";
-import { unreferencedFile } from "./references";
+import { unreferencedFileClauses } from "./references";
 import { files, people, referencePhotos } from "./schema";
 
 /** A named individual one Brand enrolled. Personal data throughout. */
@@ -164,10 +164,10 @@ const asReferencePhoto = (row: PhotoRow): ReferencePhoto => ({
 
 /**
  * The Files among these hashes that nothing names any more, with the Store Key
- * their bytes sit at. {@link unreferencedFile} is the Reference Count: a Source
- * Hold from any Brand, or a Reference Photo of any Person, keeps the File —
- * which is what stops an Erasure from deleting a source another Brand still
- * holds. The Sweep asks it of every File over the Retention Window instead.
+ * their bytes sit at. {@link unreferencedFileClauses} is the Reference Count:
+ * a Source Hold from any Brand, or a Reference Photo of any Person, keeps the
+ * File — which is what stops an Erasure from deleting a source another Brand
+ * still holds. The Sweep asks it of every File over the Retention Window.
  */
 async function orphanedFiles(
   tx: Tx,
@@ -177,7 +177,9 @@ async function orphanedFiles(
   return tx
     .select({ hash: files.hash, storeKey: files.storeKey })
     .from(files)
-    .where(and(inArray(files.hash, [...hashes]), ...unreferencedFile(tx)));
+    .where(
+      and(inArray(files.hash, [...hashes]), ...unreferencedFileClauses(tx))
+    );
 }
 
 /** The Reference Photo Store Keys among these that no row names any more. */

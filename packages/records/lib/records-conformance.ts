@@ -26,7 +26,7 @@ import { verifying } from "./neon-database";
 import { peoplePrefix } from "./people";
 import { type Records, driverOf } from "./records";
 import { BOOTSTRAP_BRANDS, seedRecords } from "./seed";
-import type { SweepReport } from "./sweep";
+import { DAY_MS, type SweepReport } from "./sweep";
 
 /** A database with no tables, and however many Records over that one database. */
 export interface EmptyDatabase {
@@ -322,8 +322,6 @@ async function outputOn(
     }),
   });
 }
-
-const DAY_MS = 86_400_000;
 
 /**
  * The instant the Sweep measures its window from. The Files a check writes are
@@ -1745,15 +1743,25 @@ export function recordsConformance(
       },
     },
     {
-      name: "sources.heldBy is false for a Brand that never held the hash, true after hold, false after release, and never answers from files",
+      name: "sources.heldBy is false for a Brand that never held the hash, true after hold, false after release, and never answers from files or calls",
       async run() {
         const records = await open();
         const store = memoryStore();
         const holder = brandFor("holds the source");
-        const stranger = brandFor("never held the source");
+        const stranger = await calling(records, "never held the source");
         await records.brands.ensure({ id: holder, name: "Holder" });
-        await records.brands.ensure({ id: stranger, name: "Stranger" });
         const file = await filed(records, store, "held and released");
+        // The stranger has a Call on those very bytes and no hold. A Call is
+        // itself something a Brand may one day want deleted, so it must never
+        // be what a Signed URL is minted on.
+        await records.calls.record({
+          callerId: stranger.callerId,
+          brand: stranger.brand,
+          kind: "crop",
+          status: "ok",
+          startedAt: at(0),
+          sourceHash: file.hash,
+        });
 
         const before = await records.sources.heldBy(holder, file.hash);
         await records.sources.hold(holder, file.hash);
@@ -1773,7 +1781,11 @@ export function recordsConformance(
         // the lookup the gateway makes before minting a Signed URL: whether
         // the bytes exist is not whether this Brand may see them.
         ok(await records.files.get(file.hash));
-        strictEqual(await records.sources.heldBy(stranger, file.hash), false);
+        // Nor does a Call on those bytes hand them over.
+        strictEqual(
+          await records.sources.heldBy(stranger.brand, file.hash),
+          false
+        );
       },
     },
     {
@@ -1806,13 +1818,13 @@ export function recordsConformance(
         await records.annotations.put(annotationOf(orphan.hash));
         await records.sources.hold(brand, held.hash);
 
-        const at = daysFromNow(31);
-        const report = await records.sweep(at);
+        const thirtyOneDaysOn = daysFromNow(31);
+        const report = await records.sweep(thirtyOneDaysOn);
 
         // The report says what it swept and what it swept it by, because a
         // cron's answer is the only place the owner ever reads either.
         strictEqual(report.retentionDays, 30);
-        strictEqual(report.sweptAt, at.toISOString());
+        strictEqual(report.sweptAt, thirtyOneDaysOn.toISOString());
         ok(swept(report, orphan.hash), "the orphan was not swept");
         ok(report.keys.includes(orphan.key), "the orphan's key was not swept");
         strictEqual(await records.files.get(orphan.hash), null);

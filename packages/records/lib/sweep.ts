@@ -3,25 +3,26 @@
  *
  * A stranger who walked through somebody's photograph never agreed to
  * anything, and their Face Print sits in the cached Annotation of those bytes.
- * ADR-0011 gives that print exactly the lifetime of the photograph, and this
- * file is what makes the lifetime finite: a File with no Source Hold and no
- * Reference Photo, older than the Retention Window, goes with its Annotation
- * and its bytes.
+ * ADR-0011 keeps that print for exactly as long as some Brand holds the
+ * photograph, and this file is what makes that finite: a File with no Source
+ * Hold and no Reference Photo, older than the Retention Window, goes with its
+ * Annotation and its bytes.
  *
- * Two counts, and they are not the same count.
+ * Two questions, and they are not the same question.
  *
  * **The Reference Count of a File** is its rows in `sources` plus its rows in
  * `reference_photos`, and nothing else. `calls.source_hash` names a File
  * without referencing it on purpose, so an old Call can never keep one alive.
+ * It decides whether the row goes.
  *
- * **The reference count of a Store Key** is the rows still naming that key.
- * `store.delete` is unconditional (ADR-0010), so the counting is here, and it
- * is the same rule `people.unenrol` applies to a Reference Photo's key.
+ * **The rows naming a Store Key** decide whether the bytes go. `store.delete`
+ * is unconditional (ADR-0010), so the counting is here, and it is the same
+ * rule `people.unenrol` applies to a Reference Photo's key.
  */
 import type { Store } from "@meco/store";
 import { and, inArray, lt } from "drizzle-orm";
 import type { DatabaseDriver } from "./database";
-import { unreferencedFile } from "./references";
+import { unreferencedFileClauses } from "./references";
 import { files, outputs } from "./schema";
 
 /** What one Sweep removed, and what it measured the Retention Window by. */
@@ -44,7 +45,8 @@ export interface SweepReport {
  */
 export const DEFAULT_RETENTION_DAYS = 30;
 
-const DAY_MS = 86_400_000;
+/** Exported for the Conformance Checks, which move the clock by whole days. */
+export const DAY_MS = 86_400_000;
 
 export function sweeping(
   driver: DatabaseDriver,
@@ -68,7 +70,9 @@ export function sweeping(
         // Ordered on the hash so a report reads the same twice, and so two
         // adapters cannot differ in what a caller may rely on.
         .orderBy(files.hash)
-        .where(and(lt(files.firstSeenAt, cutoff), ...unreferencedFile(tx)));
+        .where(
+          and(lt(files.firstSeenAt, cutoff), ...unreferencedFileClauses(tx))
+        );
       if (orphans.length === 0) return { files: [], keys: [] };
 
       const hashes = orphans.map((one) => one.hash);

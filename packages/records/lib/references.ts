@@ -21,7 +21,7 @@ import { files, referencePhotos, sources } from "./schema";
  * and a Reference Count that could be `undefined` is a Reference Count that
  * could quietly become "delete everything".
  */
-export function unreferencedFile(tx: Tx): [SQL, SQL] {
+export function unreferencedFileClauses(tx: Tx): [SQL, SQL] {
   return [
     notExists(
       tx
