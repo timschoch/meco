@@ -442,3 +442,19 @@ _Avoid_: registration, training, upload, onboarding
 **Annotator**:
 What identify is handed to turn a photograph's bytes into an Annotation: the models client in production, a fixture-backed fake in tests. The one place identify's suite substitutes a model for data.
 _Avoid_: detector, embedder, face service, models (when the dependency is meant)
+
+## webui
+
+The pages a person reads: the Gallery and, for each Call, what happened. Rendered on the server inside the gateway, behind the gateway's door, from records alone. It changes nothing and is deletable without the API noticing.
+
+**Call View**:
+The page that explains one Call: the Source Thumbnail under the Overlay, the request as sent, the Framing, the Matches by Person name, the Redaction Records, every Step with its duration, the cost, the error, and the Outputs the Call made. The Gallery links to it; there is no page for an Output on its own, because an Output's story is its Call.
+_Avoid_: detail page, trace view, debug view, output page, job page
+
+**Source Thumbnail**:
+The Source Image as the Call View shows it, reached through a redirect that checks the Source Hold and then mints a Signed URL for that one request. The page itself never holds the Signed URL, so a saved page holds no photograph.
+_Avoid_: preview, before image, original, source URL
+
+**Overlay**:
+The Regions and the Crop Window drawn over the Source Thumbnail as fractions of its box, so they hold at any display width without a script. A Region shows its Person's name when it is a Match, `hidden` when it is in the Redaction Records, and its Region id otherwise.
+_Avoid_: annotation layer, bounding boxes, markup, canvas
