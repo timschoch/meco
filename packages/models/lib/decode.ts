@@ -52,6 +52,9 @@ export async function decode(bytes: Uint8Array): Promise<Decoded> {
     );
   }
 
+  // A header sharp can read does not make the rest of the file readable: a
+  // truncated JPEG passes `metadata()` and fails here, and is still the
+  // caller's bytes, not the host's fault.
   const { data, info } = await sharp(bytes)
     .rotate()
     .resize({
@@ -63,7 +66,16 @@ export async function decode(bytes: Uint8Array): Promise<Decoded> {
     .toColourspace("srgb")
     .removeAlpha()
     .raw()
-    .toBuffer({ resolveWithObject: true });
+    .toBuffer({ resolveWithObject: true })
+    .catch((cause: unknown) => {
+      throw new HostError(
+        "undecodable",
+        "the body is not an image sharp can decode",
+        {
+          cause,
+        }
+      );
+    });
   if (info.channels !== 3) {
     throw new Error(`decode: expected 3 channels, got ${info.channels}`);
   }

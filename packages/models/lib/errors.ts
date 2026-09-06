@@ -18,6 +18,9 @@ export const ERROR_STATUS = {
 
 export type ErrorCode = keyof typeof ERROR_STATUS;
 
+/** One of the statuses above, as Hono types a status that carries a body. */
+export type ErrorStatus = (typeof ERROR_STATUS)[ErrorCode];
+
 /** Thrown anywhere in the host; the app turns it into the wire's error body. */
 export class HostError extends Error {
   constructor(
@@ -29,7 +32,7 @@ export class HostError extends Error {
     this.name = "HostError";
   }
 
-  get status(): number {
+  get status(): ErrorStatus {
     return ERROR_STATUS[this.code];
   }
 }

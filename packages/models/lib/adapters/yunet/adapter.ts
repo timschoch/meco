@@ -161,15 +161,19 @@ export function createYunet(): Detector {
         input: toTensor(data, padWidth, padHeight),
       });
 
-      return decodeOutputs(gather(results), {
-        padWidth,
-        padHeight,
-        scoreThreshold: SCORE_THRESHOLD,
-        nmsThreshold: NMS_THRESHOLD,
-        topK: TOP_K,
-      })
-        .map((face) => toRegion(face, fitWidth, fitHeight))
-        .filter((region) => region.box.width > 0 && region.box.height > 0);
+      return (
+        decodeOutputs(gather(results), {
+          padWidth,
+          padHeight,
+          scoreThreshold: SCORE_THRESHOLD,
+          nmsThreshold: NMS_THRESHOLD,
+          topK: TOP_K,
+        })
+          .map((face) => toRegion(face, fitWidth, fitHeight))
+          // A box the clamp reduced to a line lay wholly outside the image:
+          // nothing to crop, and contracts' Box has no width 0.
+          .filter((region) => region.box.width > 0 && region.box.height > 0)
+      );
     },
   };
 }

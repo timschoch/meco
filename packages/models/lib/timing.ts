@@ -7,6 +7,11 @@ export class Laps {
   private readonly laps: [name: string, ms: number][] = [];
   private last = performance.now();
 
+  /** Open the first stage now, so reading the body is not charged to it. */
+  start(): void {
+    this.last = performance.now();
+  }
+
   /** Close the stage that just finished. */
   lap(name: string): void {
     const now = performance.now();

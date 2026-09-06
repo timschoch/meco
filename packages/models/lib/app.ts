@@ -5,6 +5,8 @@ import {
   ANNOTATION_SCHEMA,
   Annotation,
   assignRegionIds,
+  type ModelId,
+  type RegionKind,
 } from "@meco/contracts";
 import { readBody } from "./body";
 import { decode } from "./decode";
@@ -14,10 +16,8 @@ import { type Health, version } from "./health";
 import { Laps } from "./timing";
 
 /** One Catalogue entry as `GET /models` lists it. */
-export type CatalogueEntry = {
-  readonly name: string;
-  readonly version: string;
-  readonly kinds: readonly string[];
+export type CatalogueEntry = ModelId & {
+  readonly kinds: readonly RegionKind[];
   /** The licence id. The text is in the repository and the image. */
   readonly licence: string;
   readonly warm: boolean;
@@ -34,8 +34,9 @@ function selectModels(
 ): Detector[] {
   if (query === undefined) return [...catalogue.detectors];
 
+  // `"".split(",")` is `[""]`, so an empty value lands here too.
   const names = query.split(",").map((name) => name.trim());
-  if (names.length === 0 || names.includes("")) {
+  if (names.includes("")) {
     throw new HostError("bad_models", "`models` must name at least one Model");
   }
   if (new Set(names).size !== names.length) {
@@ -58,18 +59,24 @@ function selectModels(
 const sha256 = (bytes: Uint8Array): string =>
   createHash("sha256").update(bytes).digest("hex");
 
-/** The wire's error body for anything thrown; an unknown throw is `internal`. */
-function refuse(c: Context, err: unknown): Response {
+/**
+ * The wire's error body for anything thrown; an unknown throw is `internal`.
+ * The stages that did finish are still timed, so a slow decode that ends in a
+ * refusal is visible where a success would be.
+ */
+function refuse(c: Context, err: unknown, laps: Laps): Response {
   const error =
     err instanceof HostError
       ? err
       : new HostError("internal", "the host failed", { cause: err });
+  console.log(`annotate refused ${error.code} ${laps.summary()}`.trimEnd());
   if (error.code === "internal" || error.code === "model_unavailable") {
     console.error(`${error.code}: ${error.message}`, error.cause ?? "");
   }
+  c.header("Server-Timing", laps.serverTiming());
   return c.json(
     { error: { code: error.code, message: error.message } },
-    error.status as 400
+    error.status
   );
 }
 
@@ -97,8 +104,7 @@ export function createApp(catalogue: Catalogue): Hono {
 
   app.get("/models", (c) => {
     const body: CatalogueEntry[] = catalogue.detectors.map((d) => ({
-      name: d.model.name,
-      version: d.model.version,
+      ...d.model,
       kinds: d.kinds,
       licence: d.licenceId,
       warm: d.isWarm(),
@@ -107,6 +113,7 @@ export function createApp(catalogue: Catalogue): Hono {
   });
 
   app.post("/annotate", async (c) => {
+    const laps = new Laps();
     try {
       const chosen = selectModels(catalogue, c.req.query("models"));
       const bytes = await readBody(c.req.raw);
@@ -116,7 +123,7 @@ export function createApp(catalogue: Catalogue): Hono {
       // The hash of the body as received, before anything touches it.
       const hash = sha256(bytes);
 
-      const laps = new Laps();
+      laps.start();
       const { image, width, height, mime } = await decode(bytes);
       laps.lap("decode");
 
@@ -144,7 +151,7 @@ export function createApp(catalogue: Catalogue): Hono {
       c.header("Server-Timing", laps.serverTiming());
       return c.json(annotation);
     } catch (err) {
-      return refuse(c, err);
+      return refuse(c, err, laps);
     }
   });
 

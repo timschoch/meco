@@ -158,6 +158,11 @@ describe("POST /annotate refuses", () => {
     ["empty_body", () => annotate(null)],
     ["undecodable", () => annotate(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]))],
     [
+      // A readable header on an unreadable file: metadata passes, decode fails.
+      "undecodable",
+      async () => annotate((await fixture("soyuz-crew.jpg")).subarray(0, 2048)),
+    ],
+    [
       "unknown_model",
       async () => annotate(await fixture("jezero-crater.jpg"), "?models=dfine"),
     ],
@@ -234,6 +239,8 @@ describe("POST /annotate refuses", () => {
     });
     expect(res.status).toBe(503);
     expect((await wireError(res)).code).toBe("model_unavailable");
+    // The stages that did finish are still timed on a refusal.
+    expect(res.headers.get("server-timing")).toMatch(/^decode;dur=/);
   });
 
   it("internal as 500 when an adapter answers what is not a Region", async () => {

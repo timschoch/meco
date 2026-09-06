@@ -113,7 +113,7 @@ and its Annotation have been written and read back under a fixed hash.
 
 ### models routes
 
-`docs/specs/models.md` is the contract. On the wire:
+[`docs/specs/models.md`](docs/specs/models.md) is the contract. On the wire:
 
 | Route                       | Answers                                                                         |
 | --------------------------- | ------------------------------------------------------------------------------- |
@@ -216,7 +216,8 @@ from the workspace lockfile, `esbuild` bundles the entry point to one file, and
 the runtime stage runs it as `node`. `gateway` copies the bundle alone and
 carries no `node_modules`: pnpm's workspace symlinks do not survive a `COPY`.
 
-`models` differs in three ways, each for a reason in ADR-0007:
+`models` differs in four ways, each for a reason in
+[ADR-0007](docs/adr/0007-models-one-route-two-stage-catalogue.md):
 
 - `node:24-slim`, not alpine. `onnxruntime-node` ships glibc binaries only.
 - `onnxruntime-node` and `sharp` stay outside the bundle: both load native

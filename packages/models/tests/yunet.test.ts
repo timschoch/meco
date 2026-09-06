@@ -2,7 +2,13 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { adapterConformance } from "@meco/contracts/conformance";
-import { catalogue, decode, type Detector } from "../catalogue";
+import {
+  assertRuntimeMajor,
+  catalogue,
+  decode,
+  type Detector,
+  ORT_MAJOR,
+} from "../catalogue";
 import {
   blankImage,
   expectedFaces,
@@ -15,9 +21,19 @@ const yunet = catalogue.detectors.find((d) => d.model.name === "yunet")!;
 
 describe("yunet is in the Catalogue", () => {
   it("as a face Detector at version 1", () => {
-    expect(yunet).toBeDefined();
     expect(yunet.model).toEqual({ name: "yunet", version: "1" });
     expect(yunet.kinds).toEqual(["face"]);
+  });
+});
+
+describe("the runtime guard", () => {
+  it("accepts the runtime the Catalogue was built against", () => {
+    expect(catalogue.onnxruntime.split(".")[0]).toBe(String(ORT_MAJOR));
+    expect(() => assertRuntimeMajor(catalogue.onnxruntime)).not.toThrow();
+  });
+
+  it("refuses another major", () => {
+    expect(() => assertRuntimeMajor(`${ORT_MAJOR + 1}.0.0`)).toThrow(/major/);
   });
 });
 

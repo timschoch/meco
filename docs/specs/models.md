@@ -84,7 +84,7 @@ Each Model lives in one folder under the host's private `adapters/`: the adapter
 | `dfine`    | Detector           | `person`, `vehicle` (five road classes) | `dfine_n_coco.onnx`, 15,434,935 B              | Apache-2.0                                          | finds the kart on 29 of 32 on-track photographs where YuNet finds 9 faces (#68)                 |
 
 - **Names** name the adapter, not the checkpoint. **Versions** are hand-bumped integer strings from `"1"`, under contracts' rule (weights, preprocessing, class list, thresholds, runtime major). A test hashes each `.onnx` against `weights.sha256`, so a weights swap without an adapter change fails CI and the version bump is a line in the same diff.
-- **yunet**: input 640 px long edge, padded bottom-right to a multiple of 32, BGR 0..255; score 0.6 (opencv_zoo's demo value: a Crop wants background faces), NMS 0.3, top-k 5000 before NMS (OpenCV's order); the twelve-tensor decode ported from OpenCV's `FaceDetectorYNImpl`. Boxes clamped to the image, landmarks not. Five landmarks in YuNet's order, which is ArcFace's.
+- **yunet**: input 640 px long edge, padded bottom-right to a multiple of 32, BGR 0..255; score 0.6 (opencv_zoo's demo value: a Crop wants background faces), NMS 0.3, top-k 5000 before NMS (OpenCV's order); the twelve-tensor decode ported from OpenCV's `FaceDetectorYNImpl`. Boxes and landmarks clamped to the image: contracts' `Point` is a fraction in `[0, 1]`, so an eye guessed past the border is written on the border (ADR-0007, Decision 4). A box the clamp empties is dropped. Five landmarks in YuNet's order, which is ArcFace's.
 - **dfine**: input stretched to 640x640 (`do_pad: false`), RGB 0..1, no mean/std; sigmoid per class; score floor 0.28 (load-bearing: `on-track-dark-visor.jpg`'s two karts score 0.284 and 0.280), per-class NMS 0.6, top-k 50 after NMS. COCO `person` → kind `person`; `motorbike, bicycle, car, bus, truck` → kind `vehicle`; every other class is dropped, `boat`, `aeroplane` and `train` among them. `label` is COCO's word unaltered. The table lives in [`CONTEXT.md`, models](../../CONTEXT.md#models) because frame composes the kart on it. Measured by the frame agent on `fixtures/karts/objects.json` (six recorded D-FINE detections, 6 Sep 2026): eight COCO vehicle classes reproduce the recorded kart Subject on 5 of 6, the five road classes on 6 of 6; the failure is a `boat` box at 0.506 spanning 0.9239 x 0.2992 of `on-track-dark-visor.jpg` that outweighs the true `motorbike` at 0.294 by area, and no score floor separates them.
 - **edgeface**: for every `face` Region, the ArcFace similarity warp (Umeyama closed form, no reflection) from the five landmarks in Decoded Image pixels to InsightFace's 112x112 template, via sharp `affine` on the Decoded Image; RGB, `[-1, 1]`; one batched inference; L2-normalised 512 floats. A face the warp refuses keeps its Region and gets no Face Print. No minimum face size here: whether a print is worth comparing is identify's Identifiable Face.
 - **Licence gate.** contracts' `licence` is read from `LICENCE.txt` at construction; a missing or empty file fails construction and the conformance check. A models test asserts each text names its declared id.
@@ -111,7 +111,7 @@ Memory stays on the platform default (2 GB / 1 vCPU) until `/health`'s `rss` on 
 
 ## Measurements
 
-The four numbers ticket 1 ([#118](https://github.com/timschoch/meco/issues/118)) owes, each with where and how it was taken. A number without provenance is a trap.
+The four numbers [models: `POST /annotate` with the YuNet Detector (#118)](https://github.com/timschoch/meco/issues/118) owes, each with where and how it was taken. A number without provenance is a trap.
 
 ### Local container, 6 Sep 2026
 
@@ -131,14 +131,16 @@ The four numbers ticket 1 ([#118](https://github.com/timschoch/meco/issues/118))
 
 ### Deployed container
 
-Filled in from the preview deployment of the PR that closes #118; see the ticket's ledger. Until then each row is open.
+Taken on the preview deployment of [the PR that closes #118](https://github.com/timschoch/meco/pull/141), Vercel `fra1`, platform default 2 GB / 1 vCPU, 6 Sep 2026. A row marked open has not been measured yet and says why.
 
-| Measurement                                           | Value                                                            |
-| ----------------------------------------------------- | ---------------------------------------------------------------- |
-| (1) a ~6 MB body over the service binding             | open: needs a gateway route that forwards a body to `MODELS_URL` |
-| (2) models reachable from outside without the binding | open                                                             |
-| (3) `rss` after warm-up and after one inference       | open                                                             |
-| (4) per-stage `Server-Timing` at 1 vCPU               | open                                                             |
+| Measurement                                           | Value                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (1) a ~6 MB body over the service binding             | open: needs a gateway route that forwards a body to `MODELS_URL`; the gateway has none yet                                                                                                                                                                                                                                                    |
+| (2) models reachable from outside without the binding | no. On both preview hostnames (`meco-1vylz5mli-…`, `meco-git-feat-models-annotate-yunet-…`) `GET /models`, `POST /annotate` and `GET /models/health` answer the gateway's `404 Not Found`; only `GET /health` answers, from the gateway. No hostname for models exists outside the binding. `MODELS_TOKEN` stays a reopen trigger, not a task |
+| (3) `rss` after warm-up and after one inference       | open: `/health` on models is reachable only through the gateway, which does not forward it yet                                                                                                                                                                                                                                                |
+| (4) per-stage `Server-Timing` at 1 vCPU               | open: same reason as (3)                                                                                                                                                                                                                                                                                                                      |
+
+Seen on the way: the gateway's `/health` probe of models uses a 2 s timeout, and the first call after the preview scaled to zero answered `"reachable":false,"status":null` while the second, seconds later, answered `"reachable":true,"status":200`. A cold models instance takes longer than 2 s to answer; the gateway module owns what that report should say.
 
 ## Out of scope
 
