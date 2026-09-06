@@ -2,18 +2,20 @@
  * The `Records` seam. Every method takes and returns contracts types or the
  * plain rows declared here; no drizzle type leaves this file.
  *
- * This slice holds the two nouns the tracer bullet needs, `files` and
- * `annotations`, plus `migrate`. The other seven tables exist in the schema
- * from the first migration, so the tickets after this one add methods and not
- * migrations.
+ * Every table exists in the schema from the first migration, so a ticket that
+ * adds a noun here adds methods and not a migration.
  */
 import { Annotation } from "@meco/contracts";
 import type { Store } from "@meco/store";
 import { eq, sql } from "drizzle-orm";
 import { type Brands, brandsOver } from "./brands";
+import { type Callers, callersOver } from "./callers";
+import { type CallKind, type Calls, callsOver } from "./calls";
 import { type Database, type DatabaseDriver, driverFor } from "./database";
 import { applyMigrations } from "./migrate";
+import { type Outputs, outputsOver } from "./outputs";
 import { type People, peopleOver } from "./people";
+import { requestHash } from "./request-hash";
 import { annotations, files } from "./schema";
 import { type Sources, sourcesOver } from "./sources";
 
@@ -62,8 +64,17 @@ export interface Records {
     put(annotation: Annotation): Promise<void>;
   };
   brands: Brands;
+  callers: Callers;
   sources: Sources;
   people: People;
+  calls: Calls;
+  outputs: Outputs;
+  /**
+   * The Request Hash of one request: the SHA-256 of its canonical JSON, Brand
+   * and kind included. What `outputs.byRequest` is asked with, so that the same
+   * request twice is a Replay and not a second inference.
+   */
+  requestHash(brand: string, kind: CallKind, request: unknown): string;
   /** Releases the database. Idempotent. */
   close(): Promise<void>;
 }
@@ -166,8 +177,13 @@ export function records(options: RecordsOptions): Records {
     },
 
     brands: brandsOver(driver),
+    callers: callersOver(driver),
     sources: sourcesOver(driver),
     people: peopleOver(driver, options.store),
+    calls: callsOver(driver),
+    outputs: outputsOver(driver, options.store),
+
+    requestHash,
 
     async close() {
       await driver.close();

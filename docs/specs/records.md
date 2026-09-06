@@ -93,6 +93,7 @@ export interface Records {
     get(id: string): Promise<Call | null>;
     list(query: {
       brand?: string;
+      status?: CallStatus; // `?status=failed` on the Calls list
       limit: number;
       cursor?: string;
     }): Promise<Page<Call>>;
@@ -101,7 +102,10 @@ export interface Records {
     record(output: NewOutput): Promise<Output>;
     byRequest(brand: string, requestHash: string): Promise<Output | null>;
     list(query: OutputQuery): Promise<Page<Output>>; // the Gallery
-    delete(brand: string, storeKey: string): Promise<{ bytesDeleted: boolean }>;
+    delete(
+      brand: string,
+      storeKey: string
+    ): Promise<{ deleted: boolean; bytesDeleted: boolean }>;
   };
   requestHash(brand: string, kind: CallKind, request: unknown): string;
   sweep(now?: Date): Promise<SweepReport>;
@@ -170,8 +174,8 @@ One row per request that entered the gateway, `kind` one of `annotate | crop | r
 
 - `outputs` is keyed `(brand, store_key)`. Two Brands whose Crops come out byte-identical are two rows on one key, and no Brand appears in a public key (ADR-0010).
 - `requestHash(brand, kind, request)` is the SHA-256 of the canonical JSON of `{ brand, kind, request }` with object keys sorted at every depth. It lives in records so canonical means one thing. The gateway calls `outputs.byRequest` before running any module; a hit is an Output, and the gateway still records a Call whose only Step is `records.replay`.
-- `outputs.delete(brand, storeKey)` deletes the row, counts the rows left on that key, and calls `store.delete(key)` only at zero, all in one transaction. The store stays unconditional (ADR-0010); the count is here.
-- The Gallery is `outputs.list({ brand?, placement?, kind?, limit, cursor? })`, newest first, keyset cursor over `(created_at, store_key)`, each row joined with its Call's `source_hash`, `status` and `started_at`. Offset pagination is out: the Gallery is append-only and keyset does not skip a row that landed mid-page. webui derives URLs; records returns Store Keys.
+- `outputs.delete(brand, storeKey)` deletes the row, counts the rows left on that key, and calls `store.delete(key)` only at zero. The rows commit first and the bytes go after, as an Erasure does: the store is not in the transaction, so bytes deleted before a rollback would be bytes a surviving Output still names. The store stays unconditional (ADR-0010); the count is here. It answers `deleted` as well as `bytesDeleted`, because deleting an Output is what a caller retries after a timeout and "there was no such Output" and "the bytes stayed" are two different answers.
+- The Gallery is `outputs.list({ brand?, placement?, kind?, callId?, limit, cursor? })`, newest first, keyset cursor over `(created_at, store_key)`, each row joined with its Call's `source_hash`, `status` and `started_at`. `callId` is what the Call View lists one Call's Outputs with (decision on [#162](https://github.com/timschoch/meco/issues/162)). Offset pagination is out: the Gallery is append-only and keyset does not skip a row that landed mid-page. webui derives URLs; records returns Store Keys.
 
 ### Files, Source Holds and the Sweep
 
@@ -228,6 +232,12 @@ The Neon connection is `meco-records-eu`, `eu-central-1`, Postgres 18.6 (measure
 | `outputs.byRequest` finds the Output of an equal request with keys in another order                                    | hash the request as given                                   |
 | `outputs.list` is newest first, honours `placement` and `kind`, and a cursor never repeats or skips a row              | paginate by offset                                          |
 | `calls.record` keeps a failed Call with its `error`                                                                    | refuse to insert when `status` is `failed`                  |
+| `calls.record` fills nothing in: an `annotate` Call has no Framing, no Matches and no Steps                            | default the empty columns to a shape records invented       |
+| `calls.record` refuses a `kind` or a `status` outside the closed set                                                   | accept any string                                           |
+| `calls.list` is newest first, honours `status`, and its cursor never repeats or skips                                  | paginate by offset                                          |
+| `requestHash` covers the Brand, the kind and array order                                                               | leave the Brand out of the hash                             |
+| `outputs.list` carries its Call's `source_hash`, `status` and `started_at`                                             | answer them off the Output's own row                        |
+| `outputs.delete` of an Output that is not there is not an error and takes no bytes                                     | throw on an Output that is not there                        |
 | `people.create` mints a UUID, and `people.get` finds the Person only for its own Brand                                 | look a Person up by id alone                                |
 | `people.enrol` without a File for the hash is refused                                                                  | write the File on the way in                                |
 | `people.enrol` keeps the Region and the print, and leaves `consent_at` absent when none was given                      | default `consent_at` to now                                 |

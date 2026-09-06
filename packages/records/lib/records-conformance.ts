@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import type { Annotation, FacePrint } from "@meco/contracts";
 import type { Check } from "@meco/contracts/conformance";
 import { type Listing, type Store, memoryStore } from "@meco/store";
+import type { CallError, CallKind, NewCall, Step } from "./calls";
 import { reachRecords, recordsTables } from "./health";
 import { verifying } from "./neon-database";
 import { peoplePrefix } from "./people";
@@ -231,6 +232,29 @@ async function enrolled(
 
 const keysOf = (listed: readonly Listing[]): string[] =>
   listed.map((one) => one.key);
+
+/** What `crypto.randomUUID()` produces, and nothing else. */
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/**
+ * A Brand and a Caller, because a Call's foreign keys need both rows before
+ * there can be a Call at all.
+ */
+async function calling(records: Records, label: string) {
+  const brand = brandFor(label);
+  await records.brands.ensure({ id: brand, name: label });
+  const caller = await records.callers.create({
+    name: label,
+    key: `bearer-${hashOf(label)}`,
+    brands: [brand],
+  });
+  return { brand, callerId: caller.id };
+}
+
+/** `2026-09-06T09:<minute>`, so a check's Calls have distinct start times. */
+const at = (minute: number): string =>
+  `2026-09-06T09:${String(minute).padStart(2, "0")}:00.000Z`;
 
 export function recordsConformance(
   open: () => Promise<Records>,
@@ -768,6 +792,596 @@ export function recordsConformance(
         strictEqual(erasure.erased, false);
         strictEqual(erasure.photos, 0);
         deepStrictEqual(erasure.remaining, []);
+        deepStrictEqual(store.deletes, []);
+      },
+    },
+    {
+      name: "calls.record keeps every field it was given, and a failed Call with its error is a row",
+      async run() {
+        const records = await open();
+        const { brand, callerId } = await calling(records, "records one call");
+        const call: NewCall = {
+          callerId,
+          brand,
+          kind: "render",
+          sourceHash: hashOf("records one call"),
+          request: { template: "story", fields: { title: "Ada" } },
+          framing: { crop: { x: 0.1, y: 0.2, width: 0.5, height: 0.5 } },
+          // identify's whole Identification and not the Match list alone: the
+          // webui needs the verdicts, and records stores it unread (#162).
+          matches: {
+            matches: [
+              { regionId: "face-1", personId: "p-1", similarity: 0.71 },
+            ],
+            faces: [{ regionId: "face-1", verdict: "matched" }],
+            unusableReferencePhotos: [],
+          },
+          redactions: [{ regionId: "face-2", method: "blur" }],
+          steps: [
+            { name: "models.decode", durMs: 31 },
+            { name: "models.scrfd", durMs: 28 },
+            { name: "frame.choose", durMs: 1 },
+          ],
+          cost: { units: [{ name: "render", quantity: 1 }] },
+          error: {
+            module: "compose",
+            code: "no_such_template",
+            message: "story",
+          },
+          status: "failed",
+          startedAt: at(0),
+          durationMs: 412,
+        };
+
+        const recorded = await records.calls.record(call);
+
+        // A failed Call is a Call. The webui's "what failed" reads `error`, and
+        // a failure nobody wrote down is a gap in the Gallery instead.
+        deepStrictEqual(await records.calls.get(recorded.id), recorded);
+        strictEqual(recorded.status, "failed");
+        deepStrictEqual(recorded.error, call.error);
+        deepStrictEqual(recorded.steps, call.steps);
+        // Every jsonb another module owns comes back as it went in, unread.
+        deepStrictEqual(recorded.request, call.request);
+        deepStrictEqual(recorded.framing, call.framing);
+        deepStrictEqual(recorded.matches, call.matches);
+        deepStrictEqual(recorded.redactions, call.redactions);
+        deepStrictEqual(recorded.cost, call.cost);
+        strictEqual(recorded.sourceHash, call.sourceHash);
+        strictEqual(recorded.startedAt, at(0));
+        strictEqual(recorded.durationMs, 412);
+        ok(UUID.test(recorded.id), `${recorded.id} is no UUID`);
+      },
+    },
+    {
+      name: "calls.record fills nothing in: an annotate Call has no framing, no Matches and no Steps",
+      async run() {
+        const records = await open();
+        const { brand, callerId } = await calling(
+          records,
+          "records a bare call"
+        );
+
+        const recorded = await records.calls.record({
+          callerId,
+          brand,
+          kind: "annotate",
+          status: "ok",
+        });
+
+        // Every column a kind does not use stays empty rather than acquiring a
+        // shape records invented, which the webui would then have to explain.
+        strictEqual(recorded.sourceHash, null);
+        strictEqual(recorded.request, null);
+        strictEqual(recorded.framing, null);
+        strictEqual(recorded.matches, null);
+        strictEqual(recorded.redactions, null);
+        strictEqual(recorded.cost, null);
+        strictEqual(recorded.error, null);
+        strictEqual(recorded.durationMs, null);
+        // Steps are the exception: a Call has a list of them, possibly empty.
+        deepStrictEqual(recorded.steps, []);
+      },
+    },
+    {
+      name: "calls.record refuses a kind and a status outside the closed set",
+      async run() {
+        const records = await open();
+        const { brand, callerId } = await calling(
+          records,
+          "records a bad call"
+        );
+        const call = { callerId, brand, kind: "crop", status: "ok" } as const;
+
+        // `kind` and `status` are `text` and not a Postgres enum, so the set is
+        // written down once in TypeScript and checked here. Without the check
+        // the column would take anything a caller mistyped.
+        await rejects(() =>
+          records.calls.record({
+            ...call,
+            kind: "resize",
+          } as unknown as NewCall)
+        );
+        await rejects(() =>
+          records.calls.record({
+            ...call,
+            status: "pending",
+          } as unknown as NewCall)
+        );
+      },
+    },
+    {
+      name: "calls.record refuses Steps and an error that are not the shape records keeps",
+      async run() {
+        const records = await open();
+        const { brand, callerId } = await calling(
+          records,
+          "records a malformed call"
+        );
+        const call = { callerId, brand, kind: "crop", status: "ok" } as const;
+
+        // `steps` and `error` are jsonb columns, so nothing but this stands
+        // between a mistyped Step and a Calls list the webui cannot render.
+        await rejects(() =>
+          records.calls.record({
+            ...call,
+            steps: [{ name: "frame.choose" }] as unknown as Step[],
+          })
+        );
+        await rejects(() =>
+          records.calls.record({
+            ...call,
+            error: { code: "boom" } as unknown as CallError,
+          })
+        );
+      },
+    },
+    {
+      name: "calls.get of an id never recorded is null, not a throw",
+      async run() {
+        const records = await open();
+
+        strictEqual(await records.calls.get(crypto.randomUUID()), null);
+      },
+    },
+    {
+      name: "calls.list is newest first, honours brand and status, and its cursor never repeats or skips a Call",
+      async run() {
+        const records = await open();
+        const mine = await calling(records, "lists its calls");
+        const theirs = await calling(records, "is listed by nobody else");
+
+        const ids: string[] = [];
+        for (let minute = 0; minute < 5; minute++) {
+          const call = await records.calls.record({
+            callerId: mine.callerId,
+            brand: mine.brand,
+            kind: "crop",
+            status: minute % 2 === 0 ? "ok" : "failed",
+            startedAt: at(minute),
+          });
+          ids.push(call.id);
+        }
+        const newestFirst = [...ids].reverse();
+        // Newer than every Call of the Brand under test, and another Brand's.
+        await records.calls.record({
+          callerId: theirs.callerId,
+          brand: theirs.brand,
+          kind: "crop",
+          status: "ok",
+          startedAt: at(9),
+        });
+
+        const all = await records.calls.list({ brand: mine.brand, limit: 10 });
+        const failed = await records.calls.list({
+          brand: mine.brand,
+          status: "failed",
+          limit: 10,
+        });
+
+        deepStrictEqual(
+          all.rows.map((one) => one.id),
+          newestFirst
+        );
+        // No cursor when nothing is left: an "older" link the Gallery would
+        // show on the last page is a link to an empty page.
+        strictEqual(all.cursor, null);
+        // `?status=failed` on the Calls list.
+        deepStrictEqual(
+          failed.rows.map((one) => one.id),
+          [ids[3], ids[1]]
+        );
+
+        const first = await records.calls.list({ brand: mine.brand, limit: 2 });
+        ok(first.cursor !== null, "no cursor on a page with more behind it");
+        // A Call recorded between the two pages, newer than every one of them.
+        // A keyset cursor reads on from where the page ended, so it changes
+        // nothing; an offset would shift every remaining row down by one and
+        // the Call at index 2 would never be seen.
+        await records.calls.record({
+          callerId: mine.callerId,
+          brand: mine.brand,
+          kind: "crop",
+          status: "ok",
+          startedAt: at(8),
+        });
+        const second = await records.calls.list({
+          brand: mine.brand,
+          limit: 2,
+          cursor: first.cursor,
+        });
+
+        deepStrictEqual(
+          [...first.rows, ...second.rows].map((one) => one.id),
+          newestFirst.slice(0, 4)
+        );
+      },
+    },
+    {
+      name: "requestHash sorts object keys at every depth, and covers the Brand, the kind and array order",
+      async run() {
+        const records = await open();
+        const request = {
+          template: "story",
+          fields: { title: "Ada", subtitle: "Lovelace" },
+          source: { hash: hashOf("one photograph") },
+        };
+        // The same request, written by a client that serialises its keys in
+        // another order. JSON has no key order, so two of these are one
+        // request, and a Replay that missed it would pay for a second Render.
+        const reordered = {
+          source: { hash: hashOf("one photograph") },
+          fields: { subtitle: "Lovelace", title: "Ada" },
+          template: "story",
+        };
+        const hashed = (brand: string, kind: CallKind, body: unknown) =>
+          records.requestHash(brand, kind, body);
+
+        strictEqual(
+          hashed("laica", "render", request),
+          hashed("laica", "render", reordered)
+        );
+        // The Brand is inside the hash: two Brands asking the same thing own
+        // two Outputs, and neither may find the other's by asking again.
+        notStrictEqual(
+          hashed("laica", "render", request),
+          hashed("hopefamily", "render", request)
+        );
+        notStrictEqual(
+          hashed("laica", "render", request),
+          hashed("laica", "crop", request)
+        );
+        notStrictEqual(
+          hashed("laica", "render", request),
+          hashed("laica", "render", { ...request, template: "post" })
+        );
+        // An array is ordered and an object is not: two slides the other way
+        // round are another Carousel.
+        notStrictEqual(
+          hashed("laica", "carousel", { slides: ["a", "b"] }),
+          hashed("laica", "carousel", { slides: ["b", "a"] })
+        );
+        ok(
+          /^[0-9a-f]{64}$/.test(hashed("laica", "render", request)),
+          "a Request Hash is 64 lowercase hex, as every hash records keeps is"
+        );
+      },
+    },
+    {
+      name: "outputs.byRequest finds the Output of an equal request whose keys arrived in another order, and only for its own Brand",
+      async run() {
+        const records = await open();
+        const mine = await calling(records, "replays a render");
+        const theirs = await calling(records, "asks for the very same render");
+        const request = { template: "story", fields: { title: "Ada" } };
+        const call = await records.calls.record({
+          callerId: mine.callerId,
+          brand: mine.brand,
+          kind: "render",
+          status: "ok",
+          startedAt: at(0),
+          sourceHash: hashOf("replays a render"),
+        });
+
+        const output = await records.outputs.record({
+          brand: mine.brand,
+          storeKey: `renders/${hashOf("replays a render")}.png`,
+          callId: call.id,
+          kind: "render",
+          placement: "ig-post",
+          requestHash: records.requestHash(mine.brand, "render", request),
+        });
+
+        deepStrictEqual(
+          await records.outputs.byRequest(
+            mine.brand,
+            records.requestHash(mine.brand, "render", {
+              fields: { title: "Ada" },
+              template: "story",
+            })
+          ),
+          output
+        );
+        strictEqual(
+          await records.outputs.byRequest(
+            theirs.brand,
+            records.requestHash(theirs.brand, "render", request)
+          ),
+          null
+        );
+        strictEqual(
+          await records.outputs.byRequest(mine.brand, hashOf("never asked")),
+          null
+        );
+      },
+    },
+    {
+      name: "outputs.list is newest first, honours brand, placement, kind and callId, carries its Call's facts, and its cursor never repeats or skips a row",
+      async run() {
+        const records = await open();
+        const mine = await calling(records, "lists its outputs");
+        const theirs = await calling(records, "is in nobody else's gallery");
+        const sourceHash = hashOf("the photograph the gallery shows");
+        const rendered = await records.calls.record({
+          callerId: mine.callerId,
+          brand: mine.brand,
+          kind: "render",
+          status: "ok",
+          startedAt: at(3),
+          sourceHash,
+        });
+        const cropped = await records.calls.record({
+          callerId: mine.callerId,
+          brand: mine.brand,
+          kind: "crop",
+          status: "failed",
+          startedAt: at(4),
+        });
+
+        // Keys that sort the way they were created, so the tiebreak agrees with
+        // the times and this check says the same thing on a machine fast enough
+        // to write two rows inside one microsecond.
+        const key = (index: number) => `renders/gallery-${index}.png`;
+        const record = (
+          index: number,
+          of: { brand: string; callId: string },
+          extra: { kind: "render" | "crop"; placement?: string }
+        ) =>
+          records.outputs.record({
+            brand: of.brand,
+            storeKey: key(index),
+            callId: of.callId,
+            requestHash: hashOf(`gallery ${index}`),
+            ...extra,
+          });
+
+        for (const index of [0, 1]) {
+          await record(
+            index,
+            { ...mine, callId: rendered.id },
+            {
+              kind: "render",
+              placement: "ig-post",
+            }
+          );
+        }
+        for (const index of [2, 3]) {
+          await record(
+            index,
+            { ...mine, callId: rendered.id },
+            {
+              kind: "render",
+              placement: "ig-story",
+            }
+          );
+        }
+        await record(4, { ...mine, callId: cropped.id }, { kind: "crop" });
+        const elsewhere = await records.calls.record({
+          callerId: theirs.callerId,
+          brand: theirs.brand,
+          kind: "render",
+          status: "ok",
+          startedAt: at(5),
+        });
+        await records.outputs.record({
+          brand: theirs.brand,
+          storeKey: key(9),
+          callId: elsewhere.id,
+          kind: "render",
+          requestHash: hashOf("gallery 9"),
+        });
+
+        const gallery = await records.outputs.list({
+          brand: mine.brand,
+          limit: 10,
+        });
+
+        deepStrictEqual(
+          gallery.rows.map((one) => one.storeKey),
+          [4, 3, 2, 1, 0].map(key)
+        );
+        strictEqual(gallery.cursor, null);
+        // Each row carries its Call's facts, so the Gallery shows what an
+        // Output was made from and how the Call that made it ended without a
+        // second read per tile.
+        const newest = gallery.rows[0];
+        ok(newest !== undefined);
+        strictEqual(newest.status, "failed");
+        strictEqual(newest.startedAt, at(4));
+        strictEqual(newest.sourceHash, null);
+        const oldest = gallery.rows[4];
+        ok(oldest !== undefined);
+        strictEqual(oldest.status, "ok");
+        strictEqual(oldest.startedAt, at(3));
+        strictEqual(oldest.sourceHash, sourceHash);
+        strictEqual(oldest.placement, "ig-post");
+
+        deepStrictEqual(
+          (
+            await records.outputs.list({
+              brand: mine.brand,
+              placement: "ig-story",
+              limit: 10,
+            })
+          ).rows.map((one) => one.storeKey),
+          [3, 2].map(key)
+        );
+        deepStrictEqual(
+          (
+            await records.outputs.list({
+              brand: mine.brand,
+              kind: "crop",
+              limit: 10,
+            })
+          ).rows.map((one) => one.storeKey),
+          [key(4)]
+        );
+        // The Call View: one Call's Outputs (decision on #162).
+        deepStrictEqual(
+          (await records.outputs.list({ callId: rendered.id, limit: 10 })).rows
+            .map((one) => one.storeKey)
+            .sort(),
+          [0, 1, 2, 3].map(key)
+        );
+
+        const first = await records.outputs.list({
+          brand: mine.brand,
+          limit: 2,
+        });
+        ok(first.cursor !== null, "no cursor on a page with more behind it");
+        // An Output recorded between the two pages, newer than every one of
+        // them. Keyset reads on from where the page ended; an offset would
+        // shift the rest down by one and never show `gallery-2`.
+        await record(5, { ...mine, callId: cropped.id }, { kind: "crop" });
+        const second = await records.outputs.list({
+          brand: mine.brand,
+          limit: 2,
+          cursor: first.cursor,
+        });
+
+        deepStrictEqual(
+          [...first.rows, ...second.rows].map((one) => one.storeKey),
+          [4, 3, 2, 1].map(key)
+        );
+      },
+    },
+    {
+      name: "a cursor walks the whole Gallery however fast the rows were written",
+      async run() {
+        const records = await open();
+        const mine = await calling(records, "writes its outputs in a burst");
+        const call = await records.calls.record({
+          callerId: mine.callerId,
+          brand: mine.brand,
+          kind: "crop",
+          status: "ok",
+        });
+
+        // Enough rows for seven pages, so the walk is the whole list and not
+        // one hop. What it cannot provoke is two rows in one millisecond at
+        // different microseconds — pglite's clock is millisecond-resolution and
+        // two round trips to Neon are milliseconds apart — which is why the
+        // cursor's precision is fixed by its type instead (`page.ts`).
+        const keys: string[] = [];
+        for (let index = 0; index < 20; index++) {
+          const storeKey = `renders/burst-${String(index).padStart(2, "0")}.png`;
+          await records.outputs.record({
+            brand: mine.brand,
+            storeKey,
+            callId: call.id,
+            kind: "crop",
+            requestHash: hashOf(`burst ${index}`),
+          });
+          keys.push(storeKey);
+        }
+
+        const walked: string[] = [];
+        let cursor: string | undefined;
+        do {
+          const page = await records.outputs.list({
+            brand: mine.brand,
+            limit: 3,
+            ...(cursor === undefined ? {} : { cursor }),
+          });
+          walked.push(...page.rows.map((one) => one.storeKey));
+          cursor = page.cursor ?? undefined;
+        } while (cursor !== undefined);
+
+        deepStrictEqual(walked, [...keys].reverse());
+      },
+    },
+    {
+      name: "outputs.delete on a Store Key two Brands share deletes one row and no bytes; the second delete removes them",
+      async run() {
+        const store = watching();
+        const records = await fixtures.withStore(store);
+        const mine = await calling(records, "shares an output key");
+        const theirs = await calling(records, "shares that same output key");
+        // Byte-identical Crops of two Brands. `store.put` keys on the hash of
+        // the bytes and no Brand appears in a public key (ADR-0010), so the two
+        // Outputs are two rows on one key.
+        const shared = await store.put(
+          "renders",
+          bytesFor("byte-identical crops"),
+          "image/png"
+        );
+        for (const one of [mine, theirs]) {
+          const call = await records.calls.record({
+            callerId: one.callerId,
+            brand: one.brand,
+            kind: "crop",
+            status: "ok",
+          });
+          await records.outputs.record({
+            brand: one.brand,
+            storeKey: shared.key,
+            callId: call.id,
+            kind: "crop",
+            requestHash: records.requestHash(one.brand, "crop", { shared: 1 }),
+          });
+        }
+
+        const first = await records.outputs.delete(mine.brand, shared.key);
+
+        strictEqual(first.deleted, true);
+        strictEqual(first.bytesDeleted, false);
+        // The other Brand's stable URL is still a URL. `store.delete` is
+        // unconditional (ADR-0010), so nothing but this count could stop it.
+        deepStrictEqual(store.deletes, []);
+        ok(await store.head(shared.key));
+        deepStrictEqual(
+          (await records.outputs.list({ brand: mine.brand, limit: 10 })).rows,
+          []
+        );
+        strictEqual(
+          (await records.outputs.list({ brand: theirs.brand, limit: 10 })).rows
+            .length,
+          1
+        );
+
+        const second = await records.outputs.delete(theirs.brand, shared.key);
+
+        strictEqual(second.deleted, true);
+        strictEqual(second.bytesDeleted, true);
+        deepStrictEqual(store.deletes, [shared.key]);
+        strictEqual(await store.head(shared.key), null);
+      },
+    },
+    {
+      name: "outputs.delete of an Output that is not there is not an error and takes no bytes",
+      async run() {
+        const store = watching();
+        const records = await fixtures.withStore(store);
+        const brand = brandFor("deletes nothing at all");
+        await records.brands.ensure({ id: brand, name: "Nothing" });
+
+        const deleted = await records.outputs.delete(brand, "renders/gone.png");
+
+        // Deleting an Output is what a caller retries after a timeout, as an
+        // Erasure is. A second run that threw would make it a call nobody could
+        // safely repeat.
+        strictEqual(deleted.deleted, false);
+        strictEqual(deleted.bytesDeleted, false);
         deepStrictEqual(store.deletes, []);
       },
     },
