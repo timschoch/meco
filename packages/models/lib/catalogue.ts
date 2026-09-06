@@ -1,3 +1,4 @@
+import { createDfine } from "./adapters/dfine/adapter";
 import { createYunet } from "./adapters/yunet/adapter";
 import type { Catalogue } from "./detector";
 import { runtimeVersion } from "./session";
@@ -8,6 +9,6 @@ import { runtimeVersion } from "./session";
  * the order Detectors run, warm and are listed in.
  */
 export const catalogue: Catalogue = {
-  detectors: [createYunet()],
+  detectors: [createYunet(), createDfine()],
   onnxruntime: runtimeVersion(),
 };

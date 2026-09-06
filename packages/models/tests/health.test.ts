@@ -47,7 +47,10 @@ describe("models GET /models", () => {
         warm: d.isWarm(),
       }))
     );
-    expect(body.map((entry) => entry.name)).toContain("yunet");
+    expect(body.map((entry) => entry.name)).toEqual(["yunet", "dfine"]);
     expect(body.find((entry) => entry.name === "yunet")?.licence).toBe("MIT");
+    expect(body.find((entry) => entry.name === "dfine")?.licence).toBe(
+      "Apache-2.0"
+    );
   });
 });
