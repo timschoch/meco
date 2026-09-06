@@ -11,7 +11,14 @@ import {
   put as blobPut,
 } from "@vercel/blob";
 import { credentialFor } from "./credentials";
-import { type Access, accessFor, assertKey, storeKey } from "./keys";
+import {
+  type Access,
+  accessFor,
+  assertKey,
+  byKey,
+  storeKey,
+  subtreePrefix,
+} from "./keys";
 
 /** The bytes at one Store Key, with what is known about them. */
 export interface StoredObject {
@@ -110,6 +117,19 @@ const MAX_LIST_PAGE = 1000;
 export function blobStore(config: BlobStoreConfig = {}): Store {
   const env = config.env ?? process.env;
   const { abortSignal, listPageSize = MAX_LIST_PAGE } = config;
+  // Refused at construction rather than at the call, so a page size that would
+  // quietly shorten every listing can never become a deletion proof that
+  // looked at less than it reported.
+  if (!Number.isInteger(listPageSize) || listPageSize < 1) {
+    throw new Error(
+      `@meco/store: listPageSize ${listPageSize} is no page size. An integer from 1 to ${MAX_LIST_PAGE}.`
+    );
+  }
+  if (listPageSize > MAX_LIST_PAGE) {
+    throw new Error(
+      `@meco/store: listPageSize ${listPageSize} is over Blob's own maximum of ${MAX_LIST_PAGE}, which would silently return fewer.`
+    );
+  }
 
   const options = (access: Access) => {
     const { auth } = credentialFor(env, access);
@@ -182,10 +202,7 @@ export function blobStore(config: BlobStoreConfig = {}): Store {
 
     async list(prefix) {
       assertKey(prefix, "prefix");
-      // The trailing slash is what makes a prefix a subtree: Blob matches the
-      // raw string, so `people/laica/p_1` alone would also name
-      // `people/laica/p_10/…`.
-      const under = `${prefix}/`;
+      const under = subtreePrefix(prefix);
       const common = options(accessFor(prefix));
 
       const listed: Listing[] = [];
@@ -210,9 +227,7 @@ export function blobStore(config: BlobStoreConfig = {}): Store {
         cursor = page.hasMore ? page.cursor : undefined;
       } while (cursor !== undefined);
 
-      return listed.sort((a, b) =>
-        a.key < b.key ? -1 : a.key > b.key ? 1 : 0
-      );
+      return listed.sort(byKey);
     },
   };
 }

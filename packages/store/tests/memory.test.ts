@@ -33,6 +33,7 @@ const CHECK_NAMES = [
   "deleting a key that is already gone is not an error",
   "list names every key under the prefix with its size, however many pages that takes",
   "list names a subtree, so a prefix never matches half a segment",
+  "list hands its objects back ordered by key",
   "a key with `..`, an empty segment or a leading slash is refused",
   "bytes over MAX_OBJECT_BYTES are refused, with the size in the message",
   "an unmapped content type is refused rather than guessed",

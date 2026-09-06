@@ -8,7 +8,7 @@
  * adapters rather than the same rule written twice.
  */
 import type { Listing, Store } from "./blob";
-import { assertKey, storeKey } from "./keys";
+import { assertKey, byKey, storeKey, subtreePrefix } from "./keys";
 
 /** What one key holds. The bytes are the store's own copy, never the caller's. */
 type Held = {
@@ -73,7 +73,7 @@ export function memoryStore(): Store {
 
     async list(prefix) {
       assertKey(prefix, "prefix");
-      const under = `${prefix}/`;
+      const under = subtreePrefix(prefix);
       const listed: Listing[] = [];
       for (const [key, held] of objects) {
         if (!key.startsWith(under)) continue;
@@ -83,12 +83,7 @@ export function memoryStore(): Store {
           createdAt: held.createdAt,
         });
       }
-      // Sorted, because a `Map` hands its entries back in insertion order and
-      // the Blob adapter hands them back by key. The order is part of the
-      // interface or the two adapters differ in what a caller may rely on.
-      return listed.sort((a, b) =>
-        a.key < b.key ? -1 : a.key > b.key ? 1 : 0
-      );
+      return listed.sort(byKey);
     },
   };
 }

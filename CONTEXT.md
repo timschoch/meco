@@ -315,6 +315,10 @@ _Avoid_: secure bucket, vault, protected store
 The adapter that keeps its objects in a `Map` for the life of the process. Behind the identical interface and under the identical Conformance Checks as the Blob adapter, so it is the gate's store and never a weaker imitation of one. Not a cache and not a fake: nothing sits in front of it, and nothing it does is stubbed.
 _Avoid_: mock, fake, stub, test double, disk adapter
 
+**Listing**:
+One Stored Object as `list` names it: its Store Key, its size and when it was written. What a Listing is for is proving that a delete left nothing behind — never the Gallery, which `records` owns and `webui` reads. A Listing carries no bytes and no content type; a caller that wants either asks `head` or `get`.
+_Avoid_: entry, item, record (a record is `records`'), gallery row, index
+
 **Signed URL**:
 A URL that hands over one Private Store object to whoever holds it, until it expires minutes later. Minted only by the gateway, only for a caller it has already authorised, and short-lived because the reason it was minted does not outlive the request.
 _Avoid_: presigned URL, temporary link, token URL, share link

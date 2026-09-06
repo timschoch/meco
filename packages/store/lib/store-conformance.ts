@@ -83,14 +83,7 @@ export function storeConformance(
 ): Check[] {
   const { prefix, wrote, deleteDeadlineMs } = fixtures;
 
-  /** Writes, and tells the caller what key it left behind. */
-  const put = async (bytes: Uint8Array): Promise<PutResult> => {
-    const result = await store.put(prefix, bytes, CONTENT_TYPE);
-    wrote?.(result.key);
-    return result;
-  };
-
-  /** The same, under a prefix the boundary check chooses rather than the fixture's. */
+  /** Writes under a given prefix, and says what key it left behind. */
   const putAt = async (
     where: string,
     bytes: Uint8Array
@@ -100,8 +93,11 @@ export function storeConformance(
     return result;
   };
 
-  /** What still names the key, or `null` once nothing does. */
-  const stillThere = async (key: string): Promise<string | null> => {
+  /** The fixture's own prefix, which is where all but one check writes. */
+  const put = (bytes: Uint8Array): Promise<PutResult> => putAt(prefix, bytes);
+
+  /** What still names the key and how, or `null` once nothing does. */
+  const whatStillNames = async (key: string): Promise<string | null> => {
     if ((await store.get(key)) !== null) {
       return `get still hands back "${key}" after it was deleted`;
     }
@@ -116,7 +112,7 @@ export function storeConformance(
   const gone = async (key: string): Promise<void> => {
     const deadline = Date.now() + (deleteDeadlineMs ?? 0);
     for (;;) {
-      const problem = await stillThere(key);
+      const problem = await whatStillNames(key);
       if (problem === null) return;
       if (Date.now() >= deadline) throw new Error(problem);
       await sleep(POLL_INTERVAL_MS);
@@ -300,6 +296,26 @@ export function storeConformance(
           (await store.list(sibling)).some((one) => one.key === key),
           `list("${sibling}") does not name its own "${key}"`
         );
+      },
+    },
+    {
+      name: "list hands its objects back ordered by key",
+      async run() {
+        // Promised rather than incidental: a `Map` yields insertion order and a
+        // backend yields its own, so an unordered `list` is a difference
+        // between the two adapters that a caller would find in production.
+        await put(payload("ordered one"));
+        await put(payload("ordered two"));
+
+        const listed = await store.list(prefix);
+
+        ok(listed.length > 1, `list("${prefix}") named ${listed.length}`);
+        for (let i = 1; i < listed.length; i += 1) {
+          ok(
+            listed[i - 1]!.key < listed[i]!.key,
+            `list("${prefix}") names "${listed[i - 1]!.key}" before "${listed[i]!.key}"`
+          );
+        }
       },
     },
     {
