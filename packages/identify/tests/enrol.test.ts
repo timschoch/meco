@@ -93,7 +93,18 @@ const photograph = (annotation: Annotation, name: string): Photograph => {
       if (options.hash !== hash) {
         throw new Error(`the Annotator was asked for ${options.hash}`);
       }
-      if (createHash("sha256").update(given).digest("hex") !== hash) {
+      // `enrol` sends the URL form, so this reads the object back out of the
+      // same store it was filed in, the way the models host fetches it. An
+      // Annotator that could not read it is an enrolment that filed the bytes
+      // in the wrong place, or after the call instead of before it.
+      const served =
+        given instanceof Uint8Array
+          ? given
+          : await open.store.get(new URL(given.url).pathname.slice(1));
+      if (served === null) {
+        throw new Error("the Annotator was given a URL that hands over nothing");
+      }
+      if (createHash("sha256").update(served).digest("hex") !== hash) {
         throw new Error("the Annotator was given other bytes than the hash");
       }
       return stamped;

@@ -53,6 +53,27 @@ export const SERVER_TIMING =
   "fetch;dur=93.8;hops=1, decode;dur=12.0, yunet;dur=43.6, dfine;dur=180.2, edgeface;dur=50.1";
 
 /**
+ * The largest body the service binding between two container services will
+ * carry, measured on the platform: 4,000,000 B answered 200 and 6,000,000 B
+ * answered `413 FUNCTION_PAYLOAD_TOO_LARGE`, and #188 put the whole-request
+ * bound at this exact number (`docs/specs/models.md`, "The wire").
+ *
+ * The fake host enforces it so that a carrier that goes back to posting bytes
+ * fails here the way it fails in production. Without this, every check would
+ * pass on a photograph the platform would refuse, which is the shape of bug
+ * this fake exists to catch.
+ */
+export const MAX_BINDING_BODY_BYTES = 4_493_537;
+
+/** What the platform answers, not the models host: no wire error body at all. */
+class PayloadTooLarge extends Error {
+  readonly response = new Response(
+    "Request Entity Too Large\n\nFUNCTION_PAYLOAD_TOO_LARGE\n\nfra1::fake\n",
+    { status: 413 }
+  );
+}
+
+/**
  * models' wire from fixtures. `/health` and `/models` answer the committed
  * bodies; `/annotate` answers the fixture Annotation whose bytes hash to the
  * body's sha256, or `undecodable` as the host would for bytes it cannot read;
@@ -62,8 +83,17 @@ export const SERVER_TIMING =
 export function fakeModels(
   options: {
     health?: unknown;
-    /** Answers `/annotate` instead of the fixtures, for an error a test wants. */
-    annotate?: (request: Request) => Promise<Response>;
+    /**
+     * Answers `/annotate` instead of the fixtures, for an error a test wants.
+     * The carrier is resolved before it is called and the photograph handed
+     * in, so an override never has to know which of the two shapes arrived —
+     * and never accidentally reads a `{ url }` body as if it were pixels.
+     * `bytes` is `null` when the URL named nothing the store holds.
+     */
+    annotate?: (
+      request: Request,
+      bytes: Uint8Array | null
+    ) => Promise<Response>;
   } = {}
 ) {
   const seen: string[] = [];
@@ -84,8 +114,16 @@ export function fakeModels(
     }
     if (pathname === "/models") return Response.json(modelsCatalogue);
     if (pathname === "/annotate" && request.method === "POST") {
-      if (options.annotate) return options.annotate(request);
-      const body = await sourceBytes(request);
+      let body: Uint8Array | null;
+      try {
+        body = await sourceBytes(request);
+      } catch (refusal) {
+        // The platform's own answer, which never reaches the models host, so
+        // the client sees a 413 with no wire error body — `bad_response`.
+        if (refusal instanceof PayloadTooLarge) return refusal.response;
+        throw refusal;
+      }
+      if (options.annotate) return options.annotate(request, body);
       if (body === null) {
         return Response.json(
           {
@@ -123,7 +161,9 @@ export function fakeModels(
   async function sourceBytes(request: Request): Promise<Uint8Array | null> {
     const type = request.headers.get("content-type") ?? "";
     if (!type.startsWith("application/json")) {
-      return new Uint8Array(await request.arrayBuffer());
+      const body = new Uint8Array(await request.arrayBuffer());
+      if (body.byteLength > MAX_BINDING_BODY_BYTES) throw new PayloadTooLarge();
+      return body;
     }
     const { url } = (await request.json()) as { url: string };
     fetched.push(url);

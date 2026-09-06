@@ -106,9 +106,11 @@ export function createApp(deps: GatewayDeps): Hono<CallerEnv> {
     identify: identify({
       records,
       store,
-      annotate: async (bytes, options) => {
+      // Passed straight through: identify's `AnnotateSource` and the models
+      // client's are the same two shapes, and identify chooses which it sends.
+      annotate: async (source, options) => {
         if (models === null) throw modelsUnbound();
-        return models.annotate(bytes, options);
+        return models.annotate(source, options);
       },
     }),
     fetch,

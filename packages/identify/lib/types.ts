@@ -7,12 +7,24 @@ import type { Records, ReferencePhoto } from "@meco/records";
 import type { Store } from "@meco/store";
 
 /**
- * What turns bytes into an Annotation: the models client in production, a
- * fixture-backed fake in the suite. The one place identify substitutes a model
- * for data, and it is never called by `match`.
+ * How a photograph reaches the Annotator: its bytes, or a Signed URL the far
+ * side fetches for itself.
+ *
+ * Structurally the models client's own `AnnotateSource`, written out here
+ * because identify may not import `@meco/models` — the two containers share no
+ * server code (`packages/README.md`). The URL form exists because a body over
+ * 4.5 MB cannot cross the service binding (#201), and a Reference Photo is
+ * routinely over it.
+ */
+export type AnnotateSource = Uint8Array | { readonly url: string };
+
+/**
+ * What turns a photograph into an Annotation: the models client in production,
+ * a fixture-backed fake in the suite. The one place identify substitutes a
+ * model for data, and it is never called by `match`.
  */
 export type Annotator = (
-  bytes: Uint8Array,
+  source: AnnotateSource,
   options: { readonly hash: string }
 ) => Promise<Annotation>;
 
