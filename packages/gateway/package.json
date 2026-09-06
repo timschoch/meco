@@ -11,13 +11,17 @@
     "@hono/node-server": "^1.19.7",
     "@meco/compose": "workspace:*",
     "@meco/contracts": "workspace:*",
+    "@meco/frame": "workspace:*",
     "@meco/identify": "workspace:*",
     "@meco/models": "workspace:*",
     "@meco/records": "workspace:*",
+    "@meco/redact": "workspace:*",
     "@meco/store": "workspace:*",
     "@meco/webui": "workspace:*",
     "@modelcontextprotocol/server": "^2.0.0",
+    "@takumi-rs/core": "2.13.6",
     "hono": "^4.10.7",
+    "sharp": "0.35.4",
     "zod": "^4.5.4"
   },
   "scripts": {

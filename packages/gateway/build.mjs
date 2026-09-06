@@ -1,6 +1,23 @@
-// Bundles the container entry point into one file, so the runtime image needs
-// no node_modules: pnpm's workspace symlinks do not survive a COPY.
+// Bundles the container entry point into one file and lays each Look's asset
+// files beside it, so the runtime image carries the bundle, the three Look
+// folders and the two native packages the bundle leaves external.
+//
+// `sharp` and `@takumi-rs/core` load native binaries by their own paths and
+// cannot be bundled (the `models` image keeps `sharp` and `onnxruntime-node`
+// outside its bundle for the same reason); `Containerfile` installs them flat
+// with `pnpm deploy`. Both are direct dependencies of this package: `lib/
+// decode.ts` imports `sharp` for the one decode, and `@takumi-rs/core` reaches
+// the bundle through compose, where a workspace dependency's own dependency is
+// nested under it by `pnpm deploy` and `/app/server.js` cannot resolve it.
+// Measured on deployment
+// meco-i0z94sd7l: `ERR_MODULE_NOT_FOUND Cannot find package '@takumi-rs/core'
+// imported from /app/server.js`. `models` declares its two the same way.
+// Every Look folder is then copied to
+// `dist/bundle/<brand>/` minus its TypeScript, which is where compose looks
+// from a bundle: `lib/looks/assets.ts` resolves `<its own directory>/<brand>/
+// <file>`, and in a single-file bundle its own directory is this one.
 import { build } from "esbuild";
+import { cp, readdir } from "node:fs/promises";
 
 await build({
   entryPoints: ["server.ts"],
@@ -8,17 +25,7 @@ await build({
   platform: "node",
   format: "esm",
   target: "node22",
-  outdir: "dist/bundle",
-  // compose's index is reached by `list_templates` through a dynamic import
-  // and carries two natives, which load their binaries by their own paths and
-  // cannot be bundled (the models image keeps the same two outside its
-  // bundle). Splitting keeps that import dynamic, so the chunk that names the
-  // externals loads on the first call and not at boot. The runtime image does
-  // not carry them yet: that is #183's work, ledgered on #181, and until then
-  // the one route that imports compose answers 500 on a deployment while every
-  // other route serves.
-  splitting: true,
-  chunkNames: "chunks/[name]-[hash]",
+  outfile: "dist/bundle/server.js",
   external: ["sharp", "@takumi-rs/core"],
   // An ESM bundle has no `require`, so esbuild replaces a CommonJS dependency's
   // `require(…)` with a shim that throws. `@vercel/blob` reaches `jose` through
@@ -34,3 +41,12 @@ await build({
     ].join("\n"),
   },
 });
+
+const looks = new URL("../compose/lib/looks/", import.meta.url);
+for (const entry of await readdir(looks, { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  await cp(new URL(`${entry.name}/`, looks), `dist/bundle/${entry.name}/`, {
+    recursive: true,
+    filter: (source) => !source.endsWith(".ts"),
+  });
+}

@@ -18,22 +18,35 @@ import { ComposeError } from "../errors";
 const HELD = new Map<string, Uint8Array>();
 
 /**
- * A Look's reader for the files beside it: hand it `import.meta.url`, call what
- * comes back with a path relative to the Look's own folder.
+ * Where the Look folders are. In source that is this directory,
+ * `lib/looks/`; in a bundle it is the bundle's own directory, into which the
+ * bundling build copies each Look's files under the Brand's name. Both resolve
+ * from this one `import.meta.url`, the way `models` finds an adapter's weights.
  *
- * A factory rather than a `read(relative, base)` each Look passes its own
- * `import.meta.url` to: bound once, the base cannot be got wrong at a call
- * site, and a Look says where its files are in one line instead of wrapping the
- * call again in every folder.
+ * Keyed by the Brand and not by each Look's own `import.meta.url`: a bundler
+ * collapses every Look into one file, so three Looks reading `./logo.png`
+ * relative to their own module would then read one path and get one wordmark
+ * (#183).
+ */
+const LOOKS_DIR = new URL("./", import.meta.url);
+
+/**
+ * A Look's reader for its own files: hand it the Brand, call what comes back
+ * with a path relative to the Look's folder.
+ *
+ * A factory rather than a `read(brand, relative)` each Look passes its own
+ * Brand to: bound once, the Brand cannot be got wrong at a call site, and a
+ * Look says where its files are in one line instead of wrapping the call again
+ * in every folder.
  *
  * Reading on first use is what lets a bundle of compose load where the files
  * are not beside it. A library that reads at import cannot be imported at all
  * without its assets: the gateway's esbuild bundle built and then died at load
  * on `Eina02-Regular.otf` for exactly that reason (#181).
  */
-export function lookAssets(base: string): (relative: string) => Uint8Array {
+export function lookAssets(brand: string): (relative: string) => Uint8Array {
   return (relative) => {
-    const path = fileURLToPath(new URL(relative, base));
+    const path = fileURLToPath(new URL(`${brand}/${relative}`, LOOKS_DIR));
     const held = HELD.get(path);
     if (held) return held;
 

@@ -24,6 +24,15 @@ export interface Trace {
   /** The wire request with the Source Reference replaced by `{ hash }`. */
   request(request: unknown): void;
   sourceHash(hash: string): void;
+  /**
+   * The three shapes another module owns, kept on the Call unread: frame's
+   * Framing, identify's whole Identification and redact's Redaction Records
+   * (records' `calls.ts`). The webui draws a Call from these, and the Face
+   * Report on the wire is computed from them rather than stored (ADR-0014).
+   */
+  framing(framing: unknown): void;
+  matches(identification: unknown): void;
+  redactions(records: unknown): void;
 }
 
 export interface TraceDeps {
@@ -77,6 +86,9 @@ export async function recorded<T>(
   const steps: Step[] = [];
   let request: unknown;
   let sourceHash: string | null = null;
+  let framing: unknown;
+  let matches: unknown;
+  let redactions: unknown;
 
   const trace: Trace = {
     async step(name, run) {
@@ -96,6 +108,15 @@ export async function recorded<T>(
     sourceHash: (hash) => {
       sourceHash = hash;
     },
+    framing: (given) => {
+      framing = given;
+    },
+    matches: (given) => {
+      matches = given;
+    },
+    redactions: (given) => {
+      redactions = given;
+    },
   };
 
   const record = (
@@ -108,6 +129,9 @@ export async function recorded<T>(
       kind,
       sourceHash,
       request,
+      framing,
+      matches,
+      redactions,
       steps,
       error,
       status,

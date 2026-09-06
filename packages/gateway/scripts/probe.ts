@@ -141,7 +141,7 @@ const sourceUrl =
 async function post(
   path: string,
   body: unknown
-): Promise<{ status: number; body: unknown; ms: number }> {
+): Promise<{ status: number; body: unknown; ms: number; served: string }> {
   const at = performance.now();
   const res = await fetch(`${url}${path}`, {
     method: "POST",
@@ -158,7 +158,14 @@ async function post(
   } catch {
     // not JSON: kept as text
   }
-  return { status: res.status, body: parsed, ms: performance.now() - at };
+  return {
+    status: res.status,
+    body: parsed,
+    ms: performance.now() - at,
+    // Which instance answered. `x-vercel-id` is the only place a deployment
+    // names itself on an ordinary response.
+    served: res.headers.get("x-vercel-id") ?? "",
+  };
 }
 
 /** Every key named `facePrint` anywhere in a JSON value. */
@@ -325,6 +332,156 @@ if (typeof personId === "string") {
       after.status === 200 && left === undefined,
       `GET /v1/people?brand=${firstBrand} after the Erasure -> ${after.status}, this Person is gone: ${String(left === undefined)}`
     );
+  }
+}
+
+// --- the story (#183) -------------------------------------------------------
+//
+// The tracer bullet, against whatever this deployment holds: a Template of a
+// Brand the key holds, its own example Fields, one of its Placements, and a
+// public photograph. Rendered twice, so the second is a Replay.
+
+/** What `/v1/templates` says about one Template. */
+type Described = {
+  id: string;
+  brand: string;
+  placements: string[];
+  example: Record<string, unknown>;
+};
+
+/** The Steps of one Call, off the Call View's HTML, with their durations. */
+const stepTimes = (html: string): string[] =>
+  [
+    ...html.matchAll(
+      /class="step-name"[^>]*>([^<]+)<[\s\S]{0,400}?class="step-dur"[^>]*>([^<]+)</g
+    ),
+  ].map((m) => `${m[1] ?? ""} ${m[2] ?? ""}`);
+
+const catalogue = await get("/v1/templates", { Authorization: `Bearer ${key}` });
+const described = (catalogue.body as { items?: Described[] }).items ?? [];
+// The one route that needs compose. Until #183 it was `503 module_unavailable`
+// on every deployment; a 200 here is the image carrying compose's runtime.
+line(
+  catalogue.status === 200 && described.length > 0,
+  `GET /v1/templates -> ${catalogue.status}, ${described.length} templates: ${described.map((t) => t.id).join(", ")}`
+);
+
+const wanted = process.env["MECO_TEMPLATE"] ?? "swisshutless-story";
+const template = described.find((t) => t.id === wanted) ?? described[0];
+
+/**
+ * The photographs the story is rendered from, by default the two karting
+ * fixtures at their own Commons originals (`fixtures/karts/LICENCE.md`), at the
+ * 1600 px bound the committed copies were taken at. Public URLs, because the
+ * gateway fetches them itself and holds no key for this repository.
+ *
+ * The first is the fixture the kart study turns on: two drivers, both visors
+ * down, and YuNet finds no face, so the `kart` rung is what places the window.
+ * The second has twelve faces and two karts, so the Face Report has something
+ * to say.
+ */
+const commons = (file: string): string =>
+  `https://commons.wikimedia.org/wiki/Special:FilePath/${file}?width=1600`;
+const sources = process.env["MECO_STORY_URL"]
+  ? [process.env["MECO_STORY_URL"]]
+  : [
+      commons("Giuseppe_Gnazzo_-_Kart_driver.jpg"),
+      commons("Challenge_kart.JPG"),
+    ];
+
+type RenderAnswer = {
+  output?: {
+    url: string;
+    key: string;
+    placement: string;
+    width: number;
+    height: number;
+    mime: string;
+    bytes: number;
+  };
+  call?: { id: string; replayed: boolean };
+  framing?: { resolvedBy: string; leadRegionId?: string; fallback?: string };
+  faces?: {
+    regionId: string;
+    verdict: string;
+    hidden: boolean;
+    inFrame: boolean;
+  }[];
+  error?: { code: string; message: string };
+};
+
+if (template === undefined) {
+  line(false, "no Template to render: skipping the story");
+} else {
+  for (const source of sources) {
+    console.log(`\n--- ${template.id} on ${source}`);
+    let first: RenderAnswer | undefined;
+
+    for (const round of ["first", "replay"] as const) {
+      const answer = await post("/v1/render", {
+        brand: template.brand,
+        template: template.id,
+        placement: template.placements[0],
+        fields: template.example,
+        source: { url: source },
+      });
+      const body = answer.body as RenderAnswer;
+      const replayed = body.call?.replayed === true;
+
+      line(
+        answer.status === 200 && (round === "first" || replayed),
+        `POST /v1/render (${round}) -> ${answer.status} in ${answer.ms.toFixed(0)} ms, replayed ${String(replayed)}, call ${body.call?.id ?? "-"}${answer.served === "" ? "" : `, served by ${answer.served}`}`
+      );
+      if (answer.status !== 200) {
+        console.log(`     ${JSON.stringify(answer.body)}`);
+        break;
+      }
+
+      const output = body.output;
+      console.log(
+        `     output: ${output?.url ?? "-"} (${output?.width}x${output?.height} ${output?.mime}, ${output?.bytes} bytes)`
+      );
+      console.log(
+        `     framing: resolvedBy ${body.framing?.resolvedBy ?? "-"}, lead ${body.framing?.leadRegionId ?? "none"}, fallback ${body.framing?.fallback ?? "none"}`
+      );
+      console.log(
+        `     faces: ${body.faces?.length ?? 0} — ${(body.faces ?? []).map((f) => `${f.regionId} ${f.verdict}${f.hidden ? " hidden" : ""}${f.inFrame ? " inFrame" : " cut"}`).join("; ") || "none"}`
+      );
+
+      if (round === "first") {
+        first = body;
+      } else if (output?.key !== undefined) {
+        line(
+          output.key === first?.output?.key,
+          `     the Replay answers the same key: ${String(output.key === first?.output?.key)}`
+        );
+      }
+
+      if (body.call?.id !== undefined) {
+        const view = await get(`/ui/calls/${body.call.id}`, {
+          Authorization: basic,
+        });
+        const steps = stepTimes(String(view.body));
+        line(
+          view.status === 200 && steps.length > 0,
+          `GET /ui/calls/${body.call.id} -> ${view.status}, steps: ${steps.join(" | ")}`
+        );
+      }
+    }
+
+    // The bytes themselves, for whoever asked to see the picture. Written only
+    // when a path is named, so an ordinary probe run writes nothing.
+    const save = process.env["MECO_SAVE_DIR"];
+    if (save !== undefined && save !== "" && first?.output?.url !== undefined) {
+      const bytes = await fetch(first.output.url);
+      const name = first.output.key.split("/").pop() ?? "render";
+      const { writeFile } = await import("node:fs/promises");
+      await writeFile(
+        `${save}/${name}`,
+        new Uint8Array(await bytes.arrayBuffer())
+      );
+      console.log(`     saved ${save}/${name}`);
+    }
   }
 }
 

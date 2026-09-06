@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { identify } from "@meco/identify";
 import type { ModelsClient } from "@meco/models";
 import type { Records } from "@meco/records";
 import type { Store } from "@meco/store";
@@ -11,7 +12,7 @@ import { healthProbe } from "./health";
 import { type CallerEnv, httpDoor } from "./http";
 import { internalRoutes } from "./internal";
 import { mcpDoor } from "./mcp";
-import { catalogueOf } from "./catalogue";
+import { catalogueOf, modelsUnbound } from "./catalogue";
 import { OPERATIONS } from "./operations";
 
 export interface GatewayDeps {
@@ -99,6 +100,17 @@ export function createApp(deps: GatewayDeps): Hono<CallerEnv> {
     records,
     store,
     models,
+    // Built here, not handed in: identify is pure over records, the store and
+    // one Annotator, so a caller of `createApp` that had to construct it would
+    // be spelling out a wiring only this file can get wrong.
+    identify: identify({
+      records,
+      store,
+      annotate: async (bytes, options) => {
+        if (models === null) throw modelsUnbound();
+        return models.annotate(bytes, options);
+      },
+    }),
     fetch,
     catalogue: catalogueOf(models),
     now,

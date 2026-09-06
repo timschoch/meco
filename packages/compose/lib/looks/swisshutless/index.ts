@@ -1,10 +1,12 @@
 import type { Look, LookFont } from "../../../template";
 import { lookAssets } from "../assets";
 
-const bytes = lookAssets(import.meta.url);
+/** Named once: the Brand is both the Look's own id and its asset folder. */
+const BRAND = "swisshutless";
+const bytes = lookAssets(BRAND);
 
 function face(family: string, weight: number, file: string): LookFont {
-  return { family, weight, data: bytes(`./fonts/${file}`) };
+  return { family, weight, data: bytes(`fonts/${file}`) };
 }
 
 /**
@@ -21,7 +23,7 @@ function face(family: string, weight: number, file: string): LookFont {
  * what makes compose network-free.
  */
 export const swisshutless = {
-  brand: "swisshutless",
+  brand: BRAND,
   colors: {
     red: "#d80028",
     redDark: "#a80020",
@@ -41,5 +43,5 @@ export const swisshutless = {
   ],
   headingFamily: "Barlow Condensed",
   bodyFamily: "Barlow",
-  logo: () => bytes("./logo.png"),
+  logo: () => bytes("logo.png"),
 } as const satisfies Look;

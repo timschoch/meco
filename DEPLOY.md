@@ -81,24 +81,36 @@ has one. **Any service that bundles a CommonJS dependency needs it**, and the
 symptom is a healthy build followed by `FUNCTION_INVOCATION_FAILED` on the
 first request — not a build error.
 
-### The fourth trap: compose's natives are not in the `gateway` image yet
+### The fourth trap: a bundled module still needs its files
 
 compose's index carries `sharp` and `@takumi-rs/core`, which load native
-binaries by their own paths and cannot be bundled (the `models` image keeps the
-same two outside its bundle for the same reason). Measured 6 Sep 2026 with the
-gateway's `build.mjs`, after #212 made compose read its fonts on first use: the
-compose chunk builds and dies at load with
+binaries by their own paths and cannot be bundled (the `models` image keeps
+`sharp` and `onnxruntime-node` outside its bundle for the same reason).
+Measured 6 Sep 2026 with the gateway's `build.mjs`, after #212 made compose
+read its fonts on first use: the compose chunk builds and dies at load with
 `ERR_MODULE_NOT_FOUND Cannot find package '@takumi-rs/core'` from any directory
 with no `node_modules` above it, which is what the runtime image is.
 
-So `packages/gateway/build.mjs` splits the bundle and marks the two natives
-`external`, and `list_templates` reaches `templates()` through a dynamic
-import: the chunk loads on the first `/v1/templates`, never at boot. On a
-deployment that route answers `503 module_unavailable` ("compose is not in this
-image yet (#183)") while every other route serves. The render ticket (#183)
-gives the image compose's runtime (the natives in a flat `node_modules`, the
-fonts beside the bundle) the way `Dockerfile.vercel` gives `models` its own, and
-the trap closes then. Ledgered on #181.
+Closed by #183, in two halves.
+
+**The natives.** `packages/gateway/build.mjs` marks the two `external` and the
+`Containerfile` runtime stage carries a flat `node_modules` from
+`pnpm --filter @meco/gateway --prod deploy`, the same recipe
+`Dockerfile.vercel` uses for `models`. The bundle is one file again: splitting
+existed only to keep the compose import out of boot while the natives were
+missing.
+
+**The files.** A Look reads its fonts and its wordmark on first use, and a
+bundle sits nowhere near them. Each Look's folder is copied to
+`dist/bundle/<brand>/` and compose resolves
+`<the module's own directory>/<brand>/<file>`, which is `lib/looks/<brand>/` in
+source and the bundle's own folder in the image — the shape `models` already
+uses for an adapter's weights. Keyed by the Brand and not by each Look's
+`import.meta.url`, because a bundler collapses the three Looks into one file
+where three `./logo.png` reads would resolve to one path.
+
+`packages/compose/tests/bundle.test.ts` holds both halves: a bundle loads with
+no assets on disk, and renders with them laid out this way.
 
 ## Release
 

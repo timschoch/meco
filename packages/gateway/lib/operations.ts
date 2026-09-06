@@ -9,26 +9,24 @@
  * nothing about an input shape for a Brand it does not hold, and a test on
  * #181 proves it by watching for a module that must not have run.
  */
+import { templates } from "@meco/compose";
 import { PLACEMENTS } from "@meco/compose/placements";
-import {
-  type Annotation,
-  Box,
-  CropAnchor,
-  type ModelId,
-  PinTo,
-} from "@meco/contracts";
+import { type Annotation, Box, type ModelId } from "@meco/contracts";
+import type { Identify } from "@meco/identify";
 import type { ModelsClient } from "@meco/models";
 import type { Caller, Records } from "@meco/records";
 import type { Store } from "@meco/store";
 import { z } from "zod";
 import { annotationOf } from "./annotate";
 import { GatewayError } from "./errors";
+import { Brand, FramingOptions } from "./inputs";
 import {
   addPerson,
   addReferencePhoto,
   erasePerson,
   listPeople,
 } from "./people";
+import { RenderInput, renderImage } from "./render";
 import { SourceReference, resolveSource } from "./source";
 import { recorded } from "./trace";
 
@@ -37,6 +35,8 @@ export interface OperationDeps {
   readonly records: Records;
   readonly store: Store;
   readonly models: ModelsClient | null;
+  /** Built over records, the store and the models client by `createApp`. */
+  readonly identify: Identify;
   /** Fetches a `{ url }` Source Reference. */
   readonly fetch: typeof fetch;
   /** The `{ name, version }` pairs a cached Annotation must be complete for. */
@@ -74,57 +74,7 @@ export interface Operation<I extends z.ZodObject = z.ZodObject> {
   ): Promise<Record<string, unknown>>;
 }
 
-// --- Shared input pieces ----------------------------------------------------
-
-const Brand = z.string().min(1).describe("The Brand this request is for.");
-
-/** What `render` and `crop` share. Every field optional at the door. */
-const FramingOptions = {
-  pinTo: z
-    .array(PinTo)
-    .min(1)
-    .optional()
-    .describe(
-      "The ladder frame walks to find the Subject. Default match, face, kart."
-    ),
-  persons: z
-    .array(z.string().min(1))
-    .optional()
-    .describe("Person ids that may lead."),
-  anchor: CropAnchor.optional(),
-  redaction: z
-    .object({
-      blurUnknownFaces: z
-        .boolean()
-        .optional()
-        .describe("Hide every face meco cannot name. Default true."),
-    })
-    .optional(),
-  format: z.enum(["png", "jpeg", "webp"]).optional(),
-  quality: z.int().min(1).max(100).optional(),
-};
-
 // --- The table ---------------------------------------------------------------
-
-/**
- * compose, loaded on first use rather than at boot: its index carries `sharp`
- * and `@takumi-rs/core`, which the gateway image does not hold until #183
- * (blocker on #181). An image without them answers a typed 503 on the one
- * route that needs them and serves everything else; the suite reaches the
- * real compose either way.
- */
-async function compose(): Promise<typeof import("@meco/compose")> {
-  try {
-    return await import("@meco/compose");
-  } catch (cause) {
-    throw new GatewayError(
-      "module_unavailable",
-      "compose is not in this image yet (#183)",
-      undefined,
-      { cause }
-    );
-  }
-}
 
 const notImplemented = (name: string) => async (): Promise<never> => {
   throw new GatewayError(
@@ -149,15 +99,8 @@ export const OPERATIONS: readonly Operation[] = [
       "Render a Template over a photograph for one Placement and get the Render's URL.",
     method: "POST",
     path: "/render",
-    input: z.object({
-      brand: Brand,
-      template: z.string().min(1),
-      placement: z.string().min(1),
-      fields: z.record(z.string(), z.unknown()),
-      source: SourceReference,
-      ...FramingOptions,
-    }),
-    handler: notImplemented("render_image"),
+    input: RenderInput,
+    handler: renderImage,
   }),
   define({
     name: "crop_image",
@@ -192,12 +135,19 @@ export const OPERATIONS: readonly Operation[] = [
           const resolved = await resolveSource(ctx, brand, source, trace);
           trace.sourceHash(resolved.hash);
           trace.request({ brand, source: { hash: resolved.hash } });
-          return annotationOf(ctx, brand, resolved, trace);
+          const annotation = await annotationOf(ctx, brand, resolved, trace);
+          const identification = await trace.step("identify.match", () =>
+            ctx.identify.match({ annotation, brand })
+          );
+          trace.matches(identification);
+          return { annotation, identification };
         }
       );
-      // `identification` arrives with the render ticket (#183), which wires
-      // identify in; until then the Call's `matches` stays empty.
-      return { call: { id: call.id }, annotation: withoutPrints(result) };
+      return {
+        call: { id: call.id },
+        annotation: withoutPrints(result.annotation),
+        identification: result.identification,
+      };
     },
   }),
   define({
@@ -208,7 +158,6 @@ export const OPERATIONS: readonly Operation[] = [
     path: "/templates",
     input: z.object({ brand: Brand.optional() }),
     async handler(ctx) {
-      const { templates } = await compose();
       const items = ctx.brands
         .flatMap((brand) => templates(brand))
         .sort((a, b) => a.id.localeCompare(b.id));

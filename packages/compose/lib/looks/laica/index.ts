@@ -1,7 +1,9 @@
 import type { Look, LookFont } from "../../../template";
 import { lookAssets } from "../assets";
 
-const bytes = lookAssets(import.meta.url);
+/** Named once: the Brand is both the Look's own id and its asset folder. */
+const BRAND = "laica";
+const bytes = lookAssets(BRAND);
 
 /**
  * One weight instanced out of a variable font file.
@@ -24,8 +26,8 @@ function face(family: string, weight: number, file: string): LookFont {
   return { family, weight, data: bytes(file) };
 }
 
-const OUTFIT = "./fonts/outfit/Outfit-Variable.ttf";
-const FIGTREE = "./fonts/figtree/Figtree-Variable.ttf";
+const OUTFIT = "fonts/outfit/Outfit-Variable.ttf";
+const FIGTREE = "fonts/figtree/Figtree-Variable.ttf";
 
 /**
  * laica — bright, calm, precise B2B consulting.
@@ -45,7 +47,7 @@ const FIGTREE = "./fonts/figtree/Figtree-Variable.ttf";
  * network-free.
  */
 export const laica = {
-  brand: "laica",
+  brand: BRAND,
   colors: {
     green: "#00a461",
     greenDark: "#00884f",
@@ -63,5 +65,5 @@ export const laica = {
   ],
   headingFamily: "Outfit",
   bodyFamily: "Figtree",
-  logo: () => bytes("./logo.png"),
+  logo: () => bytes("logo.png"),
 } as const satisfies Look;

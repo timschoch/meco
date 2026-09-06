@@ -119,7 +119,7 @@ The decode happens once, after frame, because frame needs no pixel and a Replay 
 ### Responses
 
 - `render`, `crop`: `{ output: { url, key, kind, placement?, width, height, mime, bytes }, call: { id, replayed }, framing: Framing, faces: FaceReport[] }`. `FaceReport = { regionId, verdict, personId?, similarity?, hidden, inFrame }`: `verdict` from identify's Face Verdict, `hidden` when the Region id is in the Redaction Records, `inFrame` when `projectIntoFrame(framing, region.box)` intersects the unit box. A Replay answers the stored Output and `replayed: true`; `framing` and `faces` come from the replayed Call.
-- `annotate`: `{ call: { id }, annotation, identification }`, `annotation.regions[].facePrint` removed. `identification` lands with the render ticket (#183), which wires identify in; until then the field is absent and the Call's `matches` is empty (decision on #88).
+- `annotate`: `{ call: { id }, annotation, identification }`, `annotation.regions[].facePrint` removed. The Call's `matches` holds the whole Identification, verdicts included (decision on #162).
 - `list_*`: `{ items: [...] }`, on both Doors. An object and not a bare array, because the MCP protocol types `structuredContent` as an object and the two Doors answer one shape (decided on #181). `erase_person`: records' Erasure with the empty listing.
 - MCP: every result is `content: [{ type: "text", text: JSON }]` plus `structuredContent` with the same object; every error `isError: true` with the same `{ error }` JSON as text.
 

@@ -1,10 +1,12 @@
 import type { Look, LookFont } from "../../../template";
 import { lookAssets } from "../assets";
 
-const bytes = lookAssets(import.meta.url);
+/** Named once: the Brand is both the Look's own id and its asset folder. */
+const BRAND = "hopefamily";
+const bytes = lookAssets(BRAND);
 
 function face(family: string, weight: number, file: string): LookFont {
-  return { family, weight, data: bytes(`./fonts/${file}`) };
+  return { family, weight, data: bytes(`fonts/${file}`) };
 }
 
 /**
@@ -33,7 +35,7 @@ function face(family: string, weight: number, file: string): LookFont {
  * owed (#116).
  */
 export const hopefamily = {
-  brand: "hopefamily",
+  brand: BRAND,
   colors: {
     blue: "#00507c",
     green: "#0d9d9f",
@@ -49,5 +51,5 @@ export const hopefamily = {
   ],
   headingFamily: "Eina02",
   bodyFamily: "Eina02",
-  logo: () => bytes("./logo.png"),
+  logo: () => bytes("logo.png"),
 } as const satisfies Look;
