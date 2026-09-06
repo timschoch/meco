@@ -205,6 +205,47 @@ the `store`, `records` and `gateway` module agents decide what to keep.
 
 Pull them locally: `vercel env pull .env.local`
 
+A **Sensitive** variable is write-only: `vercel env pull` writes a placeholder
+of the wrong length, not the value. `CRON_SECRET` and `MECO_BOOTSTRAP_KEY` are
+Sensitive, so nothing outside the platform can send the header they gate — a
+hand-rolled `curl` against `/internal/sweep` gets `401`, and that is the
+variable working, not a bug.
+
+## Crons
+
+`vercel.json` carries one, and one only: `POST /internal/sweep` at `0 4 * * *`.
+The free plan allows a daily schedule and refused neither the entry nor the
+path. A cron runs against the **production** deployment, so a `crons` entry
+that has only ever been pushed to a branch reads as `not deployed` and
+`vercel crons run /internal/sweep` refuses it:
+
+```
+$ vercel crons list
+  Path               Schedule            Status
+  /internal/sweep    0 4 * * *           not deployed
+WARNING! Run `vercel deploy --prod` to apply local changes.
+
+$ vercel crons run /internal/sweep
+Error: No cron jobs found for timschochs-projects/meco. Define cron jobs in
+your vercel.json file.
+```
+
+That the route itself is reachable behind the catch-all rewrite is measured on
+the branch preview, against the production deployment that does not carry it
+(2026-09-06, deployment `meco-8w17ja0hj`):
+
+| Deployment                   | `POST /internal/sweep`, no header         |
+| ---------------------------- | ----------------------------------------- |
+| production, before the route | `404 {"error":{"code":"not_found",…}}`    |
+| the preview carrying it      | `401 {"error":{"code":"unauthorized",…}}` |
+
+`401` rather than `404` is the whole proof: the routes are registered only when
+`CRON_SECRET` is set, so the answer says the request reached the container, the
+variable was injected, and the header check ran.
+
+There is **no keep-warm cron**. One daily cron is the whole schedule; a cron
+every few minutes spends the free plan's compute (#88, 2026-09-06).
+
 ## Scale to zero
 
 Container services scale down after 5 minutes idle in production, 30 seconds in
