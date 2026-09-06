@@ -2,10 +2,14 @@
  * The one case the front does not merely forward: a `tools/call` that arrives
  * while the gateway container is scaled to zero. A cold start takes seconds,
  * and an agent that hears nothing for that long gives up or guesses. So the
- * front opens the Streamable HTTP stream at once and says what is happening
- * as JSON-RPC notifications — which the spec lets a server send on the
- * request's own stream before the final response — then forwards the call
- * when `/health` answers and pipes the real result through unchanged.
+ * call is forwarded at once and a probe races it: when the probe hears
+ * nothing inside its timeout, the front opens the Streamable HTTP stream and
+ * says what is happening as JSON-RPC notifications — which the spec lets a
+ * server send on the request's own stream before the final response — then
+ * confirms the moment the gateway answers the forwarded call and pipes the
+ * real result through unchanged. The platform holds a request to a container
+ * that is starting, so the forwarded call itself is the wait; nothing is
+ * sent twice and nothing polls.
  */
 
 export interface ColdStart {
@@ -14,19 +18,17 @@ export interface ColdStart {
    * gateway cold start, from `DEPLOY.md`; a constant, so it is never a guess.
    */
   readonly seconds: number;
-  /** How long a `/health` probe may take before the gateway counts as cold. */
+  /**
+   * How long the probe waits for any answer before the gateway counts as
+   * cold. A warm container answers `GET /mcp` from its middleware, with no
+   * database or store behind it, in a few milliseconds over the binding.
+   */
   readonly probeTimeoutMs: number;
-  /** The pause between two probes while waiting. */
-  readonly pollMs: number;
-  /** How long the front waits for the gateway before it answers an error. */
-  readonly capMs: number;
 }
 
 export const COLD_START: ColdStart = {
-  seconds: 10,
-  probeTimeoutMs: 800,
-  pollMs: 1_000,
-  capMs: 60_000,
+  seconds: 7,
+  probeTimeoutMs: 500,
 };
 
 /** What a `tools/call` carries that its notifications have to name. */
@@ -66,19 +68,6 @@ export function toolCall(body: string): ToolCall | null {
   return null;
 }
 
-/** Probes until the gateway answers or the cap is spent. */
-export async function waitUntilUp(
-  up: () => Promise<boolean>,
-  config: ColdStart
-): Promise<boolean> {
-  const deadline = Date.now() + config.capMs;
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, config.pollMs));
-    if (await up()) return true;
-  }
-  return false;
-}
-
 const frame = (message: unknown): string =>
   `event: message\ndata: ${JSON.stringify(message)}\n\n`;
 
@@ -115,18 +104,17 @@ const rpcError = (call: ToolCall, message: string, data?: unknown) => ({
 export interface ColdStartStream {
   readonly call: ToolCall;
   readonly config: ColdStart;
-  /** Resolves when the gateway is up, or `false` when the cap is spent. */
-  wait(): Promise<boolean>;
-  /** Forwards the call to the gateway, once it is up. */
-  forward(): Promise<Response>;
+  /** The call, already on its way to the gateway. */
+  readonly forwarded: Promise<Response>;
 }
 
 /**
- * The response for a cold `tools/call`: the stream opens before the gateway
- * is asked anything, carries the two notices, then whatever the gateway
- * answered. An SSE answer is piped byte for byte; a JSON one becomes the
- * stream's final frame; a refusal or a failure becomes a JSON-RPC error with
- * the call's id, because the status line has already been sent.
+ * The response for a cold `tools/call`: the stream opens at once with the
+ * first notice, the confirmation follows when the gateway answers the call
+ * that is already in flight, then whatever it answered. An SSE answer is
+ * piped byte for byte; a JSON one becomes the stream's final frame; a refusal
+ * or a failure becomes a JSON-RPC error with the call's id, because the
+ * status line has already been sent.
  */
 export function coldStartStream(deps: ColdStartStream): Response {
   const { call, config } = deps;
@@ -144,11 +132,14 @@ export function coldStartStream(deps: ColdStartStream): Response {
     )) {
       send(notice);
     }
-    if (!(await deps.wait())) {
+    let response: Response;
+    try {
+      response = await deps.forwarded;
+    } catch (error) {
       send(
         rpcError(
           call,
-          `meco did not start within ${config.capMs / 1000} s; send the call again`
+          `meco did not answer, send the call again: ${String(error)}`
         )
       );
       return;
@@ -159,13 +150,6 @@ export function coldStartStream(deps: ColdStartStream): Response {
       1
     )) {
       send(notice);
-    }
-    let response: Response;
-    try {
-      response = await deps.forward();
-    } catch (error) {
-      send(rpcError(call, `meco did not answer: ${String(error)}`));
-      return;
     }
     if (!response.ok) {
       send(

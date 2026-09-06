@@ -12,7 +12,6 @@ import {
   type ColdStart,
   coldStartStream,
   toolCall,
-  waitUntilUp,
 } from "./lib/cold-start";
 import { relay, toUpstream } from "./lib/forward";
 
@@ -31,33 +30,48 @@ export function createFront(deps: FrontDeps): Hono {
   const { upstream, fetch = globalThis.fetch } = deps;
   const config: ColdStart = { ...COLD_START, ...deps.coldStart };
 
-  /** Whether the gateway answers `/health` inside the probe timeout. */
-  const up = async (): Promise<boolean> => {
-    try {
-      const response = await fetch(new URL("/health", upstream), {
+  /**
+   * Whether the gateway answers at all inside the probe timeout. `GET /mcp`
+   * with no key is the cheapest answer the container gives, a `401` from its
+   * middleware with no database or store behind it; `/health` with a stale
+   * cache costs seconds. A platform `5xx` while the container starts is not
+   * an answer. The timer races the fetch rather than trusting the fetch to
+   * honour its signal.
+   */
+  const up = (): Promise<boolean> =>
+    new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(false), config.probeTimeoutMs);
+      fetch(new URL("/mcp", upstream), {
         signal: AbortSignal.timeout(config.probeTimeoutMs),
-      });
-      void response.body?.cancel();
-      return response.ok;
-    } catch {
-      return false;
-    }
-  };
+      })
+        .then(
+          (response) => {
+            void response.body?.cancel();
+            resolve(response.status < 500);
+          },
+          () => resolve(false)
+        )
+        .finally(() => clearTimeout(timer));
+    });
 
   const app = new Hono();
   app.all("/mcp", async (c) => {
     const request = c.req.raw;
     const body = request.method === "POST" ? await request.text() : null;
-    const forward = (): Promise<Response> =>
-      fetch(toUpstream(request, upstream, body));
+    // On its way before anything else: the platform holds a request to a
+    // container that is starting, so the forwarded call is also the wait.
+    const forwarded = fetch(toUpstream(request, upstream, body));
     const call = body === null ? null : toolCall(body);
-    if (call === null || (await up())) return relay(await forward());
-    return coldStartStream({
-      call,
-      config,
-      wait: () => waitUntilUp(up, config),
-      forward,
-    });
+    if (call === null) return relay(await forwarded);
+    const first = await Promise.race([
+      forwarded.then(
+        () => "answered" as const,
+        () => "answered" as const
+      ),
+      up().then((ok) => (ok ? ("up" as const) : ("cold" as const))),
+    ]);
+    if (first !== "cold") return relay(await forwarded);
+    return coldStartStream({ call, config, forwarded });
   });
   return app;
 }

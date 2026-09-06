@@ -9,20 +9,32 @@ import { createFront } from "../index";
 const UPSTREAM = "http://gateway.internal";
 const KEY = "sk_test_the_key";
 
-/** The fake gateway; `up` says what `/health` answers right now. */
+/**
+ * The fake gateway. `up` says whether the container is listening right now;
+ * while it is not, every request is held the way the platform holds one to
+ * a container that is starting, and answered once it is. `hits` records
+ * arrivals, `answered` completions. `fail` makes a POST reject after the hold,
+ * as a connection the platform dropped would.
+ */
 function gateway(
-  options: { up?: () => boolean; answer?: "sse" | "json" } = {}
+  options: {
+    up?: () => boolean;
+    answer?: "sse" | "json";
+    fail?: () => boolean;
+  } = {}
 ) {
   const hits: string[] = [];
+  const answered: string[] = [];
   const requests: Request[] = [];
   const app = new Hono();
   app.use(async (c, next) => {
     hits.push(`${c.req.method} ${c.req.path}`);
+    while (!(options.up?.() ?? true)) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
     await next();
+    answered.push(`${c.req.method} ${c.req.path}`);
   });
-  app.get("/health", (c) =>
-    (options.up?.() ?? true) ? c.json({ ok: true }) : c.body(null, 503)
-  );
   app.all("/mcp", async (c) => {
     requests.push(c.req.raw.clone());
     if (c.req.method !== "POST") return c.body(null, 405);
@@ -47,9 +59,15 @@ function gateway(
       "content-type": "text/event-stream",
     });
   });
-  const fetch: typeof globalThis.fetch = (input, init) =>
-    Promise.resolve(app.fetch(new Request(input, init)));
-  return { hits, requests, fetch };
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    const response = await app.fetch(request);
+    if (request.method === "POST" && options.fail?.()) {
+      throw new TypeError("fetch failed");
+    }
+    return response;
+  };
+  return { hits, answered, requests, fetch };
 }
 
 const message = (
@@ -104,8 +122,8 @@ async function* frames(response: Response): AsyncGenerator<unknown> {
   }
 }
 
-/** A `tools/call`, with timings a test can wait through. */
-const COLD = { seconds: 9, probeTimeoutMs: 50, pollMs: 5, capMs: 500 };
+/** Cold-start timings a test can wait through. */
+const COLD = { seconds: 9, probeTimeoutMs: 50 };
 
 describe("@meco/front", () => {
   it("forwards a message verbatim and relays the answer as it came", async () => {
@@ -175,7 +193,7 @@ describe("@meco/front", () => {
     expect(upstream.hits).toEqual(["GET /mcp", "DELETE /mcp"]);
   });
 
-  it("probes once before a warm tools/call and adds nothing to the answer", async () => {
+  it("forwards a warm tools/call at once, probes beside it, and adds nothing to the answer", async () => {
     const upstream = gateway();
     const front = createFront({ upstream: UPSTREAM, fetch: upstream.fetch });
 
@@ -184,7 +202,7 @@ describe("@meco/front", () => {
       message("tools/call", { name: "list_brands" })
     );
 
-    expect(upstream.hits).toEqual(["GET /health", "POST /mcp"]);
+    expect(upstream.hits).toEqual(["POST /mcp", "GET /mcp"]);
     expect(res.status).toBe(200);
     const received = [];
     for await (const frame of frames(res)) received.push(frame);
@@ -219,9 +237,10 @@ describe("@meco/front", () => {
         data: "meco is starting, about 9 seconds",
       },
     });
-    // The first notice went out while the gateway was still down: nothing
-    // has been forwarded yet.
-    expect(upstream.hits).not.toContain("POST /mcp");
+    // The first notice went out while the gateway was still down: the call
+    // is on its way, and nothing has answered it.
+    expect(upstream.hits).toContain("POST /mcp");
+    expect(upstream.answered).toEqual([]);
 
     up = true;
     const rest = [];
@@ -238,27 +257,22 @@ describe("@meco/front", () => {
       },
       { jsonrpc: "2.0", id: 7, result: { echo: "tools/call" } },
     ]);
-    expect(upstream.hits.at(-1)).toBe("POST /mcp");
-    expect(upstream.requests[0]!.headers.get("authorization")).toBe(
-      `Bearer ${KEY}`
-    );
+    expect(upstream.answered).toContain("POST /mcp");
+    const call = upstream.requests.find((r) => r.method === "POST")!;
+    expect(call.headers.get("authorization")).toBe(`Bearer ${KEY}`);
   });
 
   it("says the same as progress when the call carries a progressToken", async () => {
-    const upstream = gateway({ up: () => true });
-    let probes = 0;
-    const fetch: typeof globalThis.fetch = (input, init) => {
-      // Cold for the first probe only.
-      if (
-        new URL(input instanceof Request ? input.url : input).pathname ===
-          "/health" &&
-        probes++ === 0
-      ) {
-        return Promise.resolve(new Response(null, { status: 503 }));
-      }
-      return upstream.fetch(input, init);
-    };
-    const front = createFront({ upstream: UPSTREAM, fetch, coldStart: COLD });
+    let up = false;
+    const upstream = gateway({ up: () => up });
+    const front = createFront({
+      upstream: UPSTREAM,
+      fetch: upstream.fetch,
+      coldStart: COLD,
+    });
+    setTimeout(() => {
+      up = true;
+    }, COLD.probeTimeoutMs * 3);
 
     const res = await post(
       front,
@@ -314,32 +328,36 @@ describe("@meco/front", () => {
     });
   });
 
-  it("answers a JSON-RPC error with the call's id when the gateway never comes up", async () => {
-    const upstream = gateway({ up: () => false });
+  it("answers a JSON-RPC error with the call's id when the forwarded call is lost", async () => {
+    let up = false;
+    const upstream = gateway({ up: () => up, fail: () => true });
     const front = createFront({
       upstream: UPSTREAM,
       fetch: upstream.fetch,
       coldStart: COLD,
     });
 
-    const started = Date.now();
     const res = await post(
       front,
       message("tools/call", { name: "list_brands" })
     );
-    const received = [];
-    for await (const frame of frames(res)) received.push(frame);
+    const stream = frames(res);
+    await stream.next();
+    up = true;
+    const rest = [];
+    for await (const frame of stream) rest.push(frame);
 
-    expect(Date.now() - started).toBeLessThan(COLD.capMs + 500);
-    expect(received.at(-1)).toEqual({
-      jsonrpc: "2.0",
-      id: 7,
-      error: {
-        code: -32000,
-        message: "meco did not start within 0.5 s; send the call again",
+    expect(rest).toEqual([
+      {
+        jsonrpc: "2.0",
+        id: 7,
+        error: {
+          code: -32000,
+          message:
+            "meco did not answer, send the call again: TypeError: fetch failed",
+        },
       },
-    });
-    expect(upstream.hits).not.toContain("POST /mcp");
+    ]);
   });
 
   it("turns a refusal on the cold path into a JSON-RPC error, the status line being sent", async () => {
