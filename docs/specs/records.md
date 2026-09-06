@@ -289,7 +289,9 @@ pglite runs the suite inside `pnpm check`, in the gate; measured start 966 ms on
 
 A database and not the run-scoped schema this spec first named: `drizzle-kit` writes every foreign key as `references "public"."files"(…)`, so tables created in a schema of one's own point their keys at `public` — at the deployment's rows. Measured 6 Sep 2026 against `meco-records-eu`: the whole People half of the list failed that way while passing on pglite, whose `public` was the run's own. A database has a `public` of its own, so the same SQL means what it says.
 
-The suite prints which path ran, which host it reached and what it cost. It reaches the host through `.env.local` parsed by `vitest.live.config.ts` rather than `process.loadEnvFile`, which never overrides a variable already exported in the shell — a stale export would otherwise silently point a suite that creates and drops databases at another one. Budget two minutes; measured 32 s for 24 checks from Zürich, 6 Sep 2026.
+Two checks in that run are not in the conformance list, because what they prove is a call reaching a real store rather than a rule about rows: `erasure.live.ts` lists a Person's prefix before and after, and `sweep.live.ts` sweeps an unheld File and reads `store.head` of its Source Key back as `null` while a held one stands. Both drop their run-scoped database in `afterAll` and never in the check's own `finally` — `drop database … with (force)` terminates the connections it finds, and a pool still open comes back as an unhandled `57P01` that fails a run whose checks all passed.
+
+The suite prints which path ran, which host it reached and what it cost. It reaches the host through `.env.local` parsed by `vitest.live.config.ts` rather than `process.loadEnvFile`, which never overrides a variable already exported in the shell — a stale export would otherwise silently point a suite that creates and drops databases at another one. Budget two minutes; measured 37 s for 31 checks from Zürich, 6 Sep 2026.
 
 Prior art: `packages/store/tests` for the two-adapter shape and the live config, `vitest.live.config.ts` for forwarding variables by name.
 
