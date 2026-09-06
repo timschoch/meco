@@ -8,6 +8,7 @@
 // bytes at the key the mint answered — and then calls `add_source`. Whether a
 // backend honours the signature is the store's live conformance run, and the
 // whole round trip is the ticket's live proof against the preview.
+import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { MAX_OBJECT_BYTES } from "@meco/store";
 import { fixtureBytes, sha256 } from "./annotations";
@@ -18,7 +19,9 @@ const stack = useStacks();
 const FILE = "artemis-2-crew.jpg";
 const BRAND = HELD[0];
 
-type Body = Record<string, unknown> & { error?: { code: string } };
+type Body = Record<string, unknown> & {
+  error?: { code: string; message: string };
+};
 
 type App = ReturnType<Awaited<ReturnType<typeof stack>>["app"]>;
 
@@ -293,6 +296,42 @@ describe("add_source", () => {
       expect(body.error?.code).toBe("unsupported_mime");
       expect(await one.records.files.get(hash)).toBeNull();
       expect(await one.records.sources.heldBy(BRAND, hash)).toBe(false);
+    },
+    TIMEOUT
+  );
+
+  it(
+    "is 415 unsupported_mime for an image no Annotation has a mime for",
+    async () => {
+      const one = await stack();
+      // A real image the decoder reads without complaint, in a format the
+      // Annotation's mime set does not name. The extension came from what the
+      // caller declared, which is why a decoder that only refused what it
+      // could not open would file this one as a JPEG.
+      const bytes = new Uint8Array(
+        await sharp({
+          create: {
+            width: 8,
+            height: 8,
+            channels: 3,
+            background: { r: 1, g: 2, b: 3 },
+          },
+        })
+          .tiff()
+          .toBuffer()
+      );
+      const hash = sha256(bytes);
+      await one.store.put("sources", bytes, "image/jpeg");
+
+      const { status, body } = await post(one.app(), "/v1/sources", {
+        brand: BRAND,
+        key: `sources/${hash}.jpg`,
+      });
+
+      expect(status).toBe(415);
+      expect(body.error?.code).toBe("unsupported_mime");
+      expect(String(body.error?.message)).toContain("tiff");
+      expect(await one.records.files.get(hash)).toBeNull();
     },
     TIMEOUT
   );

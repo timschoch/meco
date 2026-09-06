@@ -341,6 +341,10 @@ _Avoid_: CDN URL, permalink, blob URL, download link
 A URL that hands over one Private Store object to whoever holds it, until it expires minutes later. Minted only by the gateway, only for a caller it has already authorised, and short-lived because the reason it was minted does not outlive the request.
 _Avoid_: presigned URL, temporary link, token URL, share link
 
+**Upload Target**:
+Where a client may put one photograph, and until when: the Store Key its bytes will be at, a Signed URL scoped to writing exactly that key, when the URL stops working, and the largest body it will take. The key is the store's own arithmetic on the Content Hash the client took of its own file, so an upload lands where a `put` inside the deployment would have put it. Minted for a caller whose file the deployment's own door will not carry.
+_Avoid_: upload token, client token, presigned upload, upload slot, staging key
+
 **Deduped**:
 What a write reports when the bytes were already filed under that key, so nothing was written. Not a cache hit and not a failure — it is the ordinary outcome of a Store Key ending in the Content Hash of its own bytes, which is what makes a retry free and an overwrite impossible.
 _Avoid_: cached, skipped, exists, duplicate, no-op
@@ -514,7 +518,7 @@ The refusal, before any module runs, of a request naming a Brand the Caller does
 _Avoid_: authorisation, permission check, tenant check, ACL, scope
 
 **Source Reference**:
-How a caller names a Source Image in a request: by URL, which the gateway fetches and files, or by Content Hash, which names bytes the Brand already holds a Source Hold on. Never bytes in the request body in v1, and never a Store Key: a key names a store and a caller must not know one.
+How a caller names a Source Image in a request: by URL, which the gateway fetches and files, or by Content Hash, which names bytes the Brand already holds a Source Hold on. Never bytes in the request body — measured on the preview, the public door refuses one over about 4.5 MB and the cap counts the whole request (#188) — so a caller with a file and no URL asks for an Upload Target, puts the bytes to the store itself, and names the Content Hash it gets back.
 _Avoid_: source URL, upload, attachment, image input, key
 
 **Replay**:
