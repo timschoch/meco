@@ -149,6 +149,14 @@ and a failed migration is a failed boot with the error on stderr. `/health`'s
 `migrated: true` on a healthy container, and `reachable: true` only after a File
 and its Annotation have been written and read back under a fixed hash.
 
+### Verify the MCP Door
+
+[`timschoch/meco-mcp-probe`](https://github.com/timschoch/meco-mcp-probe) runs
+the whole story over `/mcp` from an MCP client that shares none of meco's code:
+`npm install`, then
+`MECO_URL=<base> MECO_KEY=<key> npm run probe`. Exit 0 means every check
+passed, and the Person it enrols is erased before it exits.
+
 ### models routes
 
 [`docs/specs/models.md`](docs/specs/models.md) is the contract. On the wire:
