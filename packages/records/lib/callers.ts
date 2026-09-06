@@ -8,6 +8,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { type SQL, eq, sql } from "drizzle-orm";
+import { sqlstateOf, withoutBoundSecrets } from "./bound-secrets";
 import type { DatabaseDriver } from "./database";
 import { callers } from "./schema";
 
@@ -66,23 +67,12 @@ const keyHash = (key: string): string =>
   createHash("sha256").update(key, "utf8").digest("hex");
 
 /**
- * Postgres `unique_violation`, whatever driver reported it.
- *
- * Down the `cause` chain, because drizzle does not rethrow the driver's error:
- * it wraps it in a `DrizzleQueryError` whose own message is the statement and
- * its bound parameters. `SQLSTATE 23505` is therefore never on the error that
- * arrives, only on something it caused.
+ * Postgres `unique_violation`, whatever driver reported it. Read off the
+ * `cause` chain by {@link sqlstateOf}, because drizzle does not rethrow the
+ * driver's error and `23505` is therefore never on the one that arrives.
  */
-const isUniqueViolation = (error: unknown): boolean => {
-  for (
-    let at = error;
-    at instanceof Object;
-    at = (at as { cause?: unknown }).cause
-  ) {
-    if ("code" in at && at.code === "23505") return true;
-  }
-  return false;
-};
+const isUniqueViolation = (error: unknown): boolean =>
+  sqlstateOf(error) === "23505";
 
 const asCaller = (row: CallerRow): Caller => ({
   id: row.id,
@@ -110,12 +100,10 @@ export function callersOver(driver: DatabaseDriver): Callers {
       // No `on conflict`: the unique index on `key_hash` is what makes one key
       // one Caller, and a collision has to be a loud failure.
       //
-      // The failure is replaced rather than wrapped, and carries no `cause`:
-      // drizzle's `DrizzleQueryError` prints the statement and its bound
-      // parameters, one of which is the key's SHA-256, and the driver's own
-      // message quotes it again as `Key (key_hash)=(…) already exists`. A hash
-      // is the one form of the key records holds and it does not belong in a
-      // message anything might log.
+      // Every failure here is replaced rather than wrapped, because the key's
+      // SHA-256 is a Bound Secret and `bound-secrets.ts` says why one cannot
+      // travel. The collision gets a message of its own because it is the one
+      // failure a caller can act on.
       const [row] = await orm
         .insert(callers)
         .values({
@@ -131,7 +119,10 @@ export function callersOver(driver: DatabaseDriver): Callers {
               `@meco/records: the key offered for the caller ${caller.name} already belongs to a caller.`
             );
           }
-          throw error;
+          throw withoutBoundSecrets(
+            `creating the caller ${caller.name}`,
+            error
+          );
         });
       if (row === undefined) {
         throw new Error(
@@ -144,7 +135,15 @@ export function callersOver(driver: DatabaseDriver): Callers {
     byKey(key) {
       // Hashed here and compared as a hash. Looking a Caller up by the key
       // itself would need the key to be in the table.
-      return readOne(eq(callers.keyHash, keyHash(key)));
+      //
+      // A read binds the hash exactly as the insert does, so it leaks exactly
+      // as far when the server refuses it — and this is the statement the
+      // gateway runs on every single request.
+      return readOne(eq(callers.keyHash, keyHash(key))).catch(
+        (error: unknown) => {
+          throw withoutBoundSecrets("looking a caller up by its key", error);
+        }
+      );
     },
 
     async grant({ callerId, brands }) {

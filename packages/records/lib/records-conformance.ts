@@ -15,7 +15,8 @@ import {
   rejects,
   strictEqual,
 } from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { inspect } from "node:util";
 import type { Annotation, FacePrint } from "@meco/contracts";
 import type { Check } from "@meco/contracts/conformance";
 import { type Listing, type Store, memoryStore } from "@meco/store";
@@ -1662,39 +1663,115 @@ export function recordsConformance(
       },
     },
     {
+      name: "a driver failure on a statement binding a key hash or a Face Print reports neither",
+      async run() {
+        // A database with no tables, so every statement below fails at the
+        // server. That is the cheapest honest driver failure there is: no
+        // schema to damage, and no pool to close under the checks that share
+        // one. What drizzle raises is a `DrizzleQueryError` whose own message
+        // is the statement and its bound parameters, and whose cause is the
+        // driver's error quoting the offending value back — so a method that
+        // merely rethrows what it caught publishes its Bound Secrets.
+        const database = await fixtures.empty();
+        try {
+          const records = database.open();
+          const key = keyFor("the key no failure may carry");
+          const hash = createHash("sha256").update(key, "utf8").digest("hex");
+          const print = printFor("the print no failure may carry");
+          const label = "binds a face print";
+
+          // Every method that binds one. A method added to this seam that
+          // binds a key hash or a Face Print belongs in this list.
+          const binding: [string, () => Promise<unknown>][] = [
+            [
+              "callers.create",
+              () =>
+                records.callers.create({ name: label, key, brands: [label] }),
+            ],
+            ["callers.byKey", () => records.callers.byKey(key)],
+            [
+              "people.enrol",
+              () =>
+                records.people.enrol({
+                  brand: brandFor(label),
+                  personId: randomUUID(),
+                  hash: hashOf(label),
+                  storeKey: `people/${brandFor(label)}/x/${hashOf(label)}.png`,
+                  regionId: "face-1",
+                  facePrint: print,
+                }),
+            ],
+          ];
+
+          for (const [method, run] of binding) {
+            const failure = await run().then(
+              () => {
+                throw new Error(
+                  `${method} succeeded on a database with no tables`
+                );
+              },
+              (error: unknown) => error
+            );
+            // What a logger handed the error would print: the message, the
+            // `cause` chain, and any own property drizzle hung on it.
+            const printed = inspect(failure, { depth: 10 });
+            ok(!printed.includes(hash), `${method} reported the key hash`);
+            ok(!printed.includes(key), `${method} reported the key itself`);
+            ok(
+              !printed.includes(JSON.stringify(print.vector)),
+              `${method} reported the Face Print`
+            );
+          }
+        } finally {
+          await database.dispose();
+        }
+      },
+    },
+    {
       name: "the seed creates the three Brands and the bootstrap Caller, and a second run changes nothing",
       async run() {
-        const records = await open();
-        const bootstrapKey = keyFor("the seed's own key");
+        // A migrated database of this run's own, and never the one the data
+        // checks share: the live host runs them all against one database, and
+        // a Brand another check's seed already wrote is a Brand this one
+        // cannot count. `empty()` is that database — a seeded database is
+        // exactly an empty one this check migrated and seeded itself.
+        const database = await fixtures.empty();
+        try {
+          const records = database.open();
+          await records.migrate();
+          const bootstrapKey = keyFor("the seed's own key");
 
-        const first = await seedRecords(records, { bootstrapKey });
-        const second = await seedRecords(records, { bootstrapKey });
+          const first = await seedRecords(records, { bootstrapKey });
+          const second = await seedRecords(records, { bootstrapKey });
 
-        const seeded = BOOTSTRAP_BRANDS.map((brand) => brand.id);
-        deepStrictEqual([...first.brands].sort(), [...seeded].sort());
-        deepStrictEqual(second.brands, first.brands);
-        strictEqual(first.caller.created, true);
-        strictEqual(second.caller.created, false);
+          const seeded = BOOTSTRAP_BRANDS.map((brand) => brand.id);
+          deepStrictEqual([...first.brands].sort(), [...seeded].sort());
+          deepStrictEqual(second.brands, first.brands);
+          strictEqual(first.caller.created, true);
+          strictEqual(second.caller.created, false);
 
-        // Counted in the table, not in the report: a report is what the seed
-        // believes, and the point of a second run is that it believed wrong.
-        const listed = await records.brands.list();
-        for (const id of seeded) {
-          strictEqual(
-            listed.filter((brand) => brand.id === id).length,
-            1,
-            `${id} is not exactly one row after two seeds`
+          // Counted in the table, not in the report: a report is what the seed
+          // believes, and the point of a second run is that it believed wrong.
+          const listed = await records.brands.list();
+          for (const id of seeded) {
+            strictEqual(
+              listed.filter((brand) => brand.id === id).length,
+              1,
+              `${id} is not exactly one row after two seeds`
+            );
+          }
+          // One Caller, not two: the same row answers the key both times.
+          const caller = await records.callers.byKey(bootstrapKey);
+          ok(
+            caller !== null,
+            "the bootstrap key finds no Caller after two seeds"
           );
+          deepStrictEqual([...caller.brands].sort(), [...seeded].sort());
+          // No report the seed prints may carry the key.
+          ok(!JSON.stringify([first, second]).includes(bootstrapKey));
+        } finally {
+          await database.dispose();
         }
-        // One Caller, not two: the same row answers the key both times.
-        const caller = await records.callers.byKey(bootstrapKey);
-        ok(
-          caller !== null,
-          "the bootstrap key finds no Caller after two seeds"
-        );
-        deepStrictEqual([...caller.brands].sort(), [...seeded].sort());
-        // No report the seed prints may carry the key.
-        ok(!JSON.stringify([first, second]).includes(bootstrapKey));
       },
     },
     {
@@ -1733,12 +1810,20 @@ export function recordsConformance(
     {
       name: "the seed refuses to run without a bootstrap key",
       async run() {
-        const records = await open();
+        // "No Brand" is only a statement about a database nobody has seeded,
+        // and every data check on the live host shares one that something has.
+        const database = await fixtures.empty();
+        try {
+          const records = database.open();
+          await records.migrate();
 
-        await rejects(() => seedRecords(records, { bootstrapKey: "" }));
-        // And it wrote no Brand on the way to refusing.
-        for (const brand of BOOTSTRAP_BRANDS) {
-          strictEqual(await records.brands.get(brand.id), null);
+          await rejects(() => seedRecords(records, { bootstrapKey: "" }));
+          // And it wrote no Brand on the way to refusing.
+          for (const brand of BOOTSTRAP_BRANDS) {
+            strictEqual(await records.brands.get(brand.id), null);
+          }
+        } finally {
+          await database.dispose();
         }
       },
     },

@@ -24,6 +24,7 @@
 import { FacePrint } from "@meco/contracts";
 import type { Listing, Store } from "@meco/store";
 import { and, eq, inArray } from "drizzle-orm";
+import { withoutBoundSecrets } from "./bound-secrets";
 import type { DatabaseDriver, Tx } from "./database";
 import { unreferencedFileClauses } from "./references";
 import { files, people, referencePhotos } from "./schema";
@@ -276,7 +277,16 @@ export function peopleOver(driver: DatabaseDriver, store: Store): People {
           consentAt:
             photo.consentAt === undefined ? null : new Date(photo.consentAt),
         })
-        .returning();
+        .returning()
+        // The print is a Bound Secret, and the commonest failure of this
+        // statement — a hash with no File — is one Postgres answers by quoting
+        // the whole row back. `bound-secrets.ts` says what may travel.
+        .catch((error: unknown) => {
+          throw withoutBoundSecrets(
+            `enrolling a reference photo for person ${photo.personId}`,
+            error
+          );
+        });
       if (row === undefined) {
         throw new Error(
           `@meco/records: the reference photo for person ${photo.personId} was inserted and nothing came back.`
