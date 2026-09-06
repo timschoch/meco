@@ -10,6 +10,7 @@ import {
   IMAGE_SLOT_MARKER,
   OCCLUDES_MARKER,
   type MeasuredBox,
+  withoutUnmeasured,
 } from "./measured-tree";
 import { sharedRenderer } from "./renderer";
 import { TEMPLATES } from "./templates/registry";
@@ -159,7 +160,7 @@ export async function layout(
 ): Promise<Layout> {
   const { template, look, placement } = resolved;
   const renderer = await sharedRenderer();
-  const { node, css } = await fromJsx(
+  const { node: drawn, css } = await fromJsx(
     template.render({
       fields: resolved.fields,
       look,
@@ -168,6 +169,9 @@ export async function layout(
       ...(variant === undefined ? {} : { variant }),
     })
   );
+  // What takumi will measure and nothing it will not, so the walk below can
+  // pair the two trees node for node (#244).
+  const node = withoutUnmeasured(drawn);
   const measured = await renderer.measure(node, {
     width: placement.width,
     height: placement.height,

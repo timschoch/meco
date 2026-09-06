@@ -1,6 +1,7 @@
 import { deepStrictEqual, ok } from "node:assert/strict";
 import sharp from "sharp";
 import type { MeasuredNode } from "@takumi-rs/core";
+import { z } from "zod";
 import type { RgbaImage } from "@takumi-rs/helpers";
 import { Box, MAX_OCCLUSION_ZONES, type DecodedImage } from "@meco/contracts";
 import type { Check } from "@meco/contracts/conformance";
@@ -269,7 +270,44 @@ function checksFor(
         );
       },
     },
+    {
+      name: `${name} plans with only its required Fields`,
+      run: async () => {
+        // The schema says which Fields a caller may leave out, so a caller who
+        // sends exactly what it requires must get a Plan. What it caught
+        // (#244): a Template writing `{fields.footnote ?? ""}` for an omitted
+        // Field, which takumi lays out as no node while the source tree keeps
+        // one, and a Plan that threw instead of measuring.
+        const fields = requiredFieldsOf(template);
+        const spare = resolve(
+          { template: template.id, brand: template.brand, placement, fields },
+          registry
+        );
+        const { slot } = await layout(spare, undefined, variant);
+        ok(
+          slot.width > 0 && slot.height > 0,
+          `With only ${Object.keys(fields).join(", ")} the Image Slot measured ${slot.width}x${slot.height}.`
+        );
+      },
+    },
   ];
+}
+
+/**
+ * The Template's `example` cut down to the Fields its schema requires: every
+ * key whose schema refuses `undefined`. Read off the zod object so the list
+ * cannot drift from what a caller is told; a Template whose Fields are not an
+ * object keeps its whole `example`, since nothing can be left out of it.
+ */
+function requiredFieldsOf(template: Template): Record<string, unknown> {
+  const example = template.example as Record<string, unknown>;
+  if (!(template.fields instanceof z.ZodObject)) return example;
+  const shape = template.fields.shape as Record<string, z.ZodType>;
+  return Object.fromEntries(
+    Object.entries(example).filter(
+      ([key]) => shape[key]?.safeParse(undefined).success === false
+    )
+  );
 }
 
 /**

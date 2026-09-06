@@ -27,6 +27,33 @@ function childrenOf(node: Node): readonly Node[] {
   return node.type === "container" ? (node.children ?? []) : [];
 }
 
+/** A text node takumi lays out as nothing: empty, or whitespace alone. */
+const isBlankText = (node: Node): boolean =>
+  node.type === "text" && node.text.trim() === "";
+
+/**
+ * The source tree with every node takumi will not measure taken out, so the
+ * measured tree mirrors it node for node.
+ *
+ * takumi's `measure()` drops a text node whose text is blank — `<div>{""}</div>`
+ * comes back as a container with no children (measured on 2.13.6) — while
+ * `fromJsx` keeps it. A Template that writes `{fields.footnote ?? ""}` for an
+ * optional Field it was not given puts exactly such a node in the tree, and the
+ * walk in {@link findMarked} then finds one child fewer than it expects (#244).
+ * Pruned once here, ahead of both the measure and the walk, rather than
+ * tolerated in the walk: a walk that skips what it cannot pair would also skip
+ * a Marker, and hand frame fewer zones than the Template draws.
+ */
+export function withoutUnmeasured(node: Node): Node {
+  if (node.type !== "container" || node.children === undefined) return node;
+  return {
+    ...node,
+    children: node.children
+      .filter((child) => !isBlankText(child))
+      .map(withoutUnmeasured),
+  };
+}
+
 /**
  * Every box carrying this Marker, in canvas pixels.
  *

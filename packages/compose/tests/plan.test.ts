@@ -108,6 +108,22 @@ describe("plan", () => {
     expect(inPixels(tallTop!)).toEqual([blockAtTop(TWO_LINE_HEIGHT)]);
   });
 
+  it("plans a story given only the two Fields its schema requires", async () => {
+    // #244: `subline` and `footnote` are optional, and leaving them out used
+    // to be a throw from the layout walk rather than a shorter block. The
+    // block loses the subline's line and keeps the footnote row, which still
+    // holds the wordmark.
+    const [bottom] = await plan(
+      planFor(STORY_CASE, {
+        fields: { headline: "Kart 24", kicker: "Startaufstellung" },
+      })
+    );
+    const [zone] = inPixels(bottom!);
+
+    expect(zone?.height).toBeLessThan(ONE_LINE_HEIGHT);
+    expect(zone?.y).toBe(SLOT.height - PAD - zone!.height);
+  });
+
   it("stays the same call after call", async () => {
     const first = await plan(planFor(STORY_CASE));
     const second = await plan(planFor(STORY_CASE));
