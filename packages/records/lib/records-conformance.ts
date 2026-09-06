@@ -19,11 +19,13 @@ import { createHash } from "node:crypto";
 import type { Annotation, FacePrint } from "@meco/contracts";
 import type { Check } from "@meco/contracts/conformance";
 import { type Listing, type Store, memoryStore } from "@meco/store";
+import { sql } from "drizzle-orm";
 import type { CallError, CallKind, NewCall, Step } from "./calls";
-import { reachRecords, recordsTables } from "./health";
+import { PROBE_HASH, reachRecords, recordsTables } from "./health";
 import { verifying } from "./neon-database";
 import { peoplePrefix } from "./people";
-import type { Records } from "./records";
+import { type Records, driverOf } from "./records";
+import { BOOTSTRAP_BRANDS, seedRecords } from "./seed";
 
 /** A database with no tables, and however many Records over that one database. */
 export interface EmptyDatabase {
@@ -232,6 +234,9 @@ async function enrolled(
 
 const keysOf = (listed: readonly Listing[]): string[] =>
   listed.map((one) => one.key);
+/** A bearer key derived from the label, so no two checks share a Caller. */
+const keyFor = (label: string): string =>
+  `meco_test_${hashOf(label).slice(0, 24)}`;
 
 /** What `crypto.randomUUID()` produces, and nothing else. */
 const UUID =
@@ -1383,6 +1388,278 @@ export function recordsConformance(
         strictEqual(deleted.deleted, false);
         strictEqual(deleted.bytesDeleted, false);
         deepStrictEqual(store.deletes, []);
+      },
+    },
+    {
+      name: "a second /health probe writes nothing",
+      async run() {
+        const database = await fixtures.empty();
+        try {
+          const records = database.open();
+          await records.migrate();
+
+          const first = await reachRecords(records);
+          strictEqual(first.reachable, true);
+
+          const written = await records.annotations.get(PROBE_HASH);
+          if (written === null) {
+            throw new Error("the first probe wrote no Annotation");
+          }
+
+          // What a row from another build looks like: still an Annotation of
+          // the probe's bytes, not the one this build would write. A probe
+          // that writes on every call overwrites it; a write-once probe reads
+          // it and leaves it alone.
+          const fromElsewhere: Annotation = {
+            ...written,
+            producedBy: [{ name: "scrfd", version: "10g-1" }],
+          };
+          await records.annotations.put(fromElsewhere);
+
+          const second = await reachRecords(records);
+
+          strictEqual(second.reachable, true);
+          deepStrictEqual(
+            await records.annotations.get(PROBE_HASH),
+            fromElsewhere
+          );
+        } finally {
+          await database.dispose();
+        }
+      },
+    },
+    {
+      name: "brands.ensure is an upsert: one row per id, and the last name stands",
+      async run() {
+        const records = await open();
+        const id = brandFor("ensured twice");
+
+        const created = await records.brands.ensure({ id, name: "Before" });
+        const renamed = await records.brands.ensure({ id, name: "After" });
+
+        strictEqual(renamed.id, created.id);
+        strictEqual(renamed.name, "After");
+        // Ensured again, not created again: the Brand keeps the day it first
+        // appeared, so `created_at` stays a fact about the Brand.
+        strictEqual(renamed.createdAt, created.createdAt);
+        deepStrictEqual(await records.brands.get(id), renamed);
+        strictEqual(
+          (await records.brands.list()).filter((brand) => brand.id === id)
+            .length,
+          1
+        );
+      },
+    },
+    {
+      name: "brands.get of an id no Brand has is null, not a throw",
+      async run() {
+        const records = await open();
+
+        strictEqual(await records.brands.get(brandFor("never ensured")), null);
+      },
+    },
+    {
+      name: "callers.byKey finds the Caller its key created, and the table holds no plaintext key",
+      async run() {
+        const records = await open();
+        const brand = brandFor("one caller");
+        const key = keyFor("no table may hold this");
+
+        const created = await records.callers.create({
+          name: "bootstrap",
+          key,
+          brands: [brand],
+        });
+        const found = await records.callers.byKey(key);
+
+        deepStrictEqual(found, created);
+        // Every column of the row as one string, so the assertion does not
+        // depend on which column a mistake would have put the key in.
+        const rows = await driverOf(records).query<{ readonly row: string }>(
+          sql`select c::text as row from callers c where c.id = ${created.id}`
+        );
+        strictEqual(rows.length, 1);
+        for (const { row } of rows) {
+          ok(!row.includes(key), "the callers table holds the key itself");
+        }
+        // And nothing the seam hands back carries it either.
+        ok(!JSON.stringify(created).includes(key), "create returned the key");
+      },
+    },
+    {
+      name: "callers.byKey of a key that created nothing is null, not a throw",
+      async run() {
+        const records = await open();
+
+        strictEqual(await records.callers.byKey(keyFor("never issued")), null);
+      },
+    },
+    {
+      name: "callers.byKey returns the Brands that Caller holds and no others",
+      async run() {
+        const records = await open();
+        const held = brandFor("held");
+        const other = brandFor("held by someone else");
+        await records.brands.ensure({ id: held, name: "Held" });
+        await records.brands.ensure({ id: other, name: "Someone else" });
+        const key = keyFor("holds one brand");
+
+        await records.callers.create({
+          name: "one brand only",
+          key,
+          brands: [held],
+        });
+        const found = await records.callers.byKey(key);
+
+        // The Brand Wall is this array. A Caller that comes back holding a
+        // Brand it was never given is the wall down.
+        deepStrictEqual(found?.brands, [held]);
+      },
+    },
+    {
+      name: "callers.create refuses a second Caller on one key, refuses an empty key, and quotes neither",
+      async run() {
+        const records = await open();
+        const brand = brandFor("issued once");
+        const key = keyFor("issued once");
+
+        await records.callers.create({ name: "first", key, brands: [brand] });
+
+        // One key is one Caller: a second row on the same hash would make
+        // `byKey` a coin toss, and the Brand Wall reads its answer.
+        await rejects(
+          () => records.callers.create({ name: "second", key, brands: [] }),
+          (error: Error) => {
+            // The driver's own message quotes the value it collided on, and
+            // drizzle's wrapper prints every bound parameter. Neither the key
+            // nor its SHA-256 may reach anything that might log it.
+            ok(!error.message.includes(key), "the refusal quotes the key");
+            ok(
+              !/[0-9a-f]{64}/.test(error.message),
+              `the refusal quotes a hash: ${error.message}`
+            );
+            return true;
+          }
+        );
+        // An empty key hashes like any other string, so without the guard an
+        // empty bearer token would authenticate a real Caller.
+        await rejects(() =>
+          records.callers.create({ name: "keyless", key: "", brands: [] })
+        );
+      },
+    },
+    {
+      name: "callers.grant adds Brands, never removes one, and granting twice changes nothing",
+      async run() {
+        const records = await open();
+        const first = brandFor("granted first");
+        const second = brandFor("granted second");
+        const key = keyFor("granted brands");
+        const caller = await records.callers.create({
+          name: "grows",
+          key,
+          brands: [first],
+        });
+
+        const granted = await records.callers.grant({
+          callerId: caller.id,
+          brands: [first, second],
+        });
+        const again = await records.callers.grant({
+          callerId: caller.id,
+          brands: [second],
+        });
+
+        deepStrictEqual([...granted.brands].sort(), [first, second].sort());
+        // Idempotent: a Brand already held is not a second entry.
+        deepStrictEqual(again.brands, granted.brands);
+        // Additive: what the Caller held before a grant it still holds after.
+        ok(again.brands.includes(first), "grant took a Brand away");
+        deepStrictEqual(
+          (await records.callers.byKey(key))?.brands,
+          again.brands
+        );
+      },
+    },
+    {
+      name: "the seed creates the three Brands and the bootstrap Caller, and a second run changes nothing",
+      async run() {
+        const records = await open();
+        const bootstrapKey = keyFor("the seed's own key");
+
+        const first = await seedRecords(records, { bootstrapKey });
+        const second = await seedRecords(records, { bootstrapKey });
+
+        const seeded = BOOTSTRAP_BRANDS.map((brand) => brand.id);
+        deepStrictEqual([...first.brands].sort(), [...seeded].sort());
+        deepStrictEqual(second.brands, first.brands);
+        strictEqual(first.caller.created, true);
+        strictEqual(second.caller.created, false);
+
+        // Counted in the table, not in the report: a report is what the seed
+        // believes, and the point of a second run is that it believed wrong.
+        const listed = await records.brands.list();
+        for (const id of seeded) {
+          strictEqual(
+            listed.filter((brand) => brand.id === id).length,
+            1,
+            `${id} is not exactly one row after two seeds`
+          );
+        }
+        // One Caller, not two: the same row answers the key both times.
+        const caller = await records.callers.byKey(bootstrapKey);
+        ok(
+          caller !== null,
+          "the bootstrap key finds no Caller after two seeds"
+        );
+        deepStrictEqual([...caller.brands].sort(), [...seeded].sort());
+        // No report the seed prints may carry the key.
+        ok(!JSON.stringify([first, second]).includes(bootstrapKey));
+      },
+    },
+    {
+      name: "the seed converges: a bootstrap Caller short of a Brand holds it after the next run",
+      async run() {
+        const records = await open();
+        const bootstrapKey = keyFor("the seed converges");
+        const [firstBrand, ...rest] = BOOTSTRAP_BRANDS;
+        if (firstBrand === undefined) throw new Error("no Brands to seed");
+
+        // The Caller as an older seed would have left it: created when only
+        // one Brand was in the checked-in list.
+        const before = await records.callers.create({
+          name: "bootstrap",
+          key: bootstrapKey,
+          brands: [firstBrand.id],
+        });
+
+        const report = await seedRecords(records, { bootstrapKey });
+
+        strictEqual(report.caller.created, false);
+        const after = await records.callers.byKey(bootstrapKey);
+        strictEqual(after?.id, before.id);
+        for (const brand of rest) {
+          ok(
+            after?.brands.includes(brand.id),
+            `the seed left the bootstrap Caller without ${brand.id}`
+          );
+        }
+        deepStrictEqual(
+          [...report.caller.brands].sort(),
+          [...BOOTSTRAP_BRANDS.map((brand) => brand.id)].sort()
+        );
+      },
+    },
+    {
+      name: "the seed refuses to run without a bootstrap key",
+      async run() {
+        const records = await open();
+
+        await rejects(() => seedRecords(records, { bootstrapKey: "" }));
+        // And it wrote no Brand on the way to refusing.
+        for (const brand of BOOTSTRAP_BRANDS) {
+          strictEqual(await records.brands.get(brand.id), null);
+        }
       },
     },
   ];

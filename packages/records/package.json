@@ -9,10 +9,12 @@
     "./conformance": "./conformance.ts",
     "./health": "./health.ts",
     "./migrations": "./migrations.ts",
-    "./migrations.generated": "./migrations.generated.ts"
+    "./migrations.generated": "./migrations.generated.ts",
+    "./seed": "./seed.ts"
   },
   "scripts": {
-    "migrations": "drizzle-kit generate && node migrations.ts"
+    "migrations": "drizzle-kit generate && node migrations.ts",
+    "seed": "node seed.build.mjs && node --env-file-if-exists=../../.env.local dist/seed/seed.js"
   },
   "dependencies": {
     "@meco/contracts": "workspace:*",
@@ -23,6 +25,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
     "@types/pg": "^8.15.6",
-    "drizzle-kit": "^0.31.10"
+    "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.2"
   }
 }

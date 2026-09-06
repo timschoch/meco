@@ -79,6 +79,7 @@ export interface Records {
       brands: string[];
     }): Promise<Caller>; // stores the hash, never the key
     byKey(key: string): Promise<Caller | null>;
+    grant(grant: { callerId: string; brands: string[] }): Promise<Caller>; // idempotent, additive; never removes a Brand
   };
   people: {
     create(person: { brand: string; name: string }): Promise<Person>;
@@ -200,6 +201,10 @@ One row per request that entered the gateway, `kind` one of `annotate | crop | r
 
 `pnpm records:seed` upserts the three Brands from a checked-in list and creates the first Caller from `MECO_BOOTSTRAP_KEY`, hashed. compose's Look ids and `brands.id` are the same strings: a Brand without a Look renders nothing, a Look without a Brand row owns nothing. Brands are not created over the API in v1.
 
+The Seed is a function over a `Records` (`packages/records/seed.ts`) with a script around it, so the gate runs it twice against pglite and asserts what two runs leave. `brands.ensure` upserts, renaming a Brand but never re-dating it. `callers.create` takes no `on conflict`: one key is one Caller, and the unique index on `key_hash` refuses a second — the refusal is records' own message, because drizzle's wrapper prints the bound parameters and one of them is the key's SHA-256.
+
+**The Seed converges.** It asks `callers.byKey` first; on a miss it creates the Caller with every seeded Brand, and on a hit it calls `callers.grant`, which is idempotent and additive. So the bootstrap Caller holds every Brand the checked-in list names after any run, a Brand added to the list later reaches the existing Caller on the next run, and a Brand granted by hand survives. A Seed that reported the gap instead would not be idempotent: the second run would not end where the first one would have. Nothing the Seed returns or prints carries the key or its hash; the script prints the host it connected to, and no credential.
+
 ### Configuration
 
 | Variable                        | Sensitivity   | Purpose                                                     |
@@ -215,6 +220,8 @@ The Neon connection is `meco-records-eu`, `eu-central-1`, Postgres 18.6 (measure
 
 `reachRecords` runs `select version()` and counts migration files not present in drizzle's migrations table, timing the round trip. `pending > 0` on a running container is a bug the block shows, since boot applies migrations. The gateway adds the block to `GET /health` beside `store`, in the same shape.
 
+The probe is **write-once**. `GET /health` is unauthenticated, so a probe that inserted on every call would be a write anybody could ask the primary database for. It reads the fixed-hash Annotation first and writes the File and the Annotation only when that read is a miss. `reachable` on the call that wrote is the round trip compared structurally against the constant; on every call after it is that a stored Annotation parsed and came back. Holding a row this build did not write against this build's constant would turn `/health` red the day the constant changed.
+
 ## Testing decisions
 
 `recordsConformance(open, fixtures)` returns named Checks that both adapters run; a package's Vitest file maps them with `for (const c of checks) it(c.name, c.run)`. `open` returns a fresh, migrated `Records` per check.
@@ -226,7 +233,17 @@ The Neon connection is `meco-records-eu`, `eu-central-1`, Postgres 18.6 (measure
 | `annotations.put` then `get` is structurally equal and parses with the contracts schema                                | store `JSON.stringify` in a text column and compare as text |
 | `annotations.get` of an unknown hash is `null`, not a throw                                                            | throw on a miss                                             |
 | `files.ensure` twice on one hash is one row                                                                            | insert without `on conflict`                                |
+| `brands.ensure` twice on one id is one row under the last name                                                         | insert without `on conflict`                                |
+| `brands.get` of an id no Brand has is `null`, not a throw                                                              | throw on a miss                                             |
 | `callers.byKey` finds by hash and the table holds no plaintext key                                                     | store the key                                               |
+| `callers.byKey` of a key that created nothing is `null`, not a throw                                                   | throw on a miss                                             |
+| `callers.byKey` returns the Brands that Caller holds and no others                                                     | answer with every Brand row                                 |
+| `callers.create` refuses a second Caller on one key, quoting neither the key nor its hash                              | let drizzle's wrapped error out                             |
+| `callers.grant` adds, never removes, and granting twice changes nothing                                                | replace the array instead of appending                      |
+| the Seed twice leaves one row per Brand and one Caller                                                                 | insert the Brand instead of ensuring it                     |
+| the Seed converges: a Caller short of a Brand holds it after the next run                                              | drop the grant and report the gap                           |
+| the Seed refuses to run without a bootstrap key                                                                        | fall back to a constant key                                 |
+| a second `/health` probe writes nothing                                                                                | write the probe on every call                               |
 | `sources.heldBy` is false for a Brand that never held the hash, true after `hold`, false after `release`               | answer from `files` alone                                   |
 | `outputs.delete` on a key two Brands share deletes one row and no bytes; the second delete removes the bytes           | call `store.delete` unconditionally                         |
 | `outputs.byRequest` finds the Output of an equal request with keys in another order                                    | hash the request as given                                   |

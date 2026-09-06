@@ -1,14 +1,12 @@
 /**
- * Brands, as far as People need them.
+ * Brands. The Seed is the only writer of this table in v1: Brands are not
+ * created over the API, so a Brand exists because a checked-in list said so.
  *
- * A Person's `brand` is a foreign key to `brands.id`, so nothing about People
- * can be written — or tested — until a Brand row exists. That is the whole
- * reason this file is here in this slice.
- *
- * **Owned by [#161](https://github.com/timschoch/meco/issues/161)**, which adds
- * Callers, `brands.get`, `brands.list` and `pnpm records:seed`. When the two
- * land, the later PR drops whichever copy is the duplicate.
+ * It matters to People as well as to the Seed — a Person's `brand` is a foreign
+ * key to `brands.id`, so nothing about People can be written until a Brand row
+ * exists.
  */
+import { asc, eq } from "drizzle-orm";
 import type { DatabaseDriver } from "./database";
 import { brands } from "./schema";
 
@@ -26,7 +24,20 @@ export interface Brands {
    * in the checked-in list reaches the row rather than being ignored.
    */
   ensure(brand: { id: string; name: string }): Promise<Brand>;
+  get(id: string): Promise<Brand | null>;
+  /** Every Brand, by id. Three rows in v1; the Seed is the only writer. */
+  list(): Promise<Brand[]>;
 }
+
+const asBrand = (row: {
+  id: string;
+  name: string;
+  createdAt: Date;
+}): Brand => ({
+  id: row.id,
+  name: row.name,
+  createdAt: row.createdAt.toISOString(),
+});
 
 export function brandsOver(driver: DatabaseDriver): Brands {
   const { orm } = driver;
@@ -43,7 +54,23 @@ export function brandsOver(driver: DatabaseDriver): Brands {
           `@meco/records: the brand ${brand.id} was upserted and nothing came back.`
         );
       }
-      return { ...row, createdAt: row.createdAt.toISOString() };
+      return asBrand(row);
+    },
+
+    async get(id) {
+      const [row] = await orm
+        .select()
+        .from(brands)
+        .where(eq(brands.id, id))
+        .limit(1);
+      return row === undefined ? null : asBrand(row);
+    },
+
+    async list() {
+      // By id, because a Brand list with no order is a list that changes under
+      // a caller comparing two runs. Three rows; nothing to paginate.
+      const rows = await orm.select().from(brands).orderBy(asc(brands.id));
+      return rows.map(asBrand);
     },
   };
 }
