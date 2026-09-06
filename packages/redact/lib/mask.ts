@@ -38,6 +38,12 @@ const maskCoverage = (radius: number): number => {
   return (1 - radius) / FEATHER;
 };
 
+/** One mask: the face's own ellipse, and the part of it that may be written. */
+export interface Mask {
+  readonly ellipse: PixelRectangle;
+  readonly patch: PixelRectangle;
+}
+
 const asBuffer = (data: Uint8Array): Buffer =>
   Buffer.from(data.buffer, data.byteOffset, data.byteLength);
 
@@ -51,11 +57,18 @@ const asBuffer = (data: Uint8Array): Buffer =>
  *
  * Every mask reads from the untouched `source`, so two overlapping faces
  * cannot blur each other twice and the order they arrive in does not matter.
+ *
+ * **`ellipse` is the face and `patch` is what may be written.** They are the
+ * same rectangle for every Region contracts accepts. They part only where the
+ * schema has been bypassed, and then the ellipse keeps its centre, its radii
+ * and its blur strength, and the boundary decides how much of it lands. They
+ * arrive named rather than as two rectangles in a row, so the two cannot be
+ * swapped by a caller that reads the signature too quickly.
  */
 export const paintMask = async (
   source: DecodedImage,
   target: Uint8Array,
-  rect: PixelRectangle
+  { ellipse, patch }: Mask
 ): Promise<void> => {
   const blurred = await sharp(asBuffer(source.data), {
     raw: {
@@ -64,28 +77,28 @@ export const paintMask = async (
       channels: source.channels,
     },
   })
-    .extract(rect)
-    .blur(maskSigma(rect.width))
+    .extract(patch)
+    .blur(maskSigma(ellipse.width))
     .raw()
     .toBuffer();
 
-  const radiusX = rect.width / 2;
-  const radiusY = rect.height / 2;
-  const centreX = rect.left + radiusX;
-  const centreY = rect.top + radiusY;
+  const radiusX = ellipse.width / 2;
+  const radiusY = ellipse.height / 2;
+  const centreX = ellipse.left + radiusX;
+  const centreY = ellipse.top + radiusY;
 
-  for (let row = 0; row < rect.height; row += 1) {
-    const y = rect.top + row;
+  for (let row = 0; row < patch.height; row += 1) {
+    const y = patch.top + row;
     const offsetY = (y + 0.5 - centreY) / radiusY;
 
-    for (let column = 0; column < rect.width; column += 1) {
-      const x = rect.left + column;
+    for (let column = 0; column < patch.width; column += 1) {
+      const x = patch.left + column;
       const offsetX = (x + 0.5 - centreX) / radiusX;
       const coverage = maskCoverage(Math.hypot(offsetX, offsetY));
       if (coverage === 0) continue;
 
       const into = (y * source.width + x) * 3;
-      const from = (row * rect.width + column) * 3;
+      const from = (row * patch.width + column) * 3;
       for (let channel = 0; channel < 3; channel += 1) {
         const was = source.data[into + channel]!;
         target[into + channel] = Math.round(

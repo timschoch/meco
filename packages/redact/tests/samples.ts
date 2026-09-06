@@ -91,10 +91,18 @@ export const smallestFace: Region = [...crewRegions].sort(
  * to tell a sigma that scales from one that does not. A check that needs two
  * sizes builds the second one.
  */
-export const faceOn = (box: Region["box"]): Region =>
-  assignRegionIds([
-    { kind: "face", label: "face", box, score: 0.9, model: detector },
-  ])[0]!;
+export const facesOn = (...boxes: Region["box"][]): Region[] =>
+  assignRegionIds(
+    boxes.map((box) => ({
+      kind: "face" as const,
+      label: "face",
+      box,
+      score: 0.9,
+      model: detector,
+    }))
+  );
+
+export const faceOn = (box: Region["box"]): Region => facesOn(box)[0]!;
 
 /** The size of `stepEdge`. Wide enough to hold a 400 px mask clear of the sides. */
 export const STEP_EDGE_SIZE = { width: 1024, height: 512 };
@@ -124,6 +132,35 @@ export const faceOnTheStep = (widthInPixels: number): Region =>
     width: widthInPixels / STEP_EDGE_SIZE.width,
     height: 0.5,
   });
+
+/** The size of `checkerboard`. The 4:5 of the photograph, small enough to be quick. */
+export const CHECKERBOARD_SIZE = { width: 640, height: 800 };
+
+/** The side of one square of `checkerboard`, in pixels. */
+const CHECK = 4;
+
+/**
+ * Black and white squares, edge to edge.
+ *
+ * The corners of `artemis-2-crew.jpg` are featureless: mean |Laplacian| in its
+ * top-left 256x320 is 0.200 against 11.0 to 13.9 inside the four face cores.
+ * A detail ratio measured there measures the sensor noise, and no mutation
+ * moves it — skipping the blur leaves it under any bound worth writing. So a
+ * check that needs detail *at the boundary* builds an image that has it
+ * everywhere.
+ */
+export const checkerboard = (): RedactRequest["image"] => {
+  const { width, height } = CHECKERBOARD_SIZE;
+  const data = new Uint8Array(width * height * 3);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const white =
+        (Math.floor(x / CHECK) + Math.floor(y / CHECK)) % 2 === 0 ? 255 : 0;
+      data.fill(white, (y * width + x) * 3, (y * width + x) * 3 + 3);
+    }
+  }
+  return { width, height, channels: 3, data };
+};
 
 /** A Match for one Region. The similarity is the caller's to choose. */
 export const matchOf = (regionId: string, similarity: number): Match => ({

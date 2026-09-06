@@ -108,6 +108,7 @@ describe("redact, the Unknown Face rule", () => {
       height: result.image.height,
       channels: result.image.channels,
     }).toEqual({ width: image.width, height: image.height, channels: 3 });
+    expect(result.image.data.length).toBe(image.width * image.height * 3);
     expect(result.image.data).not.toBe(image.data);
   });
 });
