@@ -6,8 +6,8 @@ import {
   blankImage,
   expectedFaces,
   fixture,
+  goldenPrint,
   matchGolden,
-  referencePrints,
 } from "./fixtures";
 
 const edgeface = catalogue.enrichers.find((e) => e.model.name === "edgeface")!;
@@ -117,27 +117,26 @@ describe("edgeface prints the crew", async () => {
     expect(await edgeface.run(blankImage(), [])).toEqual([]);
   });
 
-  // The golden. `fixtures/faces/face-prints.json` holds the prototype's own
-  // ONNX prints of every fixture face, one per hand-marked position; neither
-  // it nor `edgeface-reference.json` (PyTorch, over the committed 112px
-  // squares) records a decode bound, so the bound this compares at is this
-  // host's: `decode` above, 1600 px. The crew fixture is 1280x1600, so it
-  // passes through the bound untouched and the two paths see the same pixels
-  // — which is why 0.95 has room to spare here. The threshold is #75's, set
-  // for the general case where the bound does shrink the photograph and the
-  // spec's "Why 1600" measured a 0.96 cosine on the smallest face.
-  it("agrees with the committed reference prints, face by face", async () => {
+  // The golden. `fixtures/faces/edgeface-reference.json` holds PyTorch's own
+  // output over the committed 112px squares in `fixtures/faces/aligned/`:
+  // another runtime and another aligner, so agreeing with it is a claim about
+  // this adapter. (`face-prints.json` beside it is not the golden any more —
+  // since #177 this repository writes it through this very Catalogue, and an
+  // adapter checked against its own output asserts nothing.) Neither file
+  // records a decode bound, so the bound compared at is this host's: `decode`
+  // above, 1600 px. The crew fixture is 1280x1600 and passes through untouched,
+  // which is why 0.95 has room to spare here. The threshold is #75's, set for
+  // the general case where the bound does shrink the photograph and the spec's
+  // "Why 1600" measured a 0.96 cosine on the smallest face.
+  it("agrees with the golden PyTorch prints, face by face", async () => {
     const marked = (await expectedFaces()).images.find((i) => i.file === CREW)!;
-    const reference = await referencePrints();
 
     for (const { label, region } of matchGolden(marked.faces, printed)) {
-      const committed = reference.find(
-        (p) => p.file === CREW && p.label === label
-      );
-      expect(committed, `a committed print for "${label}"`).toBeDefined();
+      const golden = await goldenPrint(CREW, label);
+      expect(golden, `a golden print for "${label}"`).toBeDefined();
       expect(
-        cosine(region!.facePrint!.vector, committed!.print),
-        `"${label}" against its committed print`
+        cosine(region!.facePrint!.vector, golden!),
+        `"${label}" against its golden print`
       ).toBeGreaterThanOrEqual(MIN_PRINT_COSINE);
     }
   });

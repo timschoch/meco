@@ -142,20 +142,20 @@ describe("identify().match", () => {
         regionId: A.regionId,
         verdict: "match",
         personId: person.id,
-        similarity: expect.closeTo(0.8228, 4),
+        similarity: expect.closeTo(0.8229, 4),
       });
       expect(found.matches).toEqual([
         {
           regionId: A.regionId,
           personId: person.id,
           brand,
-          similarity: expect.closeTo(0.8228, 4),
+          similarity: expect.closeTo(0.8229, 4),
         },
       ]);
 
       // The two strangers in the same photograph, well under the threshold.
       for (const [face, best] of [
-        [F, 0.0861],
+        [F, 0.086],
         [G, 0.1003],
       ] as const) {
         const verdict = verdictOn(found.faces, face.regionId);
@@ -173,7 +173,7 @@ describe("identify().match", () => {
   it(
     "matches on the strongest Reference Photo, not on their mean",
     async () => {
-      // Two Reference Photos: 0.8228 and 0.7263 against the held-out face.
+      // Two Reference Photos: 0.8229 and 0.7263 against the held-out face.
       const twice = await open.enrol({
         brand: "best-of-two",
         name: "A",
@@ -188,11 +188,11 @@ describe("identify().match", () => {
         personId: twice.id,
         // The mean of the two is 0.7746. The threshold was calibrated on the
         // best (ADR-0012, Decision 3), so the best is what is reported.
-        similarity: expect.closeTo(0.8228, 4),
+        similarity: expect.closeTo(0.8229, 4),
       });
 
       // A third Reference Photo, a group photograph where the wrong face was
-      // chosen at enrolment: 0.2979 against the same held-out face. Enrolling
+      // chosen at enrolment: 0.2978 against the same held-out face. Enrolling
       // more photographs must help and never hurt, so the answer must not move.
       const thrice = await open.enrol({
         brand: "best-of-three",
@@ -207,7 +207,7 @@ describe("identify().match", () => {
         verdict: "match",
         personId: thrice.id,
         // The mean of the three is 0.6157, and it is not this number.
-        similarity: expect.closeTo(0.8228, 4),
+        similarity: expect.closeTo(0.8229, 4),
       });
     },
     PGLITE_TIMEOUT_MS
@@ -217,7 +217,7 @@ describe("identify().match", () => {
     "refuses a face two People are within the margin of, and reports both numbers",
     async () => {
       // The same photograph enrolled for two People — a mistake at enrolment,
-      // or twins. Both come out at 0.8228, a margin of exactly nothing.
+      // or twins. Both come out at 0.8229, a margin of exactly nothing.
       const brand = "a-tie";
       const first = await open.enrol({
         brand,
@@ -238,12 +238,12 @@ describe("identify().match", () => {
       expect(verdictOn(found.faces, A.regionId)).toEqual({
         regionId: A.regionId,
         verdict: "unknown",
-        best: expect.closeTo(0.8228, 4),
-        runnerUp: expect.closeTo(0.8228, 4),
+        best: expect.closeTo(0.8229, 4),
+        runnerUp: expect.closeTo(0.8229, 4),
       });
       // Above the threshold and named after neither: the margin is the whole
       // difference between a Match and the wrong name on a published post.
-      expect(0.8228).toBeGreaterThan(MATCH_THRESHOLD);
+      expect(0.8229).toBeGreaterThan(MATCH_THRESHOLD);
       expect(found.matches).toEqual([]);
       expect([first.id, second.id]).toHaveLength(2);
     },
@@ -274,10 +274,10 @@ describe("identify().match", () => {
         regionId: A.regionId,
         verdict: "match",
         personId: nearer.id,
-        similarity: expect.closeTo(0.8228, 4),
+        similarity: expect.closeTo(0.8229, 4),
         runnerUp: expect.closeTo(0.7263, 4),
       });
-      expect(0.8228 - 0.7263).toBeGreaterThan(MATCH_MARGIN);
+      expect(0.8229 - 0.7263).toBeGreaterThan(MATCH_MARGIN);
     },
     PGLITE_TIMEOUT_MS
   );
@@ -295,13 +295,13 @@ describe("identify().match", () => {
         brand: theirs,
       });
 
-      // Brand B sees only its own Person, whose best is 0.2979 — under the
-      // threshold. Brand A's 0.8228 is not in the answer at any strength.
+      // Brand B sees only its own Person, whose best is 0.2978 — under the
+      // threshold. Brand A's 0.8229 is not in the answer at any strength.
       expect(found.matches).toEqual([]);
       expect(verdictOn(found.faces, A.regionId)).toEqual({
         regionId: A.regionId,
         verdict: "unknown",
-        best: expect.closeTo(0.2979, 4),
+        best: expect.closeTo(0.2978, 4),
       });
     },
     PGLITE_TIMEOUT_MS
@@ -417,7 +417,7 @@ describe("identify().match, the faces it will not compare", () => {
         .flatMap((one) => one.photos.map((photo) => photo.id));
       expect(found.unusableReferencePhotos).toEqual(unusable);
 
-      // 0.7263, the weaker photograph, and never 0.8228.
+      // 0.7263, the weaker photograph, and never 0.8229.
       expect(verdictOn(found.faces, A.regionId)).toMatchObject({
         verdict: "match",
         similarity: expect.closeTo(0.7263, 4),
@@ -453,7 +453,7 @@ describe("identify().match, the faces it will not compare", () => {
       );
       expect(verdictOn(found.faces, A.regionId)).toMatchObject({
         verdict: "match",
-        similarity: expect.closeTo(0.8228, 4),
+        similarity: expect.closeTo(0.8229, 4),
       });
 
       // The same rule on the way in: a face whose print is the wrong length

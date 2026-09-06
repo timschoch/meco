@@ -149,17 +149,19 @@ A refused photograph leaves no object under the prefix and no row. The same phot
 
 ### The constants and their provenance
 
-| Constant               | Value        | Provenance                                                                                                                                      | Room                 |
-| ---------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `MATCH_THRESHOLD`      | 0.50         | ADR-0003 D3; re-measured 6 Sep 2026 on `fixtures/faces/face-prints.json`, 1600 px: same-person worst 0.7263, stranger best 0.2979 over 33 pairs | 0.20 either way      |
-| `MATCH_MARGIN`         | 0.05         | ADR-0003 D3: chosen, not measured; the fixtures hold no look-alikes                                                                             | unmeasured           |
-| `MIN_FACE_PX`          | 40           | ADR-0003 amendment; judged in the Decoded Image                                                                                                 | none below 40        |
-| `NOT_A_FACE_THRESHOLD` | 0.60         | ADR-0003 amendment, 21 detections in `fixtures/karts/`; nearest non-face 0.6365, nearest real face 0.6542                                       | 0.0365 up, none down |
-| `PRINT_MODEL`          | `edgeface/1` | `docs/specs/models.md`, the Catalogue                                                                                                           |                      |
+| Constant               | Value        | Provenance                                                                                                                                                            | Room                 |
+| ---------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `MATCH_THRESHOLD`      | 0.50         | ADR-0003 D3; measured 6 Sep 2026 on `fixtures/faces/face-prints.json`, `edgeface/1` at 1600 px: same-person worst 0.7263, stranger best 0.2978 over 33 pairs          | 0.20 either way      |
+| `MATCH_MARGIN`         | 0.05         | ADR-0003 D3: chosen, not measured; the fixtures hold no look-alikes                                                                                                   | unmeasured           |
+| `MIN_FACE_PX`          | 40           | ADR-0003 amendment; judged in the Decoded Image                                                                                                                       | none below 40        |
+| `NOT_A_FACE_THRESHOLD` | 0.60         | ADR-0003 amendment; measured 6 Sep 2026 over the 11 swept detections in `fixtures/karts/`, `edgeface/1` at 1600 px: nearest non-face 0.6364, nearest real face 0.6545 | 0.0364 up, none down |
+| `PRINT_MODEL`          | `edgeface/1` | `docs/specs/models.md`, the Catalogue                                                                                                                                 |                      |
 
-**Inherited, not yet verified against the shipped adapter.** Every print these numbers were measured on came from the prototype's ONNX path. #121 asks the new Enricher only for cosine ≥ 0.95 against them. A drift of 0.05 is invisible to the identity band and fatal to the Not-a-Face band. The re-calibration ticket regenerates both fixture print files through the new adapter, re-runs both sweeps, and edits ADR-0012's table. Until it lands, the spec says so here and the calibration test asserts the inherited numbers on the inherited prints.
+**Measured against the shipped adapter, 6 Sep 2026 (#177).** Both fixture print files are re-taken by `pnpm --filter @meco/models print:fixtures` through the Catalogue's own `edgeface/1` at the Decode Bound, and each file records the Model, the bound and the ONNX Runtime that produced it. Every row above moved by less than 0.0006 against the prototype's ONNX path — worst per-print drift 0.999996 cosine over 21 prints, median 0.999999 — so both bands are the inherited ones and no constant moved. `packages/identify/tests/calibration.test.ts` recomputes both tables every run and refuses a print file from another Model or another bound. ADR-0012 Decision 3 carries the table with its deltas.
 
-**Max per Person, not centroid.** Measured 6 Sep 2026 on the one fixture Person with three prints, each held out in turn: max 0.8681 / 0.8681 / 0.8228, centroid 0.9101 / 0.8351 / 0.8014. Centroid wins once and loses twice; the threshold was calibrated on max.
+**The margin is flat here, and the calibration says so.** Scored the way the rule scores, only three fixture faces reach `MATCH_THRESHOLD` — all one Person, all named correctly — and the worst of their margins is 0.5251, ten times `MATCH_MARGIN`. The six that do not reach it run down to a margin of 0.0005, and every one is refused by the threshold before the margin is consulted. The fixture set gives 0.05 nothing to be measured against; it stays a chosen number.
+
+**Max per Person, not centroid.** Measured 6 Sep 2026 on the one fixture Person with three prints, each held out in turn: max 0.8681 / 0.8681 / 0.8229, centroid 0.9101 / 0.8351 / 0.8015. Centroid wins once and loses twice; the threshold was calibrated on max.
 
 ### The Not-a-Face Prints
 

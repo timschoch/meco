@@ -28,10 +28,29 @@ const OUT = fileURLToPath(
 /** `PRINT_DIMENSIONS` in `lib/constants.ts`, which this script cannot import. */
 const PRINT_DIMENSIONS = 512;
 
+/** `PRINT_MODEL` in `lib/constants.ts`, for the same reason. */
+const PRINT_MODEL = { name: "edgeface", version: "1" };
+
 const read = (name) => JSON.parse(readFileSync(`${KARTS}${name}`, "utf8"));
 
 const printed = read("face-prints.json");
 const expected = read("expected.json");
+
+// The dump says which Model took these prints. A print from any other Model is
+// an Uncompared Face to identify, so committing one as a Not-a-Face Print
+// would compare two unrelated networks term by term and could refuse a real
+// face on nothing. Refused here, at the one place the vectors leave the
+// fixtures: re-print with `pnpm --filter @meco/models print:fixtures` first.
+const model = printed.printedBy?.model;
+if (model?.name !== PRINT_MODEL.name || model.version !== PRINT_MODEL.version) {
+  throw new Error(
+    `fixtures/karts/face-prints.json was printed by ${
+      model === undefined
+        ? "no recorded Model"
+        : `${model.name}/${model.version}`
+    }, and the Print Model is ${PRINT_MODEL.name}/${PRINT_MODEL.version}`
+  );
+}
 
 /**
  * Every detection the human marked `reference: true`, in detection order,

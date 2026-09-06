@@ -78,14 +78,37 @@ const expected = read("expected.json") as {
   }[];
 };
 
+/**
+ * What took a set of fixture prints, as the dump recorded it. A number without
+ * what it was measured on is a trap, so the calibration prints this beside its
+ * table and asserts the Model is the one the constants belong to.
+ */
+export interface PrintedBy {
+  readonly model: { readonly name: string; readonly version: string };
+  /** The Decode Bound the photographs were decoded to before printing. */
+  readonly bound: number;
+  readonly onnxruntime: string;
+}
+
+/** One committed fixture face print, as `fixtures/faces/face-prints.json` holds it. */
+export interface FacePrint {
+  readonly file: string;
+  readonly label: string;
+  /** Which human, as a letter. Two prints sharing a letter are one Person. */
+  readonly person: string;
+  readonly print: readonly number[];
+}
+
 const printed = read("face-prints.json") as {
-  readonly prints: readonly {
-    readonly file: string;
-    readonly label: string;
-    readonly person: string;
-    readonly print: readonly number[];
-  }[];
+  readonly printedBy: PrintedBy;
+  readonly prints: readonly FacePrint[];
 };
+
+/** Every committed fixture face print, in the order the dump wrote them. */
+export const facePrints = (): readonly FacePrint[] => printed.prints;
+
+/** What printed `fixtures/faces/face-prints.json`. */
+export const facePrintsPrintedBy = (): PrintedBy => printed.printedBy;
 
 /** The detector the fixture boxes came from. Its own Model, per ADR-0005. */
 const BOX_MODEL = { name: "yunet", version: "1" } as const;
@@ -239,6 +262,7 @@ export interface KartPrint {
 }
 
 const kartPrinted = readKart("face-prints.json") as {
+  readonly printedBy: PrintedBy;
   readonly prints: readonly {
     readonly file: string;
     readonly index: number;
@@ -308,6 +332,9 @@ const KART_PRINTS = kartPrinted.prints.map((one): KartPrint => {
 
 /** Every committed kart print. */
 export const kartPrints = (): readonly KartPrint[] => KART_PRINTS;
+
+/** What printed `fixtures/karts/face-prints.json`. */
+export const kartPrintsPrintedBy = (): PrintedBy => kartPrinted.printedBy;
 
 /** One kart print by `<file>#<index>`. */
 export const kartPrint = (id: string): KartPrint => {

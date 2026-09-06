@@ -47,12 +47,20 @@ than 1600 px because the photograph is: `on-track-rear-helmet.jpg` is 600 × 400
 1272 × 1577. They were not enlarged, because production would not enlarge them
 either.
 
-`scripts/match-calibration.ts` enforces both halves on every run: that
-`boundedSource` returns each file unchanged, and that each file's long edge is
-`min(LONG_EDGE, natural)` — the second checked against the `sources` block in
-`expected.json`, which records how big each Commons original is. Pass-through
-alone is not enough; a 1400 px file passes it too. If `LONG_EDGE` ever changes,
-those checks fail and name the files to re-derive.
+The prototype's `scripts/match-calibration.ts` enforced both halves on every
+run: that `boundedSource` returned each file unchanged, and that each file's
+long edge was `min(LONG_EDGE, natural)` — the second checked against the
+`sources` block in `expected.json`, which records how big each Commons original
+is. Pass-through alone is not enough; a 1400 px file passes it too. **The
+rebuild does not carry that check yet.** `DECODE_BOUND` is 1600 today and
+`packages/identify/tests/calibration.test.ts` asserts the bound each print file
+was taken at, so a bound change is loud; a fixture committed at the wrong size
+is not, and re-deriving these files is still a hand job.
+
+`face-prints.json` beside this file is written by
+`pnpm --filter @meco/models print:fixtures` through the shipped Catalogue, not
+by the prototype's dump. It records the Model, the bound and the ONNX Runtime it
+came from.
 
 ## What each one is for
 

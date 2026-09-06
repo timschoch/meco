@@ -20,9 +20,32 @@ The prototype narrowed the answer by `persons` at the end and threw on unknown i
 
 ## Decision 3 — the open-set rule is inherited, and the inheritance is measured before it is trusted
 
-`MATCH_THRESHOLD` 0.50, `MATCH_MARGIN` 0.05, `MIN_FACE_PX` 40 in the Decoded Image, `NOT_A_FACE_THRESHOLD` 0.60, best similarity per Person with the runner-up the best other Person, all as ADR-0003 left them. Re-measured 6 Sep 2026 on `fixtures/faces/face-prints.json` at the 1600 px bound: same-person worst 0.7263, stranger best 0.2979, ADR-0003's table to the fourth decimal. Centroid aggregation measured on the one three-print Person, held out in turn: 0.9101 / 0.8351 / 0.8014 against max 0.8681 / 0.8681 / 0.8228. Not better; rejected.
+`MATCH_THRESHOLD` 0.50, `MATCH_MARGIN` 0.05, `MIN_FACE_PX` 40 in the Decoded Image, `NOT_A_FACE_THRESHOLD` 0.60, best similarity per Person with the runner-up the best other Person, all as ADR-0003 left them. Centroid aggregation measured on the one three-print Person, held out in turn: 0.9101 / 0.8351 / 0.8015 against max 0.8681 / 0.8681 / 0.8229. Not better; rejected.
 
-The Not-a-Face band is 0.0365 wide in one direction and closed in the other. The Enricher that will produce production prints is not the one those prints came from. So the constants ship inherited and the first re-calibration ticket, blocked on the Enricher, regenerates both fixture print files through the shipped adapter, re-runs both sweeps as a Vitest file, and edits the table in the spec. A rule with no band cannot be assumed to survive a new print path; the assumption is what ADR-0003's amendment was written about.
+The Not-a-Face band is 0.0365 wide in one direction and closed in the other, and the Enricher that produces production prints was not the one those prints came from. A rule with no band cannot be assumed to survive a new print path — the assumption is what ADR-0003's amendment was written about — so the constants shipped inherited and marked unverified, and #177 measured them.
+
+### The measurement, 6 Sep 2026 (#177)
+
+`pnpm --filter @meco/models print:fixtures` re-takes `fixtures/faces/face-prints.json` and `fixtures/karts/face-prints.json` through the Catalogue's own `edgeface/1`, at the 1600 px Decode Bound, on onnxruntime 1.29.0. Each file records that provenance, and `packages/identify/tests/calibration.test.ts` refuses a file printed by another Model or at another bound. Both sweeps then run as that Vitest file, with their tables printed.
+
+| Row                                         | Inherited (prototype ONNX) | Measured (shipped `edgeface/1`) | Delta    |
+| ------------------------------------------- | -------------------------- | ------------------------------- | -------- |
+| same-person worst, 3 pairs                  | 0.7263                     | **0.7263**                      | +0.00004 |
+| stranger best, 33 pairs                     | 0.2979                     | **0.2978**                      | −0.00011 |
+| identity band                               | 0.4284                     | **0.4285**                      | +0.00015 |
+| nearest non-face, `paddock-mixed#7`, 52 px  | 0.6365                     | **0.6364**                      | −0.00015 |
+| nearest real face, `paddock-mixed#8`, 40 px | 0.6542                     | **0.6545**                      | +0.00034 |
+| held out, `on-track-visor-open#0`, 100 px   | 0.6935                     | **0.6933**                      | −0.00015 |
+| clearance below the nearest non-face        | 0.0365                     | **0.0364**                      | −0.00015 |
+| Not-a-Face band                             | −0.0177                    | **−0.0181**                     | −0.00049 |
+
+**No constant moved.** Every row moved by less than 0.0006, an order of magnitude under the 0.02 ADR-0003 set as the floor for tuning 0.60 at all. Per-print drift over the 21 prints replaced: worst 0.999996 cosine (`podium-trophy.jpg#0`), median 0.999999. #121's golden bound of 0.95 is three orders of magnitude looser than what identify's band could absorb here; the two numbers are not in tension, they are measuring different risks — 0.95 is what the general case needs when the Decode Bound shrinks a photograph, and 0.999996 is what this fixture set, committed at the bound, actually does.
+
+The refused set is unchanged: `on-track-visor-open#0`, `paddock-mixed#8`, `paddock-mixed#7`, and no non-face is accepted.
+
+**The margin is flat, and the calibration now prints why.** Three fixture faces reach `MATCH_THRESHOLD`, all one Person and all named correctly, worst margin 0.5251. The other six run down to a margin of 0.0005 and are every one refused by the threshold before the margin is consulted. `MATCH_MARGIN` stays chosen rather than measured.
+
+**Two counts in ADR-0003's amendment are stale, and are not being rewritten there.** It says "21 detections" and "11 real faces of 57 px or more"; `fixtures/karts/` holds 13 hand-classified detections — 10 real faces and 3 non-faces — of which 12 are printed (`paddock-mixed#1`, a real face at 60 px, is the one the warp refuses) and 11 are swept past the reference print: 9 real faces and 2 non-faces. Four of the 10 real faces are 57 px or more. The three headline cosines reproduce to the fourth decimal, so those are a stale count and not a different measurement. ADR-0003 is history and keeps its numbers; this note is where the correction lives, and `calibration.test.ts` asserts 11 / 9 / 2 every run.
 
 `PRINT_MODEL` is `edgeface/1`. A print from any other `{ name, version }` is uncompared; an enrolled print from another is unusable and reported. That turns a model swap into a forced re-enrolment, which ADR-0003's Consequences said was the only path and ADR-0005 made checkable.
 
