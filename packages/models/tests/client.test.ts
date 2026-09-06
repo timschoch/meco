@@ -50,7 +50,11 @@ describe("the client over the app", async () => {
 
     expect(Annotation.parse(annotation)).toEqual(annotation);
     expect(annotation.hash).toBe(sha256(bytes));
-    expect(annotation.producedBy).toEqual([{ name: "yunet", version: "1" }]);
+    // Every Catalogue entry, read off the Catalogue: a Model added to it is a
+    // Model the client is expected to carry, not a test to edit.
+    expect(annotation.producedBy).toEqual(
+      catalogue.detectors.map((d) => d.model)
+    );
     expect(annotation.regions).not.toHaveLength(0);
   });
 
@@ -108,9 +112,7 @@ describe("the client maps every wire error to its own code", () => {
 
   it("refuses a Model the Catalogue does not hold, off the real host", async () => {
     const error = await refusal(
-      overApp.annotate(new Uint8Array([1]), {
-        models: ["dfine"],
-      })
+      overApp.annotate(new Uint8Array([1]), { models: ["no-such-model"] })
     );
     expect(error.code).toBe<ModelsErrorCode>("unknown_model");
   });
