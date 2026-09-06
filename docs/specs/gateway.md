@@ -132,13 +132,34 @@ because neither carries a photograph:
    too_large` before the store is asked.
 2. The caller `PUT`s the file to `url`.
 3. `add_source` takes `{ brand, key }` and answers `{ hash, key, bytes, mime }`.
-   It reads the object, hashes it **itself**, and refuses `400
-   invalid_request` — deleting the object — when the bytes do not hash to the
-   key they arrived at. It then reads the mime, width and height off the bytes
-   with sharp's `metadata()`, exactly as the models host's decoder does,
-   `autoOrient` size included; `files.ensure`, then `sources.hold(brand, hash)`.
+   It reads the object and hashes it **itself**, reads the mime, width and
+   height off the bytes with sharp's `metadata()` exactly as the models host's
+   decoder does (`autoOrient` size included), and asks the store where those
+   bytes belong. A key that is not the one `storeKeyFor` gives them is `400
+   invalid_request`. Then `files.ensure`, then `sources.hold(brand, hash)`.
    Bytes no decoder can read, or an image in a format no Annotation has a mime
-   for, are `415 unsupported_mime` and nothing is filed.
+   for, are `415 unsupported_mime`.
+
+**Every refusal takes the object with it.** Bytes nothing filed are bytes
+records will never name, and the Sweep only removes what records knows about,
+so an upload nothing accepted would sit in the Private Store for good.
+
+**The Signed URL cannot overwrite**, and that is the guarantee the rest rests
+on. A caller names the hash its key is built from, so it can name the hash of
+a photograph another Brand filed. If that URL could write, it would replace
+those bytes under a key still saying they are the old ones, and the Annotation
+cached for that hash would describe a picture that is no longer there — for
+every Brand, forever. The backend refusing the second write is also what makes
+the delete above safe: whatever is at a key this caller minted, this caller
+put there.
+
+What this does **not** prove is that the caller sent the bytes rather than
+guessing where they were. A Brand that knows the SHA-256 of a photograph
+already in the store can call `add_source` on its key and be given a Source
+Hold without uploading anything. Guessing a hash it has never held is a
+256-bit search, so in practice knowing the hash is having had the bytes — the
+same ground the `{ url }` path stands on, where supplying the bytes is what
+earns the hold. Ledgered on #188 rather than defended against.
 
 The caller's hash picks the key; the gateway's hash is what the File is
 written under. `files.ensure` keeps the first row written, so a File whose

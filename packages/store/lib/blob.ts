@@ -361,10 +361,16 @@ export function blobStore(config: BlobStoreConfig = {}): Store {
         operation: "put",
         access: "private",
         // The key already ends in the hash of the bytes it names, so a suffix
-        // would break the one rule every Store Key keeps, and an overwrite
-        // writes the same bytes over themselves.
+        // would break the one rule every Store Key keeps.
         addRandomSuffix: false,
-        allowOverwrite: true,
+        // And no overwrite, which is the whole guarantee. A caller names the
+        // hash its key is built from, so it can name the hash of a photograph
+        // somebody else filed. If that URL could write, it would replace
+        // those bytes under a key that still says they are the old ones — the
+        // Annotation cached for that hash would then describe a picture that
+        // is no longer there, for every Brand, forever. The backend refusing
+        // the second write is what makes a Store Key mean its own bytes.
+        allowOverwrite: false,
       });
       return {
         key,

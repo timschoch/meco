@@ -296,6 +296,10 @@ describe("add_source", () => {
       expect(body.error?.code).toBe("unsupported_mime");
       expect(await one.records.files.get(hash)).toBeNull();
       expect(await one.records.sources.heldBy(BRAND, hash)).toBe(false);
+      // And the bytes go with the refusal. Nothing filed them, so records
+      // will never name them and the Sweep would leave them in the Private
+      // Store for good.
+      expect(await one.store.head(key)).toBeNull();
     },
     TIMEOUT
   );
@@ -332,6 +336,7 @@ describe("add_source", () => {
       expect(body.error?.code).toBe("unsupported_mime");
       expect(String(body.error?.message)).toContain("tiff");
       expect(await one.records.files.get(hash)).toBeNull();
+      expect(await one.store.head(`sources/${hash}.jpg`)).toBeNull();
     },
     TIMEOUT
   );

@@ -18,16 +18,21 @@
  *   2. `add_source` is handed the key back, reads the object, and hashes it
  *      **itself**. The hash the caller sent is what picked the key; the hash
  *      the gateway takes is what the File is written under. A caller that
- *      uploaded other bytes than it named gets `hash_mismatch` and its object
- *      deleted, because a File whose hash is not its bytes would poison the
- *      Annotation cache for every Brand, forever.
+ *      uploaded other bytes than it named is refused and its object deleted,
+ *      because a File whose hash is not its bytes would poison the Annotation
+ *      cache for every Brand, forever.
+ *
+ * The same reasoning is why the Signed URL cannot overwrite. A caller names
+ * the hash its key is built from, so it can name a hash somebody else filed;
+ * the backend refusing the second write is what stops it replacing those
+ * bytes (`packages/store/lib/blob.ts`). Nothing here may assume otherwise.
  *
  * Both are ordinary Operations and appear on both Doors. Nothing here carries
  * a photograph in a body or a tool result, so the MCP Door loses nothing by
  * having them: an agent gets a URL to put to, exactly as an HTTP client does.
  */
 import { createHash } from "node:crypto";
-import { MAX_OBJECT_BYTES } from "@meco/store";
+import { MAX_OBJECT_BYTES, storeKeyFor } from "@meco/store";
 import { z } from "zod";
 import { imageFacts } from "./decode";
 import { GatewayError } from "./errors";
@@ -112,28 +117,32 @@ export async function addSource(
     throw new GatewayError("not_found", `nothing is stored at ${key}`);
   }
 
+  // The decoder's answer and not the caller's declaration: `create_upload`
+  // took a `mime` to choose an extension, and what the File records is what
+  // the bytes actually are.
+  const facts = await orphanFree(ctx, key, () => imageFacts(bytes));
+
   const hash = createHash("sha256").update(bytes).digest("hex");
-  const named = key.slice(key.lastIndexOf("/") + 1).split(".")[0];
-  if (named !== hash) {
-    // Removed, not left: the object is filed under a hash that is not its
-    // own, so nothing may ever read it, and the Sweep only takes what records
-    // knows about — which is nothing, since no File was written.
+  // The store's own arithmetic, not a second reading of the key here: where
+  // these bytes belong is one question with one answer, and `storeKeyFor` is
+  // where it is answered (`docs/specs/store.md`).
+  const belongs = storeKeyFor(SOURCES, hash, facts.mime);
+  if (belongs !== key) {
+    // Removed, not left: the object sits under a key that does not describe
+    // it, so nothing may ever read it, and the Sweep only takes what records
+    // knows about — which is nothing, since no File was written. Safe to
+    // delete precisely because the URL that wrote it could not overwrite:
+    // whatever is here, this caller put here.
     await ctx.store.delete(key);
     throw new GatewayError(
       "invalid_request",
-      `the bytes uploaded to ${key} hash to ${hash}, so that key names bytes that were never sent`
+      `the bytes uploaded to ${key} belong at ${belongs}, so that key names bytes that were never sent`
     );
   }
 
-  // The decoder's answer and not the caller's declaration: `create_upload`
-  // took a `mime` to choose an extension, and what the File records is what
-  // the bytes actually are. A caller that declared one type and uploaded
-  // another is filed under the true one and its misnamed object is removed;
-  // `put` finds the object already there on every honest path and writes
-  // nothing.
-  const facts = await imageFacts(bytes);
+  // Finds the object already there and writes nothing; what it is for is the
+  // Store Key and the size, read back from the store rather than assumed.
   const put = await ctx.store.put(SOURCES, bytes, facts.mime);
-  if (put.key !== key) await ctx.store.delete(key);
   await ctx.records.files.ensure({
     hash,
     mime: facts.mime,
@@ -146,4 +155,26 @@ export async function addSource(
   await ctx.records.sources.hold(brand, hash);
 
   return { hash, key: put.key, bytes: bytes.byteLength, mime: facts.mime };
+}
+
+/**
+ * Runs a step that may refuse the uploaded object, and takes the object with
+ * it when it does.
+ *
+ * Bytes that are refused are never filed, so records will never name them and
+ * the Sweep — which only removes what records knows about — would leave them
+ * in the Private Store for good. An upload nothing accepted has to cost the
+ * store nothing.
+ */
+async function orphanFree<T>(
+  ctx: OperationContext,
+  key: string,
+  step: () => Promise<T>
+): Promise<T> {
+  try {
+    return await step();
+  } catch (refusal) {
+    await ctx.store.delete(key);
+    throw refusal;
+  }
 }

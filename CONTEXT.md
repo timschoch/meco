@@ -519,7 +519,7 @@ _Avoid_: authorisation, permission check, tenant check, ACL, scope
 
 **Source Reference**:
 How a caller names a Source Image in a request: by URL, which the gateway fetches and files, or by Content Hash, which names bytes the Brand already holds a Source Hold on. Never bytes in the request body — measured on the preview, the public door refuses one over about 4.5 MB and the cap counts the whole request (#188) — so a caller with a file and no URL asks for an Upload Target, puts the bytes to the store itself, and names the Content Hash it gets back.
-_Avoid_: source URL, upload, attachment, image input, key
+_Avoid_: source URL, attachment, image input, key. "Upload" is a different thing and keeps its own name: it is what a client does to an Upload Target, and what it gets back is the Content Hash a Source Reference then names.
 
 **Replay**:
 A Call answered from the Output an earlier Call already produced, found by Request Hash, so a retry costs a lookup and no module runs. Recorded as its own Call with one Step, so the Gallery shows one Output and two Calls, which is what happened.

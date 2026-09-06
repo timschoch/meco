@@ -5,6 +5,7 @@ export {
   NAMESPACES,
   type Namespace,
   isPrivate,
+  storeKeyFor,
 } from "./lib/keys";
 export {
   type BlobStoreConfig,
