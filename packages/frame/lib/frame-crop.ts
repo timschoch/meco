@@ -9,6 +9,7 @@ import {
 } from "./free-area";
 import { MAX_OCCLUSION_ZONES, type FrameInput, type Framing } from "./framing";
 import { goldenAim } from "./golden-lines";
+import { climbLadder, type KeptRegion } from "./ladder";
 import { composeSubject } from "./subject";
 import { fillsSubjectArea, solveSubjectArea } from "./subject-area";
 import {
@@ -18,6 +19,23 @@ import {
   tightenedWindow,
   toFraction,
 } from "./window";
+
+/**
+ * The kept Regions with their boxes, in the tier order `composeSubject` put
+ * their ids in. What the fallback ladder measures containment on: the Subject
+ * is one box and the kept Regions are their own, and #105 recorded that the two
+ * do not coincide — `person-5` of `paddock-mixed.jpg` sits inside the composed
+ * Subject without being kept.
+ */
+const keptRegions = (
+  annotation: Annotation,
+  keptRegionIds: readonly string[]
+): KeptRegion[] =>
+  keptRegionIds.flatMap((id) => {
+    const region = annotation.regions.find((candidate) => candidate.id === id);
+
+    return region === undefined ? [] : [{ id, box: region.box }];
+  });
 
 /** The Region a rung led on, when a rung led at all. */
 const leadRegion = (
@@ -32,12 +50,12 @@ const leadRegion = (
  * The whole module. Subject composition, the ladder, the Golden Lines, the Eye
  * Line, the Free Area and the fallback rungs all sit behind this one call.
  *
- * Today it composes on the `match`, `face` and `kart` rungs, sizes and aims on
- * a declared Subject Area or else on the leading face's Eye Line, keeps the
- * Subject inside the Free Area an overlay leaves, and falls back to frame's own
- * last resorts, the Crop Anchor the request named and then the centre. The
- * fallback ladder arrives on a later ticket and adds no field this
- * signature does not already declare.
+ * It composes on the `match`, `face` and `kart` rungs, sizes and aims on a
+ * declared Subject Area or else on the leading face's Eye Line, keeps the
+ * Subject inside the Free Area an overlay leaves, climbs the fallback ladder
+ * when the window it first asked for cannot hold every Subject the rung kept,
+ * and falls back to frame's own last resorts, the Crop Anchor the request
+ * named and then the centre.
  */
 export function frameCrop(input: FrameInput): Framing {
   const { annotation, request } = input;
@@ -153,7 +171,7 @@ export function frameCrop(input: FrameInput): Framing {
           ),
         };
 
-  const cropWindow = placement
+  const firstWindow = placement
     ? placeAtAim(placement.at, size, source, placement.aim)
     : placeAtAnchor(
         size,
@@ -163,6 +181,30 @@ export function frameCrop(input: FrameInput): Framing {
         // word for it.
         request.anchor ?? DEFAULT_ANCHOR
       );
+
+  // The fallback ladder, and only when a rung composed something for it to
+  // hold. The anchor and the centre compose no Subject, so there is nothing a
+  // rung could fail to hold and nothing to rescue: the window they placed is
+  // the answer and it is satisfied. `lib/ladder.ts` holds the rungs.
+  const climbed =
+    composed === undefined || placement === undefined
+      ? {
+          window: firstWindow,
+          keptRegionIds: [] as string[],
+          droppedRegionIds: [] as string[],
+          satisfied: true,
+        }
+      : climbLadder({
+          first: firstWindow,
+          at: placement.at,
+          aim: placement.aim,
+          subject: composed.subject,
+          cover,
+          kept: keptRegions(annotation, composed.keptRegionIds),
+          source,
+        });
+
+  const cropWindow = climbed.window;
 
   return {
     window: cropWindow,
@@ -176,19 +218,30 @@ export function frameCrop(input: FrameInput): Framing {
     // are above zero.
     leadRegionId: composed?.leadRegionId,
     subject: composed?.subject,
-    keptRegionIds: composed?.keptRegionIds ?? [],
-    droppedRegionIds: [],
-    satisfied: true,
+    // What the ladder ended on, not what the rung composed: a Subject a rung
+    // sacrificed moves from one list to the other, and the two partition what
+    // the rung composed on.
+    keptRegionIds: climbed.keptRegionIds,
+    droppedRegionIds: climbed.droppedRegionIds,
+    satisfied: climbed.satisfied,
+    ...("fallback" in climbed && climbed.fallback !== undefined
+      ? { fallback: climbed.fallback }
+      : {}),
     // Only when the request named an area, and measured on the window actually
     // cut rather than the one first asked for: the Source Image can clamp the
-    // aim off the area, and that is a miss the window it first asked for would
-    // not have shown. #108 adds the other half — a Subject its drop rung
-    // sacrificed is a miss too — with the rung that can turn the check red.
+    // aim off the area, and a rung of the ladder can move the window off it
+    // altogether.
+    //
+    // A sacrifice is a miss, whatever the window then holds. The area asked
+    // for the Subject the rung composed, and a Subject the drop rung gave up
+    // is not part of it any more — so the area was not filled, however well the
+    // survivors sit in it.
     ...(declaredArea === undefined
       ? {}
       : {
           subjectAreaSatisfied:
             composed !== undefined &&
+            climbed.droppedRegionIds.length === 0 &&
             fillsSubjectArea(
               declaredArea,
               composed.subject,

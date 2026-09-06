@@ -91,8 +91,8 @@ export function solveSubjectArea(
 /**
  * Whether the Subject fills the Subject Area on the window actually cut, rather
  * than on the one the area first asked for. The two differ whenever something
- * moved the window afterwards: the Source Image clamping the aim today, a rung
- * of the fallback ladder rescuing the Subject on #108.
+ * moved the window afterwards: the Source Image clamping the aim, or a rung of
+ * the fallback ladder rescuing the Subject.
  *
  * The area is a fraction of the output frame, so it maps onto the window before
  * anything is compared, and both sides are then Source Image pixels.

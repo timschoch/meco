@@ -42,12 +42,16 @@ export interface ComposedSubject {
   subject: Box;
   /**
    * Every Region this rung keeps in frame, the leader included, in tier order.
-   * `lib/tiers.ts` applies it to whichever rung answered.
+   * `lib/tiers.ts` applies it to whichever rung answered. What the fallback
+   * ladder then partitions into what survived and what it sacrificed.
    */
   keptRegionIds: string[];
 }
 
-/** The step of the ladder that rescued a window which could not hold everything. */
+/**
+ * The step of the ladder that rescued a window which could not hold everything.
+ * `lib/ladder.ts` holds the rungs and what each gives up.
+ */
 export type FallbackRung = "zoom-out" | "relax" | "drop" | "clip";
 
 /**
@@ -70,17 +74,23 @@ export interface Framing {
    */
   subject?: Box;
   /**
-   * Every Region the answering rung kept in frame, **in tier order**: the
-   * Leading Subject, then a matched non-leading Region, then every other kept
-   * Region, each group by Region id.
+   * Every Region still kept in frame once the fallback ladder has run, **in
+   * tier order**: the Leading Subject, then a matched non-leading Region, then
+   * every other kept Region, each group by Region id.
    *
-   * The same order on every rung, so the drop rung (#108) has one promise to
-   * read rather than one per rung: the cheapest Subject to sacrifice is the
-   * last one. A Match keeps its middle tier whichever rung answered, since the
+   * The same order on every rung, so the drop rung has one promise to read
+   * rather than one per rung: the cheapest Subject to sacrifice is the last
+   * one. A Match keeps its middle tier whichever rung answered, since the
    * `face` rung can answer a request whose Matches `persons` all excluded.
    */
   keptRegionIds: string[];
+  /**
+   * What the drop rung sacrificed, in the same tier order. Together with
+   * {@link Framing.keptRegionIds} a partition of what the answering rung
+   * composed on: concatenating the two gives that list back.
+   */
   droppedRegionIds: string[];
+  /** True exactly when no rung of the ladder ran, which is when `fallback` is absent. */
   satisfied: boolean;
   fallback?: FallbackRung;
   /**

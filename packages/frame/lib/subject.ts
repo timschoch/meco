@@ -68,8 +68,7 @@ const composeRung = (
  * The Brand wall is applied once, for the whole ladder, and whatever the
  * answering rung kept comes back in tier order. Both rules belong to the ladder
  * rather than to a rung: a rung that kept its own tier order would make
- * "cheapest last" three promises for the drop rung (#108) to check instead of
- * one.
+ * "cheapest last" three promises for the drop rung to check instead of one.
  */
 export function composeSubject(
   annotation: Annotation,

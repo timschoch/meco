@@ -56,8 +56,8 @@ export interface Framing {
   resolvedBy: ResolvedBy;
   leadRegionId?: string; // absent when resolved by anchor or center
   subject?: Box; // the composed Subject, source fractions; absent when nothing was composed
-  keptRegionIds: string[]; // in tier order: the leader, matched non-leaders, the rest, each group by Region id
-  droppedRegionIds: string[];
+  keptRegionIds: string[]; // what survived the ladder, in tier order: the leader, matched non-leaders, the rest, each group by Region id
+  droppedRegionIds: string[]; // what the drop rung sacrificed, the same order, the two a partition
   satisfied: boolean;
   fallback?: FallbackRung;
   subjectAreaSatisfied?: boolean; // only when the request named one
@@ -75,7 +75,7 @@ export const MAX_OCCLUSION_ZONES: 16;
 
 `CropWindow` is deliberately not a contracts `Box`. A `Box` is fractions; this is pixels. A type that looked like a `Box` and was not one would be the `w`/`h` mistake of ADR-0002 in a new costume.
 
-**`subjectAreaSatisfied` and `subjectAreaShortfall` measure two different things, and disagree on purpose.** Satisfaction is containment, measured on the window **actually cut** rather than the one the area first asked for. The shortfall is a ratio of sizes: 1 whenever the Source Image was big enough to fill the area, the factor it fell short by otherwise. So an area missed for any reason other than size — a window the picture's own edge pushed off it, or a Subject a rung of the ladder sacrificed — reports `subjectAreaSatisfied: false` at a shortfall of 1. The anchor and the centre compose no Subject, so an area declared with either of them answering reports the same pair and leaves the placement alone: nothing was composed, so nothing filled the area, and no size fell short. Decided on [#82](https://github.com/timschoch/meco/issues/82), shipped in [#106](https://github.com/timschoch/meco/issues/106).
+**`subjectAreaSatisfied` and `subjectAreaShortfall` measure two different things, and disagree on purpose.** Satisfaction is containment, measured on the window **actually cut** rather than the one the area first asked for. The shortfall is a ratio of sizes: 1 whenever the Source Image was big enough to fill the area, the factor it fell short by otherwise. So an area missed for any reason other than size — a window the picture's own edge pushed off it, or a Subject the drop rung sacrificed — reports `subjectAreaSatisfied: false` at a shortfall of 1. A sacrifice is a miss whatever the window then holds: the area asked for the Subject the rung composed, and a Subject given up is no longer part of it. The anchor and the centre compose no Subject, so an area declared with either of them answering reports the same pair and leaves the placement alone: nothing was composed, so nothing filled the area, and no size fell short. Decided on [#82](https://github.com/timschoch/meco/issues/82), shipped in [#106](https://github.com/timschoch/meco/issues/106).
 
 ### The interface beyond the signature
 
@@ -130,6 +130,38 @@ Tried in order, first that holds every kept Subject wins, and the rung is always
 | `relax`    | slide the target halfway to the middle of the frame, then all the way |
 | `drop`     | sacrifice the cheapest Subject, then the next, by tier                |
 | `clip`     | centre on the Subject at the cover window and accept the clipping     |
+
+**What "holds" means: every kept Region's own box inside the window**, with the
+0.5 px of slack below — not the composed Subject Box. The two do not coincide:
+`person-5` of `paddock-mixed.jpg` sits inside the composed Subject without being
+kept, and a predicate on the Subject Box alone is one the drop rung could never
+repair, since sacrificing a Region does not move it. Decided on
+[#105](https://github.com/timschoch/meco/issues/105).
+
+**The repairs are cumulative, and the sacrifices are counted first.** The first
+three rungs are one window each: what was asked for, the cover window at the
+same aim, and the cover window at an aim slid halfway to the middle of the frame
+and then to it. Each holds at least as much as the one above, so a rung answers
+only where the cheaper ones could not. Nothing is sacrificed while any of those
+three still holds every kept Subject; once one Subject has been given up, the
+three are tried again for whoever is left, and the cheapest of them that holds
+them is the window. So a sacrifice buys back the tightest window that works
+rather than the widest — which is what keeps a group photograph framed on the
+face the Eye Line composed it around instead of centred on nobody.
+
+**A sacrifice names the `drop` rung whichever window bought it back**: the
+ladder reports what it gave up, and a Subject outranks a pixel.
+
+The Leading Subject is never sacrificed, so the surviving set never empties and
+`clip` is what answers a Subject no window of that shape can hold. `clip` gives
+up containment and nothing else: it sacrifices nobody, so `droppedRegionIds` is
+empty and every kept Region is still reported as kept, at `satisfied: false`.
+
+`satisfied` is true exactly when no rung ran, and `fallback` is absent exactly
+then. `keptRegionIds` and `droppedRegionIds` partition the Regions the answering
+rung composed on, both in tier order, so concatenating them gives back what the
+rung kept before the ladder ran. Shipped in
+[#108](https://github.com/timschoch/meco/issues/108).
 
 ### Tie-breaking, all of it
 
