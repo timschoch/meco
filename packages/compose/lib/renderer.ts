@@ -12,22 +12,32 @@ let ready: Promise<Renderer> | undefined;
  * the picture depend on call order. This is also where every Look's font files
  * are read: `fonts()` opens them on the first call and holds them, so the disk
  * is touched once per process and never at import (#209).
+ *
+ * A build that threw is **not** held. Reading the fonts here is what made this
+ * able to fail at all, and a rejected promise left in `ready` would turn one
+ * missing file into a container that refuses every later Call until it is
+ * restarted — far more than the one refusal the file is worth.
  */
 export function sharedRenderer(): Promise<Renderer> {
-  ready ??= (async () => {
-    const created = new Renderer();
-    for (const look of LOOKS.values()) {
-      for (const font of look.fonts()) {
-        await created.registerFont({
-          name: font.family,
-          data: font.data,
-          weight: font.weight,
-        });
-      }
-    }
-    return created;
-  })();
+  ready ??= buildRenderer().catch((reason: unknown) => {
+    ready = undefined;
+    throw reason;
+  });
   return ready;
+}
+
+async function buildRenderer(): Promise<Renderer> {
+  const created = new Renderer();
+  for (const look of LOOKS.values()) {
+    for (const font of look.fonts()) {
+      await created.registerFont({
+        name: font.family,
+        data: font.data,
+        weight: font.weight,
+      });
+    }
+  }
+  return created;
 }
 
 /**

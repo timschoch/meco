@@ -173,3 +173,22 @@ describe("a Look's assets", () => {
     expect(disk.reads.filter((p) => p.includes(LOOK_ASSETS))).toEqual([]);
   });
 });
+
+describe("a Look's asset file that is there on the next call", () => {
+  it("plans, rather than leaving the process refusing for good", async () => {
+    // The Renderer is built once and held, so a build that threw must not be
+    // the thing that is held: caching the rejected promise turns one missing
+    // file into a container that refuses every Call until it is restarted,
+    // which is far more than the one refusal the file is worth.
+    const compose = await freshCompose();
+    const input = storyPlan(compose);
+    disk.missing = ["Barlow-Regular.ttf"];
+    await expect(compose.plan(input)).rejects.toThrow(
+      expect.objectContaining({ code: "look_assets_missing" })
+    );
+
+    disk.missing = [];
+
+    await expect(compose.plan(input)).resolves.toBeDefined();
+  });
+});

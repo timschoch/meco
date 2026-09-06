@@ -1,9 +1,7 @@
 import type { Look, LookFont } from "../../../template";
-import { lookAsset } from "../assets";
+import { lookAssets } from "../assets";
 
-function bytes(relative: string): Uint8Array {
-  return lookAsset(relative, import.meta.url);
-}
+const bytes = lookAssets(import.meta.url);
 
 function face(family: string, weight: number, file: string): LookFont {
   return { family, weight, data: bytes(`./fonts/${file}`) };

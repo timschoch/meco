@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const COMPOSE = new URL("../", import.meta.url);
 
@@ -17,9 +17,16 @@ const COMPOSE = new URL("../", import.meta.url);
  * this is a bundle standing on its own, the way the gateway's container holds
  * one.
  */
-const SCRATCH = mkdtempSync(
-  fileURLToPath(new URL("node_modules/.compose-bundle-", COMPOSE))
-);
+let scratch: string;
+
+// In a hook and not at module scope: a failure here is then this suite's
+// failure and not a collection error, and the folder is made after the run has
+// committed to running it.
+beforeAll(() => {
+  scratch = mkdtempSync(
+    fileURLToPath(new URL("node_modules/.compose-bundle-", COMPOSE))
+  );
+});
 
 /**
  * The natives, left out of the bundle.
@@ -33,7 +40,7 @@ const SCRATCH = mkdtempSync(
 const EXTERNAL = ["sharp", "@takumi-rs/core", "@takumi-rs/helpers"];
 
 afterAll(() => {
-  rmSync(SCRATCH, { recursive: true, force: true });
+  rmSync(scratch, { recursive: true, force: true });
 });
 
 describe("an esbuild bundle of compose", () => {
@@ -42,7 +49,7 @@ describe("an esbuild bundle of compose", () => {
     // 1072 KB and then died at load on `fonts/Eina02-Regular.otf`, because a
     // Look read its files when its module loaded and the bundle sits nowhere
     // near them. Nothing under this folder but the bundle itself.
-    const bundle = `${SCRATCH}/compose.mjs`;
+    const bundle = `${scratch}/compose.mjs`;
     await build({
       entryPoints: [fileURLToPath(new URL("index.ts", COMPOSE))],
       outfile: bundle,
@@ -54,7 +61,7 @@ describe("an esbuild bundle of compose", () => {
       tsconfig: fileURLToPath(new URL("tsconfig.json", COMPOSE)),
     });
 
-    const probe = `${SCRATCH}/probe.mjs`;
+    const probe = `${scratch}/probe.mjs`;
     writeFileSync(
       probe,
       [
