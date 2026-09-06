@@ -4,7 +4,13 @@ import type { AdapterRegion, DecodedImage, RegionKind } from "@meco/contracts";
 import type { Detector } from "../../detector";
 import { ModelSession } from "../../session";
 import { adapterFile, readLicence } from "../files";
-import { clamp01, decodeOutputs, type DetectedObject } from "./outputs";
+import {
+  BOXES_DIMS,
+  clamp01,
+  decodeOutputs,
+  LOGITS_DIMS,
+  type DetectedObject,
+} from "./outputs";
 
 const NAME = "dfine";
 
@@ -126,6 +132,33 @@ function toTensor(rgb: Uint8Array): ort.Tensor {
   return new ort.Tensor("float32", data, [1, 3, INPUT_SIDE, INPUT_SIDE]);
 }
 
+/**
+ * One named output tensor, checked to be the shape the decode walks.
+ *
+ * The dims and not only the type: the decode reads `logits` with a stride of
+ * 80 and `pred_boxes` with a stride of 4, and a `[1,80,300]` export would
+ * decode into plausible rectangles in the wrong places rather than throw. That
+ * is the one failure a test on a photograph cannot see.
+ */
+function tensor(
+  results: ort.InferenceSession.OnnxValueMapType,
+  name: string,
+  dims: readonly number[]
+): Float32Array {
+  const found = results[name];
+  if (!(found?.data instanceof Float32Array)) {
+    throw new Error(
+      `dfine: ${WEIGHTS} answered no float32 ${name} — is this the right export?`
+    );
+  }
+  if (String(found.dims) !== String(dims)) {
+    throw new Error(
+      `dfine: ${WEIGHTS} answered ${name} as [${found.dims.join(",")}], and the decode reads [${dims.join(",")}]`
+    );
+  }
+  return found.data;
+}
+
 export function createDfine(): Detector {
   const session = new ModelSession(adapterFile(NAME, WEIGHTS));
 
@@ -160,16 +193,8 @@ export function createDfine(): Detector {
       const model = await session.get();
       const results = await model.run({ pixel_values: toTensor(data) });
 
-      const logits = results["logits"]?.data;
-      const boxes = results["pred_boxes"]?.data;
-      if (
-        !(logits instanceof Float32Array) ||
-        !(boxes instanceof Float32Array)
-      ) {
-        throw new Error(
-          `dfine: ${WEIGHTS} did not answer with logits and pred_boxes — is this the right export?`
-        );
-      }
+      const logits = tensor(results, "logits", LOGITS_DIMS);
+      const boxes = tensor(results, "pred_boxes", BOXES_DIMS);
 
       return decodeOutputs(
         { logits, boxes },

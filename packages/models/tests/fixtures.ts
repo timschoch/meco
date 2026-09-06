@@ -53,6 +53,16 @@ export const expectedObjects = async (): Promise<ExpectedObjects> =>
     await readFile(new URL("objects.json", KARTS), "utf8")
   ) as ExpectedObjects;
 
+/**
+ * `fixtures/karts/expected.json`: the Not-a-Face ground truth for the same
+ * photographs. Not to be confused with `expectedObjects` beside it — this one
+ * is about faces, and on the on-track photographs the answer is none.
+ */
+export const expectedKartFaces = async (): Promise<Expected> =>
+  JSON.parse(
+    await readFile(new URL("expected.json", KARTS), "utf8")
+  ) as Expected;
+
 /** A 4 by 4 mid-grey image: the blank the adapter checks run on. */
 export const blankImage = (): DecodedImage => ({
   width: 4,

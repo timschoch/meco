@@ -12,8 +12,9 @@
  * Nothing here touches sharp or ONNX Runtime: typed arrays in, plain numbers
  * out, in fractions of the image. A decode that is wrong in an ordinary way — a
  * transposed index, a missing sigmoid, a centre read as a corner — still returns
- * plausible rectangles on a real photograph, so the arithmetic is kept where a
- * test can drive it with logits written by hand.
+ * plausible rectangles on a real photograph, so a test on one photograph proves
+ * nothing. What catches it is the golden check: the same three photographs the
+ * prototype's independent implementation recorded, matched to the box.
  *
  * The 300 is the decoder's fixed query count and not a top-k selection, so
  * nearly every query answers something and near-duplicates are the norm.
@@ -31,7 +32,7 @@ import type { Box } from "@meco/contracts";
  * export, not `motorcycle` — and `motorbike` is the class that finds a kart,
  * because COCO has no kart and resolves one to the nearest thing it knows.
  */
-export const COCO_LABELS = [
+const COCO_LABELS = [
   "person",
   "bicycle",
   "car",
@@ -115,10 +116,14 @@ export const COCO_LABELS = [
 ] as const;
 
 /** How many classes the graph scores. Fixed by the export. */
-export const CLASS_COUNT = COCO_LABELS.length;
+const CLASS_COUNT = COCO_LABELS.length;
 
 /** How many object queries the decoder emits, whatever is in the picture. */
-export const QUERY_COUNT = 300;
+const QUERY_COUNT = 300;
+
+/** The two tensor shapes this decode walks, for the adapter to check against. */
+export const LOGITS_DIMS = [1, QUERY_COUNT, CLASS_COUNT];
+export const BOXES_DIMS = [1, QUERY_COUNT, 4];
 
 /** One thing the Detector saw, in fractions of the image. */
 export interface DetectedObject {
@@ -132,9 +137,9 @@ export interface DetectedObject {
 
 /** The two tensors, already unwrapped to flat arrays. */
 export interface Outputs {
-  /** `[queries * classes]`, raw — not sigmoided by the graph. */
+  /** {@link LOGITS_DIMS} flattened, raw — not sigmoided by the graph. */
   logits: ArrayLike<number>;
-  /** `[queries * 4]`, cxcywh, normalised 0..1. */
+  /** {@link BOXES_DIMS} flattened, cxcywh, normalised 0..1. */
   boxes: ArrayLike<number>;
 }
 
@@ -145,10 +150,6 @@ export interface DecodeOptions {
   nmsThreshold: number;
   /** Objects kept after suppression, highest score first. */
   topK: number;
-  /** Queries the graph emitted. Defaults to the export's fixed 300. */
-  queries?: number;
-  /** Classes the graph scored. Defaults to COCO's 80. */
-  classes?: number;
 }
 
 export const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
@@ -176,15 +177,13 @@ function collectCandidates(
   outputs: Outputs,
   opts: DecodeOptions
 ): DetectedObject[] {
-  const queries = opts.queries ?? QUERY_COUNT;
-  const classes = opts.classes ?? CLASS_COUNT;
   const found: DetectedObject[] = [];
 
-  for (let q = 0; q < queries; q++) {
-    const base = q * classes;
+  for (let q = 0; q < QUERY_COUNT; q++) {
+    const base = q * CLASS_COUNT;
     let bestClass = 0;
     let bestLogit = -Infinity;
-    for (let c = 0; c < classes; c++) {
+    for (let c = 0; c < CLASS_COUNT; c++) {
       const logit = outputs.logits[base + c] ?? -Infinity;
       if (logit > bestLogit) {
         bestLogit = logit;
@@ -216,7 +215,8 @@ function collectCandidates(
     if (right <= left || bottom <= top) continue;
 
     found.push({
-      label: COCO_LABELS[bestClass] ?? `class-${String(bestClass)}`,
+      // In range: `bestClass` indexes the same list its bound came from.
+      label: COCO_LABELS[bestClass]!,
       classId: bestClass,
       score,
       box: { x: left, y: top, width: right - left, height: bottom - top },
