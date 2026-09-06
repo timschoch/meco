@@ -83,7 +83,7 @@ Every Gallery card links to its Call View. There is no Output page: an Output is
 | Records method    | Used for                                                   |
 | ----------------- | ---------------------------------------------------------- |
 | `outputs.list`    | the Gallery, and the Outputs of one Call (`callId` filter) |
-| `calls.list`      | the Calls list                                             |
+| `calls.list`      | the Calls list, one Brand at a time, `status` in SQL       |
 | `calls.get`       | the Call View                                              |
 | `files.get`       | the Source Image's Store Key and size for the Overlay      |
 | `annotations.get` | the Regions drawn in the Overlay                           |
@@ -130,6 +130,10 @@ Hono `app.request()` against `webui({ records, store, caller })` with `records({
 | the redirect route answers `302` to a Signed URL after a Source Hold and `404` without one                        | skip `heldBy`                                  |
 | the Overlay places a Region at its box in per cent and the Crop Window divided by the File's size                 | divide the window by the Target instead        |
 | a Call of a Brand not held is `404`, byte-identical to an unknown id                                              | answer `403` for the held-by-someone-else case |
+| the Calls list is the Caller's Calls newest first, each row linking its Call View                                 | order by id                                    |
+| a Call of a Brand the Caller does not hold is not on the Calls list                                               | list without a Brand filter                    |
+| `?status=failed` keeps only failed Calls and names the module and the code                                        | drop the `status` filter                       |
+| records unreachable is `503` on the Calls list as on the Gallery                                                  | answer `500`                                   |
 
 Every check is proved able to fail by the mutation beside it before it ships. Commit the green state first, then mutate, then `git restore`.
 
@@ -145,4 +149,4 @@ Live proof, per ticket: open the preview's `/ui` in a browser with the bootstrap
 
 ## Further notes
 
-`Gallery`, `Call`, `Step`, `Output`, `Caller`, `Source Hold`, `Signed URL`, `Public URL` are other modules' terms and are not redefined here. The webui section of `CONTEXT.md` adds `Call View`, `Source Thumbnail` and `Overlay`.
+`Gallery`, `Call`, `Step`, `Output`, `Caller`, `Source Hold`, `Signed URL`, `Public URL` are other modules' terms and are not redefined here. The webui section of `CONTEXT.md` adds `Call View`, `Calls list`, `Source Thumbnail` and `Overlay`.
