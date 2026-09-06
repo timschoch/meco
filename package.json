@@ -16,6 +16,7 @@
     "prepare": "husky",
     "test:store:live": "vitest run --config vitest.live.config.ts packages/store",
     "test:records:live": "vitest run --config vitest.live.config.ts packages/records",
+    "test:identify:live": "vitest run --config vitest.live.config.ts packages/identify",
     "records:seed": "pnpm --filter @meco/records seed"
   },
   "devDependencies": {
