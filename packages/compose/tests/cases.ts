@@ -1,6 +1,11 @@
-import { templates, type PlanInput, type RenderInput } from "../index";
-import { centredWindow, decode, FACE_FIXTURE, KART_FIXTURE } from "./fixture";
-import { PLACEMENTS } from "../placements";
+import { plan, templates, type PlanInput, type RenderInput } from "../index";
+import {
+  centredWindow,
+  CREW_FIXTURE,
+  decode,
+  FACE_FIXTURE,
+  KART_FIXTURE,
+} from "./fixture";
 
 /**
  * Every Template that ships, with the Placements it declares, in registry
@@ -17,6 +22,7 @@ export const SHIPPED: readonly {
   },
   { id: "hopefamily-story", placements: ["instagram/story", "facebook/story"] },
   { id: "hopefamily-post", placements: ["instagram/post", "facebook/post"] },
+  { id: "laica-post", placements: ["linkedin/post", "linkedin/wide"] },
 ];
 
 /** One golden: a Template at a Placement, with the Fields and the photograph it is rendered from. */
@@ -78,10 +84,30 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
   ]),
   ...goldensFor("hopefamily-story", "hopefamily", FACE_FIXTURE),
   ...goldensFor("hopefamily-post", "hopefamily", FACE_FIXTURE),
+  // laica takes a fixture per Placement rather than one for the Template: a
+  // centred window is a naive crop, and the upright column and the wide plate
+  // cannot both hold the same photograph without taking heads off.
+  ...goldensFor("laica-post", "laica", CREW_FIXTURE, ["linkedin/post"]),
+  ...goldensFor("laica-post", "laica", FACE_FIXTURE, ["linkedin/wide"]),
 ];
 
+/** The one golden case for this Template at this Placement. */
+function caseFor(template: string, placement: string): GoldenCase {
+  const found = GOLDEN_CASES.find(
+    (c) => c.template === template && c.placement === placement
+  );
+  if (!found)
+    throw new Error(`No golden case for ${template} at ${placement}.`);
+  return found;
+}
+
 /** The story every test starts from, so one edit moves the golden and the tests together. */
-export const STORY_CASE = GOLDEN_CASES[0]!;
+export const STORY_CASE = caseFor("swisshutless-story", "instagram/story");
+
+/** `laica-post` at each of the two Placements it draws for. */
+export const LAICA_AT_POST = caseFor("laica-post", "linkedin/post");
+export const LAICA_AT_WIDE = caseFor("laica-post", "linkedin/wide");
+export const LAICA_CASES = [LAICA_AT_POST, LAICA_AT_WIDE];
 
 /**
  * The `plan` half of a golden case: the same Template, Placement, Brand and
@@ -105,21 +131,22 @@ export function planFor(
  * The exact `render` call a golden case stands for, with anything a test wants
  * to vary laid over the top.
  *
- * The window is the tallest centred one of the Placement's own aspect. That
- * holds only while a Template's Image Slot fills the canvas; the first Template
- * whose slot is a column (#117) takes its aspect from the Plan instead.
+ * The window is the tallest centred one of the **Image Slot's** aspect, taken
+ * from the Plan, which is the same route the gateway takes: `plan` gives frame
+ * its `target` and frame gives `render` the window. Reading the Placement
+ * instead only ever agreed with that while every slot filled its canvas, and
+ * `laica-post`'s does not.
  */
 export async function inputFor(
   test: GoldenCase,
   overrides: Partial<RenderInput> = {}
 ): Promise<RenderInput> {
   const source = await decode(test.fixture);
-  const placement = PLACEMENTS.find((p) => p.id === test.placement);
-  if (!placement) throw new Error(`Unknown Placement ${test.placement}.`);
+  const { imageSlot } = await plan(planFor(test));
   return {
     ...planFor(test),
     source,
-    window: centredWindow(source, placement),
+    window: centredWindow(source, imageSlot),
     ...overrides,
   };
 }

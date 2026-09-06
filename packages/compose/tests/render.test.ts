@@ -2,7 +2,7 @@ import fs, { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposeError, render, type RenderInput } from "../index";
-import { GOLDEN_CASES, inputFor, STORY_CASE } from "./cases";
+import { GOLDEN_CASES, inputFor, LAICA_CASES, STORY_CASE } from "./cases";
 import { GOLDENS } from "./goldens";
 import { centredWindow, decode, widenBy } from "./fixture";
 import { PLACEMENTS } from "../placements";
@@ -27,6 +27,12 @@ import { meanAbsoluteDifference, raster } from "./pixels";
  * still catches the weaker of those two mutations by 18x. Should the two
  * platforms ever stop agreeing exactly, a whole-image mean can no longer tell
  * drift from a wrong Look and this has to become a per-tile comparison.
+ *
+ * `laica-post` (#117) holds to the same number on the same measurements. Both
+ * its goldens score 0.0000 on darwin-arm64 and 0.0000 on linux-x64 (Actions run
+ * 34004148270), and its weakest Look mutation — the Swiss Hutless wordmark in
+ * laica's place — scores 0.3695 at `linkedin/post` and 0.7072 at
+ * `linkedin/wide`, so 0.02 clears it by 18x too.
  */
 const GOLDEN_THRESHOLD = 0.02;
 
@@ -186,6 +192,46 @@ describe("the framing_mismatch tolerance", () => {
       render(await story({ source: tall, window, format: "png" }))
     ).resolves.toBeDefined();
   });
+});
+
+describe("a window for a Template whose Image Slot is a column", () => {
+  // Neither laica Placement has its slot's shape: `linkedin/wide` is 1200x627
+  // over a 504x627 column, `linkedin/post` 1200x1200 over a 1024x504 plate.
+  // Cutting the window to the Placement is the mistake the gateway would make
+  // if it took frame's `target` from the catalogue instead of from the Plan.
+  const PLACEMENT_ASPECT: Record<string, { width: number; height: number }> = {
+    "linkedin/wide": { width: 1200, height: 627 },
+    "linkedin/post": { width: 1200, height: 1200 },
+  };
+
+  it.each(LAICA_CASES)(
+    "refuses a window cut to $placement's own aspect",
+    async (test) => {
+      const source = await decode(test.fixture);
+      const window = centredWindow(source, PLACEMENT_ASPECT[test.placement]!);
+
+      await expect(
+        render(await inputFor(test, { source, window }))
+      ).rejects.toThrow(expect.objectContaining({ code: "framing_mismatch" }));
+    }
+  );
+
+  it.each(LAICA_CASES)(
+    "accepts at $placement the window the Plan's own Image Slot asks for",
+    async (test) => {
+      // `inputFor` cuts exactly that window, so this is the golden's own call
+      // minus the comparison. The size is asserted, not just the absence of a
+      // throw: the canvas is the Placement's even though the window was the
+      // slot's, and that pair is the whole point of the column.
+      const { bytes } = await render(await inputFor(test, { format: "png" }));
+
+      const decoded = await raster(bytes);
+      expect([decoded.width, decoded.height]).toEqual([
+        PLACEMENT_ASPECT[test.placement]!.width,
+        PLACEMENT_ASPECT[test.placement]!.height,
+      ]);
+    }
+  );
 });
 
 describe("refusals", () => {
