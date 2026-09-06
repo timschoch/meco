@@ -155,6 +155,10 @@ function oneOf<Value extends string>(
   return found;
 }
 
+/** The same check, for the Call facts an Output carries on the Gallery. */
+export const asCallStatus = (given: string): CallStatus =>
+  oneOf(STATUSES, given, "status");
+
 /** A stored row as the seam reports it: the driver's `Date` becomes ISO 8601. */
 type CallRow = {
   readonly id: string;

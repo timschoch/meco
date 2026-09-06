@@ -17,6 +17,14 @@ export {
   type Step,
 } from "./lib/calls";
 export { type Database, type DatabaseKind } from "./lib/database";
+export {
+  type NewOutput,
+  type Output,
+  type OutputDeletion,
+  type OutputKind,
+  type OutputQuery,
+  type Outputs,
+} from "./lib/outputs";
 export { type Page } from "./lib/page";
 export { neonDatabase } from "./lib/neon-database";
 export {
