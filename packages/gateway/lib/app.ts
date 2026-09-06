@@ -6,6 +6,7 @@ import { reachStores } from "@meco/store/health";
 import { webui } from "@meco/webui";
 import { callerLookup } from "./auth";
 import { type Health, reachModels, version } from "./health";
+import { probeRoutes } from "./probe";
 
 export interface AppDependencies {
   /**
@@ -26,6 +27,9 @@ export interface AppDependencies {
 export function createApp(dependencies: AppDependencies = {}): Hono {
   const app = new Hono();
   const { records = null, store = null } = dependencies;
+
+  // Preview only: a temporary door to `models` for #118's measurements.
+  if (process.env["GATEWAY_PROBE"] === "1") app.route("/", probeRoutes());
 
   app.get("/health", async (c) => {
     const [models, storeReach, recordsReach] = await Promise.all([

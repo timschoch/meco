@@ -22,6 +22,8 @@ Contracts' `ModelAdapter.run(image)` fits a network that draws boxes. EdgeFace d
 
 One sharp decode per request: EXIF-rotated, bounded to a 1600 px long edge, never enlarged, raw RGB. Every adapter resizes from that buffer. 1600 because the prototype measured it (group fixture 5878x7348, `DEPLOY.md` history, 5 Sep 2026): boxes move under 0.002 at any cap down to 640, the smallest face is ~100 px at 1600 so the print moves (0.96 cosine) but identity does not (same-person 0.7146 → 0.7117, different-person 0.2985 → 0.2979), and ADR-0003's threshold was calibrated at this size. `width` and `height` come from the metadata, not the buffer, so a fraction of a Region is a fraction of the photograph the caller has.
 
+Amended 6 Sep 2026 by [models: `POST /annotate` with the YuNet Detector (#118)](https://github.com/timschoch/meco/issues/118): landmarks are clamped to the image as boxes are. The spec had kept the prototype's unclamped landmarks; contracts' `Point` is a fraction in `[0, 1]`, so an unclamped landmark cannot be part of a Region, and the types win.
+
 ## Decision 5 — glibc image, telemetry off, warm after listening
 
 onnxruntime-node 1.29 ships no musl binary, so the models image is `node:24-slim`, not the skeleton's alpine. Its Linux binary carries POSIX telemetry (1.29.0 release notes; the container logs a CA-bundle warning at session create), so `ORT_DISABLE_TELEMETRY=1` is set in the image: a container that holds photographs uploads nothing. Sessions are created after the socket opens, one after another in Catalogue order; `/health` reports Warm per instance.

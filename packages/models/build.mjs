@@ -1,12 +1,36 @@
-// Bundles the container entry point into one file, so the runtime image needs
-// no node_modules: pnpm's workspace symlinks do not survive a COPY.
+// Bundles the container entry point into one file and lays each adapter's
+// weights and licence beside it, so the runtime image carries the bundle, the
+// adapter folders and the two native packages the bundle leaves external.
+//
+// `onnxruntime-node` and `sharp` load native binaries by their own paths and
+// cannot be bundled; `Dockerfile.vercel` installs them flat with `pnpm deploy`.
+// Every adapter folder is copied to `dist/bundle/<adapter>/` minus its
+// TypeScript, which is where `lib/adapters/files.ts` looks from the bundle.
 import { build } from "esbuild";
+import { cp, readdir } from "node:fs/promises";
 
 await build({
   entryPoints: ["server.ts"],
   bundle: true,
   platform: "node",
   format: "esm",
-  target: "node22",
+  target: "node24",
+  external: ["onnxruntime-node", "sharp"],
   outfile: "dist/bundle/server.js",
+  // An ESM bundle has no `require`; a CommonJS dependency inside it dies at
+  // runtime with "Dynamic require of ... is not supported" after a healthy
+  // build (the gateway hit it via @vercel/blob → jose). Nothing in this bundle
+  // needs it today; the guard costs nothing and the trap is silent.
+  banner: {
+    js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);',
+  },
 });
+
+const adapters = new URL("lib/adapters/", import.meta.url);
+for (const entry of await readdir(adapters, { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  await cp(new URL(`${entry.name}/`, adapters), `dist/bundle/${entry.name}/`, {
+    recursive: true,
+    filter: (source) => !source.endsWith(".ts"),
+  });
+}
