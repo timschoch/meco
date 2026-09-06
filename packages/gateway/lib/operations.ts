@@ -20,13 +20,15 @@ import { z } from "zod";
 import { annotationOf } from "./annotate";
 import { CropInput, cropImage } from "./crop";
 import { GatewayError } from "./errors";
-import { Brand } from "./inputs";
+import { Brand, RaceNumbers } from "./inputs";
 import {
   addPerson,
   addReferencePhoto,
   erasePerson,
   listPeople,
+  setPersonNumbers,
 } from "./people";
+import { numberReports } from "./pipeline";
 import { RenderInput, renderImage } from "./render";
 import { SourceReference, resolveSource } from "./source";
 import {
@@ -66,7 +68,7 @@ export interface Operation<I extends z.ZodObject = z.ZodObject> {
   readonly name: string;
   readonly description: string;
   /** The HTTP face, under `/v1`. */
-  readonly method: "GET" | "POST" | "DELETE";
+  readonly method: "GET" | "POST" | "PATCH" | "DELETE";
   readonly path: string;
   /** One object: the body or query is parsed with it and `tools/list` shows it. */
   readonly input: I;
@@ -114,7 +116,7 @@ export const OPERATIONS: readonly Operation[] = [
   define({
     name: "find_subjects",
     description:
-      "Say what is in a photograph and who, for this Brand, before rendering.",
+      "Say what is in a photograph and who, for this Brand, before rendering. Answers the race numbers it read as well, so you can tell meco whose they are.",
     method: "POST",
     path: "/annotate",
     input: z.object({ brand: Brand, source: SourceReference }),
@@ -140,6 +142,9 @@ export const OPERATIONS: readonly Operation[] = [
         call: { id: call.id },
         annotation: withoutPrints(result.annotation),
         identification: result.identification,
+        // No `inFrame`: this Operation cuts no window, so there is no frame
+        // for a number to be in or out of.
+        numbers: numberReports(result.annotation, result.identification),
       };
     },
   }),
@@ -219,8 +224,22 @@ export const OPERATIONS: readonly Operation[] = [
     input: z.object({
       brand: Brand,
       name: z.string().min(1).describe("What this Brand calls this person."),
+      numbers: RaceNumbers.optional(),
     }),
     handler: addPerson,
+  }),
+  define({
+    name: "set_person_numbers",
+    description:
+      "Replace the race numbers a Person carries. Send the whole list: what you send is what they carry. A number another Person of this Brand already has is refused.",
+    method: "PATCH",
+    path: "/people/:id",
+    input: z.object({
+      brand: Brand,
+      id: z.string().min(1).describe("The Person id `add_person` answered."),
+      numbers: RaceNumbers,
+    }),
+    handler: setPersonNumbers,
   }),
   define({
     name: "erase_person",

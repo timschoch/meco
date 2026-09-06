@@ -15,6 +15,7 @@ import { z } from "zod";
 import { Brand, FramingOptions } from "./inputs";
 import {
   type FaceReport,
+  type NumberReport,
   type PipelineDeps,
   type Stages,
   pipeline,
@@ -52,6 +53,7 @@ export type CropAnswer = {
   readonly call: { readonly id: string; readonly replayed: boolean };
   readonly framing: Framing;
   readonly faces: readonly FaceReport[];
+  readonly numbers: readonly NumberReport[];
 };
 
 /** The two stages a Crop fills in. */
@@ -120,5 +122,6 @@ export async function cropImage(
     call: { id: call.id, replayed: result.replayed },
     framing: result.framing,
     faces: result.faces,
+    numbers: result.numbers,
   };
 }

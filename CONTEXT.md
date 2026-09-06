@@ -102,6 +102,10 @@ _Avoid_: embedding, descriptor, template, vector, encoding
 A detected face meco is willing to name: its best Face Print similarity within one Brand clears an absolute threshold and beats the second-best Person by a margin. Open-set — "nobody" is a valid answer and the common one, so a face that fails either test is unknown rather than assigned to whoever was closest. Never a property of a face on its own: the same face is a Match for the Brand that enrolled that Person and unknown to every other. Only an Identifiable Face can be one.
 _Avoid_: recognition hit, identification, confidence, hit
 
+**Number**:
+A race number painted on a kart, read off the photograph by a text reader and carried as a `number` Region whose Label is the digits. A fact about the bytes, so it lives on the Annotation and is cached with it. Which Person the number belongs to is not: that is a Brand's own list and changes with the season, so it is a Match and never a Region.
+_Avoid_: plate, number plate, race number (the Region is a Number; "race number" is what a Brand types), OCR, text
+
 **Not-a-Face Print**:
 A Face Print meco keeps of something that is not a face — the back of a crash helmet. The face model maps such things close to one another, so any print near one of them carries no identity whoever is behind it. Committed in code and measured, never a record in the store and never about a person.
 _Avoid_: negative sample, decoy, blocklist, impostor
@@ -470,8 +474,12 @@ What identify says about one face Region: a Match with its similarity, unknown w
 _Avoid_: status, outcome, classification, confidence
 
 **Match Rule**:
-The open-set test a face has to pass to be a Match: best similarity against one Person at or above the threshold, and ahead of the best other Person by the margin. Calibrated once, on committed fixture prints, with the measurement recorded beside the numbers; never a Brand's or a caller's setting.
-_Avoid_: confidence cutoff, score threshold, tuning, sensitivity
+A test that turns an Annotation and a Brand's People into Matches. There are two, and a Match says which one made it. The **face** rule is the open-set test a face has to pass: best similarity against one Person at or above the threshold, and ahead of the best other Person by the margin, calibrated once on committed fixture prints with the measurement recorded beside the numbers; never a Brand's or a caller's setting. The **number** rule is the one for a driver whose face is inside a helmet: a Number whose Label is on a Person's list, matched to the `vehicle` Region holding most of its box, which is the kart a Crop then frames. The two share no arithmetic and neither ranks the other.
+_Avoid_: confidence cutoff, score threshold, tuning, sensitivity, matcher
+
+**Race Number**:
+One of the numbers a Brand says a Person carries, as text, one to three digits. A Brand fact and not a face fact — the same driver carries another number next season and is the same person — so it is a column beside the Person and never on an Annotation. One number is one Person within a Brand, enforced by the database, so a Number read off a photograph names at most one of them and there is no tie for the Annotation to break. Compared as text: `04` and `4` are two different numbers.
+_Avoid_: kart number, id, bib, racer number, plate
 
 **Print Model**:
 The one Model, by name and version, whose Face Prints the Match Rule was calibrated on. A Face Print from any other is an Uncompared Face, and a Reference Photo enrolled with one is an Unusable Reference Photo, so swapping the model forces a re-enrolment rather than producing a wrong answer.
@@ -536,6 +544,10 @@ _Avoid_: cache hit, dedupe, idempotent response, short-circuit
 **Face Report**:
 What the gateway says on the wire about each face Region of one output: identify's verdict, whether redact hid it, and whether frame's window kept it. Assembled by the gateway because no single module knows all three, and never stored: the webui reads the three parts off the Call and draws them.
 _Avoid_: face summary, faces blurred, face count, redaction summary
+
+**Number Report**:
+What the gateway says on the wire about each Number in one output: the digits read, the Person whose number it is when a Brand has said so, and whether frame's window kept it. Beside the Face Report and never folded into it, because a face and a Number are different Region Kinds carrying different evidence. Every Number is reported, including one nobody enrolled, so a Brand can see what meco read before it says whose it is. Never stored.
+_Avoid_: numbers found, OCR results, plate report, detections
 
 **Fill**:
 What one output must fill and what will be drawn over it, as the gateway hands it to frame: the target size in whole pixels, the Occlusion Zones, and the Subject Area. A Render's Fill is compose's Plan; a Crop's is the request itself, with nothing occluded. The one part of the pipeline that differs per Call kind, beside the paint, which is why it has a name at all.

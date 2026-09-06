@@ -90,8 +90,26 @@ const seedRegion = (regions: Region[]): Region | undefined =>
  */
 export const kartSubject = (regions: Region[]): ComposedSubject | undefined => {
   const seed = seedRegion(regions);
-  if (seed === undefined) return undefined;
+  return seed === undefined ? undefined : kartAround(regions, seed, "kart");
+};
 
+/**
+ * The kart around one named `vehicle`, rather than around the largest one.
+ *
+ * The `match` rung needs this when a number Match leads: identify has already
+ * said which kart carries the Brand's number, and re-choosing by size here
+ * would frame a different one. The union rule is the same rule — same Kinds,
+ * same {@link KART_JOIN_OVERLAP} — because what "a kart and its driver" means
+ * does not depend on why this kart was picked.
+ *
+ * `resolvedBy` is the caller's, so the `match` rung keeps saying `match`: how
+ * the Subject was composed and which rung answered are two different facts.
+ */
+export const kartAround = (
+  regions: Region[],
+  seed: Region,
+  resolvedBy: ComposedSubject["resolvedBy"]
+): ComposedSubject => {
   const joined = regions.filter(
     (region) =>
       region.id === seed.id ||
@@ -100,7 +118,7 @@ export const kartSubject = (regions: Region[]): ComposedSubject | undefined => {
   );
 
   return {
-    resolvedBy: "kart",
+    resolvedBy,
     leadRegionId: seed.id,
     // The seed is in `joined` already; naming it again is what tells the type
     // there is at least one box to union.

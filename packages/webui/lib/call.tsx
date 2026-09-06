@@ -11,6 +11,7 @@ import type { Store } from "@meco/store";
 import type {
   CallView as CallViewData,
   FaceVerdictRow,
+  MatchRow,
   RedactionRow,
 } from "./call-page";
 import { Layout } from "./layout";
@@ -151,6 +152,35 @@ function Outputs(props: {
         <p class="note">This Call made more Outputs than this page shows.</p>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Whom this Call named, and by which rule. One line per Match.
+ *
+ * Above the Face Verdicts because a number Match has none: it names a
+ * `vehicle` Region, and a page that only listed faces would show nothing at
+ * all for the Call that framed a driver in a helmet.
+ */
+function Named(props: {
+  matches: readonly MatchRow[];
+  names: ReadonlyMap<string, string>;
+}) {
+  if (props.matches.length === 0) return null;
+  return (
+    <dl class="facts">
+      {props.matches.map((one) => (
+        <>
+          <dt>{one.regionId}</dt>
+          <dd>
+            {props.names.get(one.personId) ?? one.personId}
+            {one.by === "number"
+              ? ` — by race number, read on ${one.numberRegionId ?? "a number Region"}`
+              : ` — by face${one.similarity === undefined ? "" : ` (${one.similarity})`}`}
+          </dd>
+        </>
+      ))}
+    </dl>
   );
 }
 
@@ -299,6 +329,7 @@ export function CallView(props: CallProps) {
       <Verbatim value={call.framing} absent="No window was framed." />
 
       <h2>Matches</h2>
+      <Named matches={props.view.matches} names={props.view.names} />
       <Faces
         faces={props.view.faces}
         names={props.view.names}

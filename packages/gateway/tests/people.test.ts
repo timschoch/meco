@@ -314,6 +314,162 @@ describe("add_person", () => {
   );
 });
 
+describe("race numbers on a Person", () => {
+  const patch = async (app: App, path: string, body: unknown) =>
+    app.request(path, {
+      method: "PATCH",
+      headers: { ...withKey.headers, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it(
+    "creates a Person with race numbers and lists them back",
+    async () => {
+      const { app } = await enrolling();
+
+      const res = await post(app, "/v1/people", {
+        brand: BRAND,
+        name: "Ada",
+        numbers: ["24", "7"],
+      });
+
+      expect(res.status).toBe(200);
+      // Ascending as text, as records files them, whatever order they arrived
+      // in: two calls that gave the same set read back the same.
+      await expect(res.json()).resolves.toMatchObject({
+        name: "Ada",
+        numbers: ["24", "7"].sort(),
+      });
+
+      const listed = (await (
+        await app.request(`/v1/people?brand=${BRAND}`, withKey)
+      ).json()) as { items: { numbers: string[] }[] };
+      expect(listed.items[0]?.numbers).toEqual(["24", "7"].sort());
+    },
+    TIMEOUT
+  );
+
+  it(
+    "refuses a number that could never be read off a photograph",
+    async () => {
+      const { app } = await enrolling();
+
+      // `ppocr` labels a `number` Region with one to three digits and nothing
+      // else, so a Person number of any other shape is a dead letter.
+      for (const number of ["24A", "", "1234", "#24"]) {
+        const res = await post(app, "/v1/people", {
+          brand: BRAND,
+          name: "Ada",
+          numbers: [number],
+        });
+        expect(res.status, `numbers: [${JSON.stringify(number)}]`).toBe(400);
+        await expect(res.json()).resolves.toMatchObject({
+          error: { code: "invalid_request" },
+        });
+      }
+    },
+    TIMEOUT
+  );
+
+  it(
+    "refuses a number another Person of the Brand already carries as 409 conflict",
+    async () => {
+      const { one, app } = await enrolling();
+      const held = (await (
+        await post(app, "/v1/people", {
+          brand: BRAND,
+          name: "Ada",
+          numbers: ["24"],
+        })
+      ).json()) as { id: string };
+
+      const res = await post(app, "/v1/people", {
+        brand: BRAND,
+        name: "Grace",
+        numbers: ["24"],
+      });
+
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(body.error.code).toBe("conflict");
+      // The message names the number and its holder, because that is what the
+      // caller acts on.
+      expect(body.error.message).toContain("24");
+      expect(body.error.message).toContain(held.id);
+
+      // And the refused Person is not half-written.
+      const people = await one.records.people.list(BRAND);
+      expect(people.map((person) => person.name)).toEqual(["Ada"]);
+    },
+    TIMEOUT
+  );
+
+  it(
+    "replaces the whole list through set_person_numbers",
+    async () => {
+      const { app, person } = await somebody();
+
+      const res = await patch(app, `/v1/people/${person.id}`, {
+        brand: BRAND,
+        numbers: ["24", "66"],
+      });
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        id: person.id,
+        numbers: ["24", "66"],
+      });
+
+      const emptied = await patch(app, `/v1/people/${person.id}`, {
+        brand: BRAND,
+        numbers: [],
+      });
+      await expect(emptied.json()).resolves.toMatchObject({ numbers: [] });
+    },
+    TIMEOUT
+  );
+
+  it(
+    "answers 404 not_found for a Person of another Brand, as erase_person does",
+    async () => {
+      const { one, app } = await enrolling();
+      const elsewhere = await one.records.people.create({
+        brand: HELD[1]!,
+        name: "Elsewhere",
+      });
+
+      const res = await patch(app, `/v1/people/${elsewhere.id}`, {
+        brand: BRAND,
+        numbers: ["24"],
+      });
+
+      expect(res.status).toBe(404);
+      await expect(res.json()).resolves.toMatchObject({
+        error: { code: "not_found" },
+      });
+    },
+    TIMEOUT
+  );
+
+  it(
+    "carries the same numbers through the MCP Door",
+    async () => {
+      const { app } = await enrolling();
+
+      const made = await rpc(app, {
+        method: "tools/call",
+        params: {
+          name: "add_person",
+          arguments: { brand: BRAND, name: "Ada", numbers: ["24"] },
+        },
+      });
+      expect(made.result).toMatchObject({
+        structuredContent: { numbers: ["24"] },
+      });
+    },
+    TIMEOUT
+  );
+});
+
 describe("erase_person", () => {
   it(
     "answers records' Erasure with the empty listing, leaves no Person, and writes an erase Call",

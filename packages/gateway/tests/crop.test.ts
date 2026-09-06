@@ -4,7 +4,13 @@
 // committed fixtures.
 import type { Call } from "@meco/records";
 import { describe, expect, it } from "vitest";
-import { KART_FILE, fixtureAnnotation, fixtureBytes, sha256 } from "./annotations";
+import {
+  KART_FILE,
+  KART_GRID_FILE,
+  fixtureAnnotation,
+  fixtureBytes,
+  sha256,
+} from "./annotations";
 import { KEY, PHOTOS, TIMEOUT, rpc, useStacks, type Opened } from "./harness";
 
 const stack = useStacks();
@@ -48,6 +54,12 @@ type Answer = {
       verdict: string;
       hidden: boolean;
       inFrame: boolean;
+    }[];
+    numbers?: {
+      regionId: string;
+      label: string;
+      personId?: string;
+      inFrame?: boolean;
     }[];
     error?: { code: string; message: string };
   };
@@ -367,6 +379,120 @@ describe("the framing options a Crop carries", () => {
       expect(failed?.status).toBe("failed");
       expect(failed?.error?.module).toBe("gateway");
       expect(stepNames(failed as Call)).not.toContain("frame.crop");
+    },
+    TIMEOUT
+  );
+});
+
+describe("the Number Report", () => {
+  /** The grid: four race numbers read, five karts, one face. */
+  const GRID = KART_GRID_FILE;
+
+  it(
+    "reports every number read, with no Person until a Brand says whose it is",
+    async () => {
+      const one = await stack();
+      const { status, body } = await crop(one, GRID);
+
+      expect(status).toBe(200);
+      // Read off the Annotation, so a number nobody enrolled is still
+      // reported: that is how a Brand learns what to enrol.
+      expect(body.numbers?.map((number) => number.label)).toEqual([
+        "227",
+        "24",
+        "66",
+        "21",
+      ]);
+      for (const number of body.numbers ?? []) {
+        expect(number.personId).toBeUndefined();
+        expect(typeof number.inFrame).toBe("boolean");
+      }
+      // Nobody was matched, so `kart` answers and the report is the only thing
+      // that changed.
+      expect(body.framing?.resolvedBy).toBe("kart");
+    },
+    TIMEOUT
+  );
+
+  it(
+    "names the Person on their number, and frames their kart rather than the biggest",
+    async () => {
+      const one = await stack();
+      const person = await one.records.people.create({
+        brand: BRAND,
+        name: "#24",
+        numbers: ["24"],
+      });
+
+      const { status, body } = await crop(one, GRID, { pinTo: ["match"] });
+
+      expect(status).toBe(200);
+      // The whole point, end to end: the number read on the middle kart is
+      // this Person's, and the window is on that kart.
+      expect(
+        body.numbers?.find((number) => number.label === "24")?.personId
+      ).toBe(person.id);
+      expect(body.framing?.resolvedBy).toBe("match");
+      expect(body.framing?.leadRegionId).toBe("vehicle-3");
+      // Not the row-wide detection, which is the largest `vehicle` box here.
+      expect(body.framing?.leadRegionId).not.toBe("vehicle-5");
+
+      // The Call keeps the number Match beside the face ones, as identify
+      // answered it.
+      const recorded = await call(one, body.call?.id);
+      expect(recorded.matches).toMatchObject({
+        matches: [
+          {
+            regionId: "vehicle-3",
+            personId: person.id,
+            by: "number",
+            numberRegionId: "number-2",
+          },
+        ],
+      });
+    },
+    TIMEOUT
+  );
+
+  it(
+    "answers the same numbers on find_subjects, with no inFrame at all",
+    async () => {
+      const one = await stack();
+      const person = await one.records.people.create({
+        brand: BRAND,
+        name: "#24",
+        numbers: ["24"],
+      });
+
+      const found = await rpc(one.app(), {
+        method: "tools/call",
+        params: {
+          name: "find_subjects",
+          arguments: { brand: BRAND, source: { url: `${PHOTOS}/${GRID}` } },
+        },
+      });
+
+      const numbers = (
+        found.result as {
+          structuredContent: {
+            numbers: { label: string; personId?: string; inFrame?: boolean }[];
+          };
+        }
+      ).structuredContent.numbers;
+
+      expect(numbers.map((number) => number.label)).toEqual([
+        "227",
+        "24",
+        "66",
+        "21",
+      ]);
+      expect(numbers.find((number) => number.label === "24")?.personId).toBe(
+        person.id
+      );
+      // No window was cut here, so there is no frame for a number to be in.
+      for (const number of numbers) {
+        expect(number.inFrame).toBeUndefined();
+      }
     },
     TIMEOUT
   );

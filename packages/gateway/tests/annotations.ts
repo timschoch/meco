@@ -71,15 +71,40 @@ export const sha256 = (bytes: Uint8Array): string =>
  * `pnpm --filter @meco/frame record <models url>`. Copied because a package may
  * not import another package's tests, and held to its photograph by the hash
  * check in {@link fixtureAnnotation}.
+ *
+ * `kart-grid-24.jpg` is not copied: its recording lives beside the photograph
+ * at `fixtures/karts/annotations/`, where identify's and frame's suites read
+ * it too. A recording no package owns needs no copy in any of them.
  */
-const SOURCES: Record<string, { dir: string; recording?: string }> = {
+const RECORDINGS = fileURLToPath(new URL("./fixtures/", import.meta.url));
+const SHARED_RECORDINGS = fileURLToPath(
+  new URL("../../../fixtures/karts/annotations/", import.meta.url)
+);
+
+/**
+ * The grid photograph #227 is about: five karts, four race numbers read by
+ * `ppocr` and one face. The only fixture here holding a `number` Region.
+ */
+export const KART_GRID_FILE = "kart-grid-24.jpg";
+
+const SOURCES: Record<
+  string,
+  { dir: string; recording?: string; recordingDir?: string }
+> = {
   ...Object.fromEntries(
     Object.keys(detected.images).map((file) => [file, { dir: FACES }])
   ),
   [KART_FILE]: { dir: KARTS, recording: "on-track-dark-visor.json" },
+  [KART_GRID_FILE]: {
+    dir: KARTS,
+    recording: "kart-grid-24.json",
+    recordingDir: SHARED_RECORDINGS,
+  },
 };
 
-const sourceOf = (file: string): { dir: string; recording?: string } => {
+const sourceOf = (
+  file: string
+): { dir: string; recording?: string; recordingDir?: string } => {
   const found = SOURCES[file];
   if (found === undefined) throw new Error(`no fixture photograph ${file}`);
   return found;
@@ -99,14 +124,11 @@ export const FIXTURE_FILES: readonly string[] = Object.keys(SOURCES);
  * hash of the file's own bytes.
  */
 export function fixtureAnnotation(file: string): Annotation {
-  const { recording } = sourceOf(file);
+  const { recording, recordingDir } = sourceOf(file);
   if (recording !== undefined) {
     const recorded = Annotation.parse(
       JSON.parse(
-        readFileSync(
-          fileURLToPath(new URL(`./fixtures/${recording}`, import.meta.url)),
-          "utf8"
-        )
+        readFileSync(`${recordingDir ?? RECORDINGS}${recording}`, "utf8")
       )
     );
     const bytes = sha256(fixtureBytes(file));

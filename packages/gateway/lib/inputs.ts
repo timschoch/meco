@@ -15,6 +15,30 @@ export const Brand = z
   .min(1)
   .describe("The Brand this request is for.");
 
+/**
+ * The race numbers a Person carries, as a Brand may set them.
+ *
+ * One to three digits, and nothing else. That is exactly what the number
+ * reader labels a `number` Region with (`docs/specs/models.md`, `ppocr`), so a
+ * Person number of any other shape could never be read off a photograph and
+ * would be a dead letter the caller was never told about. Refusing it at the
+ * door is the only place that can say so.
+ *
+ * Compared as text, so `04` and `4` are two different numbers and the Brand
+ * types what is painted on the kart.
+ */
+export const RaceNumbers = z
+  .array(
+    z
+      .string()
+      .regex(/^[0-9]{1,3}$/, "a race number is one to three digits")
+      .describe("A race number as it is painted on the kart, e.g. `24`.")
+  )
+  .max(16)
+  .describe(
+    "The race numbers this Person carries, one to three digits each. One number is one Person within a Brand."
+  );
+
 /** What `render` and `crop` share. */
 export const FramingOptions = {
   pinTo: z

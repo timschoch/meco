@@ -45,6 +45,23 @@ export interface FaceVerdictRow {
   readonly similarity?: number;
 }
 
+/**
+ * One Match this Call made, with the rule that made it.
+ *
+ * Beside the Face Verdicts and not folded into them, because a number Match
+ * names a `vehicle` Region and has no Face Verdict at all: the driver is in a
+ * helmet, which is the whole reason the rule exists.
+ */
+export interface MatchRow {
+  readonly regionId: string;
+  readonly personId: string;
+  /** `face` or `number`, as the Match itself says. */
+  readonly by: string;
+  readonly similarity?: number;
+  /** The `number` Region the digits were read from, on a number Match. */
+  readonly numberRegionId?: string;
+}
+
 /** One face redact hid, with the reason it gave. */
 export interface RedactionRow {
   readonly regionId: string;
@@ -58,6 +75,8 @@ export interface CallView {
   readonly overlay: Overlay | null;
   /** `null` when `matches` is not identify's shape: the page prints it raw. */
   readonly faces: readonly FaceVerdictRow[] | null;
+  /** The Matches this Call made, with their rule. Empty when it made none. */
+  readonly matches: readonly MatchRow[];
   /** `null` when `redactions` is not redact's shape: the page prints it raw. */
   readonly redactions: readonly RedactionRow[] | null;
   /** The Person names this Call's Matches point at, by Person id. */
@@ -137,6 +156,32 @@ export function faceVerdictsOf(
       verdict,
       ...(isString(personId) ? { personId } : {}),
       ...(isNumber(similarity) ? { similarity } : {}),
+    });
+  }
+  return rows;
+}
+
+/**
+ * The Matches on a Call row, with the rule each was made by.
+ *
+ * A row written before `by` existed carries none, and those Matches are read
+ * as `face`: every Match meco made before #227 was a face one. Anything that
+ * is not the shape at all is no Match rather than a throw, on the same
+ * reasoning as {@link facesOf} — a stored row is data an older build wrote.
+ */
+export function matchesOf(value: unknown): readonly MatchRow[] {
+  if (!isObject(value) || !Array.isArray(value["matches"])) return [];
+  const rows: MatchRow[] = [];
+  for (const one of value["matches"]) {
+    if (!isObject(one)) continue;
+    const { regionId, personId, by, similarity, numberRegionId } = one;
+    if (!isString(regionId) || !isString(personId)) continue;
+    rows.push({
+      regionId,
+      personId,
+      by: isString(by) ? by : "face",
+      ...(isNumber(similarity) ? { similarity } : {}),
+      ...(isString(numberRegionId) ? { numberRegionId } : {}),
     });
   }
   return rows;
@@ -308,6 +353,7 @@ export function viewOf(read: CallRead): CallView {
             window: window === null ? null : windowFraction(window, file),
           },
     faces: faceVerdictsOf(call.matches),
+    matches: matchesOf(call.matches),
     redactions: redactionsOf(call.redactions),
     names: read.names,
     outputs: read.outputs,

@@ -159,6 +159,7 @@ describe("the Operation table on the HTTP Door", () => {
             id: person.id,
             brand: "laica",
             name: "Ada",
+            numbers: [],
             createdAt: person.createdAt,
             photos: [],
           },

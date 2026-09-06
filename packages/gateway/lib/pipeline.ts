@@ -112,6 +112,34 @@ export interface FaceReport {
   readonly inFrame: boolean;
 }
 
+/**
+ * What the gateway says about one race number in one output: what was read,
+ * whose it is if anybody's, and whether frame's window kept it.
+ *
+ * The Number Report beside the Face Report, and not folded into it. A face and
+ * a number are different Region Kinds carrying different evidence, and a
+ * caller reading `faces[]` today must not start finding karts in it.
+ *
+ * No `hidden`: redact blurs faces, and a race number is a number painted on a
+ * kart in a public place. Nothing hides one, so a field saying so on every row
+ * would be a promise redact never makes.
+ *
+ * `personId` is absent for a number nobody enrolled, which is most of them —
+ * the picture is full of other people's karts.
+ */
+export interface NumberReport {
+  readonly regionId: string;
+  /** The digits, as `ppocr` read them. */
+  readonly label: string;
+  readonly personId?: string;
+  /**
+   * Whether the digits landed in the finished frame. Absent where no window
+   * was cut: `find_subjects` frames nothing, and a `true` there would be a
+   * claim about a picture that does not exist.
+   */
+  readonly inFrame?: boolean;
+}
+
 /** What one pass produced, before the Call row exists. */
 interface Produced {
   readonly storeKey: string;
@@ -119,6 +147,7 @@ interface Produced {
   readonly bytes: number;
   readonly framing: Framing;
   readonly faces: readonly FaceReport[];
+  readonly numbers: readonly NumberReport[];
 }
 
 /**
@@ -222,6 +251,7 @@ export async function pipeline<I extends FramingInput>(
     requestHash: hash,
     framing,
     faces: faceReports(annotation, identification, hidden.redactions, framing),
+    numbers: numberReports(annotation, identification, framing),
     replayed: false,
   };
 }
@@ -263,6 +293,7 @@ async function replayOf(
     const redactions = (call.redactions ?? []) as readonly RedactionRecord[];
     if (framing?.windowFraction === undefined) return null;
     if (!Array.isArray(identification?.faces)) return null;
+    if (!Array.isArray(identification?.matches)) return null;
     if (!Array.isArray(redactions)) return null;
 
     return {
@@ -271,6 +302,7 @@ async function replayOf(
       bytes: head.size,
       framing,
       faces: faceReports(annotation, identification, redactions, framing),
+      numbers: numberReports(annotation, identification, framing),
       replayed: true,
     };
   });
@@ -309,4 +341,50 @@ function faceReports(
         box !== undefined && intersectsFrame(projectIntoFrame(framing, box)),
     };
   });
+}
+
+/**
+ * The Number Report: every `number` Region of the Annotation, with the Person
+ * whose number it is when identify named one.
+ *
+ * Read off the Annotation and not off the Matches, so a number nobody enrolled
+ * is still reported. That is what makes the report useful for adding a Person:
+ * a Brand can see meco read `24` on this kart before it has told meco whose
+ * `24` it is.
+ *
+ * The `personId` comes from the number Match, which names the `vehicle` and
+ * carries the `number` Region beside it. Keyed on `numberRegionId` here,
+ * because the report is per number and one kart can carry only one of them.
+ *
+ * `framing` is optional: `find_subjects` cuts no window, and an `inFrame` there
+ * would be a claim about a picture that was never made.
+ */
+export function numberReports(
+  annotation: Annotation,
+  identification: Identification,
+  framing?: Framing
+): readonly NumberReport[] {
+  const owner = new Map(
+    identification.matches.flatMap((match) =>
+      match.by === "number"
+        ? [[match.numberRegionId, match.personId] as const]
+        : []
+    )
+  );
+
+  return annotation.regions
+    .filter((region) => region.kind === "number")
+    .map((region) => {
+      const personId = owner.get(region.id);
+      return {
+        regionId: region.id,
+        label: region.label,
+        ...(personId === undefined ? {} : { personId }),
+        ...(framing === undefined
+          ? {}
+          : {
+              inFrame: intersectsFrame(projectIntoFrame(framing, region.box)),
+            }),
+      };
+    });
 }
