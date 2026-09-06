@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import type { Annotation, FacePrint } from "@meco/contracts";
 import type { Check } from "@meco/contracts/conformance";
 import { type Listing, type Store, memoryStore } from "@meco/store";
+import type { NewCall } from "./calls";
 import { reachRecords, recordsTables } from "./health";
 import { verifying } from "./neon-database";
 import { peoplePrefix } from "./people";
@@ -231,6 +232,29 @@ async function enrolled(
 
 const keysOf = (listed: readonly Listing[]): string[] =>
   listed.map((one) => one.key);
+
+/** What `crypto.randomUUID()` produces, and nothing else. */
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/**
+ * A Brand and a Caller, because a Call's foreign keys need both rows before
+ * there can be a Call at all.
+ */
+async function calling(records: Records, label: string) {
+  const brand = brandFor(label);
+  await records.brands.ensure({ id: brand, name: label });
+  const caller = await records.callers.create({
+    name: label,
+    key: `bearer-${hashOf(label)}`,
+    brands: [brand],
+  });
+  return { brand, callerId: caller.id };
+}
+
+/** `2026-09-06T09:<minute>`, so a check's Calls have distinct start times. */
+const at = (minute: number): string =>
+  `2026-09-06T09:${String(minute).padStart(2, "0")}:00.000Z`;
 
 export function recordsConformance(
   open: () => Promise<Records>,
@@ -769,6 +793,202 @@ export function recordsConformance(
         strictEqual(erasure.photos, 0);
         deepStrictEqual(erasure.remaining, []);
         deepStrictEqual(store.deletes, []);
+      },
+    },
+    {
+      name: "calls.record keeps every field it was given, and a failed Call with its error is a row",
+      async run() {
+        const records = await open();
+        const { brand, callerId } = await calling(records, "records one call");
+        const call: NewCall = {
+          callerId,
+          brand,
+          kind: "render",
+          sourceHash: hashOf("records one call"),
+          request: { template: "story", fields: { title: "Ada" } },
+          framing: { crop: { x: 0.1, y: 0.2, width: 0.5, height: 0.5 } },
+          // identify's whole Identification and not the Match list alone: the
+          // webui needs the verdicts, and records stores it unread (#162).
+          matches: {
+            matches: [
+              { regionId: "face-1", personId: "p-1", similarity: 0.71 },
+            ],
+            faces: [{ regionId: "face-1", verdict: "matched" }],
+            unusableReferencePhotos: [],
+          },
+          redactions: [{ regionId: "face-2", method: "blur" }],
+          steps: [
+            { name: "models.decode", durMs: 31 },
+            { name: "models.scrfd", durMs: 28 },
+            { name: "frame.choose", durMs: 1 },
+          ],
+          cost: { units: [{ name: "render", quantity: 1 }] },
+          error: {
+            module: "compose",
+            code: "no_such_template",
+            message: "story",
+          },
+          status: "failed",
+          startedAt: at(0),
+          durationMs: 412,
+        };
+
+        const recorded = await records.calls.record(call);
+
+        // A failed Call is a Call. The webui's "what failed" reads `error`, and
+        // a failure nobody wrote down is a gap in the Gallery instead.
+        deepStrictEqual(await records.calls.get(recorded.id), recorded);
+        strictEqual(recorded.status, "failed");
+        deepStrictEqual(recorded.error, call.error);
+        deepStrictEqual(recorded.steps, call.steps);
+        // Every jsonb another module owns comes back as it went in, unread.
+        deepStrictEqual(recorded.request, call.request);
+        deepStrictEqual(recorded.framing, call.framing);
+        deepStrictEqual(recorded.matches, call.matches);
+        deepStrictEqual(recorded.redactions, call.redactions);
+        deepStrictEqual(recorded.cost, call.cost);
+        strictEqual(recorded.sourceHash, call.sourceHash);
+        strictEqual(recorded.startedAt, at(0));
+        strictEqual(recorded.durationMs, 412);
+        ok(UUID.test(recorded.id), `${recorded.id} is no UUID`);
+      },
+    },
+    {
+      name: "calls.record fills nothing in: an annotate Call has no framing, no Matches and no Steps",
+      async run() {
+        const records = await open();
+        const { brand, callerId } = await calling(
+          records,
+          "records a bare call"
+        );
+
+        const recorded = await records.calls.record({
+          callerId,
+          brand,
+          kind: "annotate",
+          status: "ok",
+        });
+
+        // Every column a kind does not use stays empty rather than acquiring a
+        // shape records invented, which the webui would then have to explain.
+        strictEqual(recorded.sourceHash, null);
+        strictEqual(recorded.request, null);
+        strictEqual(recorded.framing, null);
+        strictEqual(recorded.matches, null);
+        strictEqual(recorded.redactions, null);
+        strictEqual(recorded.cost, null);
+        strictEqual(recorded.error, null);
+        strictEqual(recorded.durationMs, null);
+        // Steps are the exception: a Call has a list of them, possibly empty.
+        deepStrictEqual(recorded.steps, []);
+      },
+    },
+    {
+      name: "calls.record refuses a kind and a status outside the closed set",
+      async run() {
+        const records = await open();
+        const { brand, callerId } = await calling(
+          records,
+          "records a bad call"
+        );
+        const call = { callerId, brand, kind: "crop", status: "ok" } as const;
+
+        // `kind` and `status` are `text` and not a Postgres enum, so the set is
+        // written down once in TypeScript and checked here. Without the check
+        // the column would take anything a caller mistyped.
+        await rejects(() =>
+          records.calls.record({
+            ...call,
+            kind: "resize",
+          } as unknown as NewCall)
+        );
+        await rejects(() =>
+          records.calls.record({
+            ...call,
+            status: "pending",
+          } as unknown as NewCall)
+        );
+      },
+    },
+    {
+      name: "calls.get of an id never recorded is null, not a throw",
+      async run() {
+        const records = await open();
+
+        strictEqual(await records.calls.get(crypto.randomUUID()), null);
+      },
+    },
+    {
+      name: "calls.list is newest first, honours brand and status, and its cursor never repeats or skips a Call",
+      async run() {
+        const records = await open();
+        const mine = await calling(records, "lists its calls");
+        const theirs = await calling(records, "is listed by nobody else");
+
+        const ids: string[] = [];
+        for (let minute = 0; minute < 5; minute++) {
+          const call = await records.calls.record({
+            callerId: mine.callerId,
+            brand: mine.brand,
+            kind: "crop",
+            status: minute % 2 === 0 ? "ok" : "failed",
+            startedAt: at(minute),
+          });
+          ids.push(call.id);
+        }
+        const newestFirst = [...ids].reverse();
+        // Newer than every Call of the Brand under test, and another Brand's.
+        await records.calls.record({
+          callerId: theirs.callerId,
+          brand: theirs.brand,
+          kind: "crop",
+          status: "ok",
+          startedAt: at(9),
+        });
+
+        const all = await records.calls.list({ brand: mine.brand, limit: 10 });
+        const failed = await records.calls.list({
+          brand: mine.brand,
+          status: "failed",
+          limit: 10,
+        });
+
+        deepStrictEqual(
+          all.rows.map((one) => one.id),
+          newestFirst
+        );
+        // No cursor when nothing is left: an "older" link the Gallery would
+        // show on the last page is a link to an empty page.
+        strictEqual(all.cursor, null);
+        // `?status=failed` on the Calls list.
+        deepStrictEqual(
+          failed.rows.map((one) => one.id),
+          [ids[3], ids[1]]
+        );
+
+        const first = await records.calls.list({ brand: mine.brand, limit: 2 });
+        ok(first.cursor !== null, "no cursor on a page with more behind it");
+        // A Call recorded between the two pages, newer than every one of them.
+        // A keyset cursor reads on from where the page ended, so it changes
+        // nothing; an offset would shift every remaining row down by one and
+        // the Call at index 2 would never be seen.
+        await records.calls.record({
+          callerId: mine.callerId,
+          brand: mine.brand,
+          kind: "crop",
+          status: "ok",
+          startedAt: at(8),
+        });
+        const second = await records.calls.list({
+          brand: mine.brand,
+          limit: 2,
+          cursor: first.cursor,
+        });
+
+        deepStrictEqual(
+          [...first.rows, ...second.rows].map((one) => one.id),
+          newestFirst.slice(0, 4)
+        );
       },
     },
   ];

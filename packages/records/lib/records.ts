@@ -2,15 +2,15 @@
  * The `Records` seam. Every method takes and returns contracts types or the
  * plain rows declared here; no drizzle type leaves this file.
  *
- * This slice holds the two nouns the tracer bullet needs, `files` and
- * `annotations`, plus `migrate`. The other seven tables exist in the schema
- * from the first migration, so the tickets after this one add methods and not
- * migrations.
+ * Every table exists in the schema from the first migration, so a ticket that
+ * adds a noun here adds methods and not a migration.
  */
 import { Annotation } from "@meco/contracts";
 import type { Store } from "@meco/store";
 import { eq, sql } from "drizzle-orm";
 import { type Brands, brandsOver } from "./brands";
+import { type Callers, callersOver } from "./callers";
+import { type Calls, callsOver } from "./calls";
 import { type Database, type DatabaseDriver, driverFor } from "./database";
 import { applyMigrations } from "./migrate";
 import { type People, peopleOver } from "./people";
@@ -62,8 +62,10 @@ export interface Records {
     put(annotation: Annotation): Promise<void>;
   };
   brands: Brands;
+  callers: Callers;
   sources: Sources;
   people: People;
+  calls: Calls;
   /** Releases the database. Idempotent. */
   close(): Promise<void>;
 }
@@ -166,8 +168,10 @@ export function records(options: RecordsOptions): Records {
     },
 
     brands: brandsOver(driver),
+    callers: callersOver(driver),
     sources: sourcesOver(driver),
     people: peopleOver(driver, options.store),
+    calls: callsOver(driver),
 
     async close() {
       await driver.close();
