@@ -58,7 +58,12 @@ describe("the face rung", () => {
       expect(framing.subject).toEqual(
         faces.find((r) => r.id === leadRegionId)?.box
       );
-      expect(framing.keptRegionIds).toEqual(faces.map((r) => r.id));
+      // Tier order, the same on every rung: the leader, then — no Match here —
+      // every other face by Region id. `tiers.test.ts` holds the whole rule.
+      expect(framing.keptRegionIds).toEqual([
+        leadRegionId,
+        ...faces.map((r) => r.id).filter((id) => id !== leadRegionId),
+      ]);
       expect(framing.droppedRegionIds).toEqual([]);
     });
   }
