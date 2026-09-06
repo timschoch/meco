@@ -239,9 +239,10 @@ const isReplay = (call: Call): boolean =>
  * The Output a Replay answered with.
  *
  * A Replay records its own Call and no Output: an Output is keyed
- * `(brand, store_key)`, so the row stays on the Call that first made it. The
- * link back is therefore the Request Hash — the same lookup the gateway did to
- * decide this was a Replay in the first place.
+ * `(brand, request_hash)` (#224), so the request already names the row the
+ * first Call made and a second one would be the same row. The link back is
+ * therefore the Request Hash — the same lookup the gateway did to decide this
+ * was a Replay in the first place.
  */
 async function replayedOutput(
   records: Records,

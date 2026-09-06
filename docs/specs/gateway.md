@@ -64,23 +64,23 @@ One factory, one seam. `createApp` receives every adapter that varies (records, 
 
 ### The Operation table
 
-Every Operation is one record: `name` (the MCP tool name), `method` and `path` (the HTTP face), `kind` (records' Call kind or none), `input` (a zod object), `handler(ctx, input)`. The HTTP router registers one route per Operation with `input.parse` on the body or query; the MCP factory registers one tool per Operation with the same `input` as `inputSchema`. Nothing is written twice.
+Every Operation is one record: `name` (the MCP tool name), `description`, `method` and `path` (the HTTP face), `input` (a zod object), `handler(ctx, input)`. There is no `kind` field: the Call kind is named at the call site, in the handler's own `recorded(...)`, because only a handler that records a Call has one (#185). The column below reads the handlers and is not a field of the table. The HTTP router registers one route per Operation with `input.parse` on the body or query; the MCP factory registers one tool per Operation with the same `input` as `inputSchema`. Nothing is written twice.
 
-| Operation             | HTTP                           | Call kind  | Does                                                                                                                            |
-| --------------------- | ------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `render_image`        | `POST /v1/render`              | `render`   | template + placement + fields + Source Reference + framing options → a Render                                                   |
-| `crop_image`          | `POST /v1/crop`                | `crop`     | Source Reference + target size + framing options → a Crop                                                                       |
+| Operation             | HTTP                           | Call kind  | Does                                                                                                                                                                 |
+| --------------------- | ------------------------------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `render_image`        | `POST /v1/render`              | `render`   | template + placement + fields + Source Reference + framing options → a Render                                                                                        |
+| `crop_image`          | `POST /v1/crop`                | `crop`     | Source Reference + target size + framing options → a Crop                                                                                                            |
 | `find_subjects`       | `POST /v1/annotate`            | `annotate` | Source Reference + brand → the Annotation (prints stripped), this Brand's Identification and the Number Report without `inFrame`; files the source, stores no output |
-| `list_templates`      | `GET /v1/templates?brand=`     | –          | compose `templates(brand)`; every Template of the Caller's Brands without `brand`                                               |
-| `list_placements`     | `GET /v1/placements`           | –          | compose `PLACEMENTS`                                                                                                            |
-| `list_brands`         | `GET /v1/brands`               | –          | the Caller's Brands with their names                                                                                            |
-| `list_people`         | `GET /v1/people?brand=`        | –          | records `people.list` without the prints; Reference Photo ids, consent dates and race numbers                                   |
-| `add_person`          | `POST /v1/people`              | –          | records `people.create`, with optional race numbers; a number another Person of the Brand carries is `409 conflict`             |
-| `set_person_numbers`  | `PATCH /v1/people/:id`         | –          | records `people.setNumbers`, replacing the whole list; `409 conflict` on a number already taken, `404` for another Brand's Person |
-| `erase_person`        | `DELETE /v1/people/:id?brand=` | `erase`    | records `people.erase`; answers the empty listing as proof                                                                      |
-| `add_reference_photo` | `POST /v1/people/:id/photos`   | `enrol`    | identify `enrol`; a `choose` answer is a `200` with the faces, not an error                                                     |
-| `create_upload`       | `POST /v1/sources/uploads`     | –          | a Signed URL to `PUT` a photograph to, scoped to one `sources/` key; see "Bytes in"                                             |
-| `add_source`          | `POST /v1/sources`             | –          | files an uploaded photograph and answers its Content Hash, which the caller then names as `{ hash }`                            |
+| `list_templates`      | `GET /v1/templates?brand=`     | –          | compose `templates(brand)`; every Template of the Caller's Brands without `brand`                                                                                    |
+| `list_placements`     | `GET /v1/placements`           | –          | compose `PLACEMENTS`                                                                                                                                                 |
+| `list_brands`         | `GET /v1/brands`               | –          | the Caller's Brands with their names                                                                                                                                 |
+| `list_people`         | `GET /v1/people?brand=`        | –          | records `people.list` without the prints; Reference Photo ids, consent dates and race numbers                                                                        |
+| `add_person`          | `POST /v1/people`              | –          | records `people.create`, with optional race numbers; a number another Person of the Brand carries is `409 conflict`                                                  |
+| `set_person_numbers`  | `PATCH /v1/people/:id`         | –          | records `people.setNumbers`, replacing the whole list; `409 conflict` on a number already taken, `404` for another Brand's Person                                    |
+| `erase_person`        | `DELETE /v1/people/:id?brand=` | `erase`    | records `people.erase`; answers the empty listing as proof                                                                                                           |
+| `add_reference_photo` | `POST /v1/people/:id/photos`   | `enrol`    | identify `enrol`; a `choose` answer is a `200` with the faces, not an error                                                                                          |
+| `create_upload`       | `POST /v1/sources/uploads`     | –          | a Signed URL to `PUT` a photograph to, scoped to one `sources/` key; see "Bytes in"                                                                                  |
+| `add_source`          | `POST /v1/sources`             | –          | files an uploaded photograph and answers its Content Hash, which the caller then names as `{ hash }`                                                                 |
 
 Dropped from the prototype: `/v1/carousel` (out of compose v1), `/v1/gallery` (webui's), `/v1/channels` (a Placement names its Channel), `/v1/subjects` (renamed `annotate`).
 

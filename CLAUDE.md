@@ -32,6 +32,10 @@ catches it. Three tickets in the Subject-aware Crop feature did this; two found
 real bugs that way, and one found a cascade-delete test that passed against a
 version leaving personal data in the store.
 
+**Commit the green state before you mutate**, then undo the mutation with
+`git restore`. Restoring a directory to undo a mutation wipes every uncommitted
+change in it, which is how one implementer lost its own work twice.
+
 ## Docs
 
 Vocabulary lands with the feature, not in a later sweep: a change that
@@ -109,7 +113,10 @@ per-consumer models are the direction, not the first step.
 cannot be. Standardise only the edges: same input in, same output out.
 
 - Input: the host decodes **once** and passes the decoded image to every
-  adapter. Decode costs more than inference (31 ms vs 28 ms, `DEPLOY.md`).
+  adapter. Decode is paid once however many adapters run, and it dominates on a
+  large photograph: `decode;dur=248.1, yunet;dur=69.4` on a 5878x7348 fixture
+  against `decode;dur=23.0, yunet;dur=49.1` on the 1280x1600 crew fixture
+  (364 KB), both on the models container at 1 vCPU (`docs/specs/models.md`).
 - Output: `SubjectBox` in fractions, `width`/`height` never `w`/`h` (ADR-0002).
 - Every adapter passes the same conformance suite, whatever it detects.
 - Licence text ships with the adapter, so a model cannot be added without one.
@@ -177,9 +184,29 @@ Steps 1–7 stay in **one unbroken context window**. Do not `/compact` or
   A number without it is a trap.
 - **Deviating from a ticket is allowed; doing it silently is not.** Put the
   deviation and its reason in the PR body.
+- **Commit before every mutation.** See "Prove a test can fail" above.
+- **Commit subjects are 80 characters or fewer.** The `skilly / gate`
+  conventional-commits rule fails a longer one, and a PR title is often longer
+  than its squash subject: set `--subject` on merge.
+- **The pre-commit suite is not built for many concurrent agents.** Sixteen
+  parallel vitest processes time it out. `--no-verify` after a green
+  `pnpm check` is the accepted escape; say so in the PR body. CI is the gate.
+- **After a force-push, trust only the CI run whose `head_sha` is the head.**
+  CI skipped `synchronize` runs on one PR for about an hour, so a green tick
+  beside a stale sha means nothing.
+- **Merge order is the orchestrator's.** #198 renamed a method and #200 used
+  the old name; both green, merged the wrong way round, and `main` failed
+  typecheck until #202.
 
 ## The orchestrator
 
 Read-only on `src/`. Never writes a module. Its job: hand out briefs, answer
 questions, confirm seams, relay review verdicts, own merge order, keep the
 product aligned, and verify against production between phases.
+
+**The ticket is the channel.** A message between agents is not durable: it
+reaches one context window, and it is gone when that window is. Every decision,
+answer and deviation is posted on the ticket it belongs to, and a `🤖 decision`
+comment on the map issue when it binds more than one module. Message an agent to
+wake it; write down what you told it. An agent that has to ask twice is an agent
+whose answer was never written down.
