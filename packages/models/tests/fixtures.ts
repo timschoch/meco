@@ -63,6 +63,29 @@ export const expectedKartFaces = async (): Promise<Expected> =>
     await readFile(new URL("expected.json", KARTS), "utf8")
   ) as Expected;
 
+/**
+ * The shape of `fixtures/karts/numbers.json`: what a person reads off each
+ * photograph. `numbers` must be found, `misses` must stay missing until the
+ * file says otherwise, `others` may go either way; a label in none of the
+ * three lists is a false read.
+ */
+export interface ExpectedNumbers {
+  /** The largest allowed distance between a marked centre and the found one. */
+  tolerance: number;
+  images: {
+    file: string;
+    note: string;
+    numbers: { label: string; box: Box }[];
+    misses: { label: string; box: Box }[];
+    others?: string[];
+  }[];
+}
+
+export const expectedNumbers = async (): Promise<ExpectedNumbers> =>
+  JSON.parse(
+    await readFile(new URL("numbers.json", KARTS), "utf8")
+  ) as ExpectedNumbers;
+
 /** A 4 by 4 mid-grey image: the blank the adapter checks run on. */
 export const blankImage = (): DecodedImage => ({
   width: 4,

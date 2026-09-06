@@ -168,6 +168,7 @@ describe("?models= names dfine on the real Catalogue", async () => {
     expect(producedBy.map((m) => m.name)).toEqual([
       "yunet",
       "dfine",
+      "ppocr",
       "edgeface",
     ]);
     expect(regions.filter((r) => r.kind === "face")).toEqual([]);
