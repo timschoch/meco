@@ -16,8 +16,6 @@ export const GATEWAY_STATUS = {
   too_large: 413,
   source_unfetchable: 422,
   resolution_mismatch: 500,
-  /** An Operation in the table whose pipeline a later ticket lands. */
-  not_implemented: 501,
   models_unavailable: 503,
 } as const;
 

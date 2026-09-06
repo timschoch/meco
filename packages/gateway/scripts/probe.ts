@@ -389,11 +389,12 @@ const sources = process.env["MECO_STORY_URL"]
       commons("Challenge_kart.JPG"),
     ];
 
+/** What `render` and `crop` both answer. A Crop names no Placement. */
 type RenderAnswer = {
   output?: {
     url: string;
     key: string;
-    placement: string;
+    placement?: string;
     width: number;
     height: number;
     mime: string;
@@ -409,6 +410,21 @@ type RenderAnswer = {
   }[];
   error?: { code: string; message: string };
 };
+
+/**
+ * The bytes themselves, for whoever asked to see the picture. Written only
+ * when `MECO_SAVE_DIR` names a folder, so an ordinary probe run writes nothing.
+ */
+async function save(answer: RenderAnswer | undefined): Promise<void> {
+  const into = process.env["MECO_SAVE_DIR"];
+  const output = answer?.output;
+  if (into === undefined || into === "" || output === undefined) return;
+  const fetched = await fetch(output.url);
+  const name = output.key.split("/").pop() ?? "output";
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(`${into}/${name}`, new Uint8Array(await fetched.arrayBuffer()));
+  console.log(`     saved ${into}/${name}`);
+}
 
 if (template === undefined) {
   line(false, "no Template to render: skipping the story");
@@ -469,20 +485,96 @@ if (template === undefined) {
       }
     }
 
-    // The bytes themselves, for whoever asked to see the picture. Written only
-    // when a path is named, so an ordinary probe run writes nothing.
-    const save = process.env["MECO_SAVE_DIR"];
-    if (save !== undefined && save !== "" && first?.output?.url !== undefined) {
-      const bytes = await fetch(first.output.url);
-      const name = first.output.key.split("/").pop() ?? "render";
-      const { writeFile } = await import("node:fs/promises");
-      await writeFile(
-        `${save}/${name}`,
-        new Uint8Array(await bytes.arrayBuffer())
-      );
-      console.log(`     saved ${save}/${name}`);
-    }
+    await save(first);
   }
 }
+
+// --- the bare Crop (#184) ---------------------------------------------------
+//
+// The same photograph through `cut` instead of a Template: a size in, a Crop
+// out, framed on whatever the ladder finds. Rendered twice, so the second is a
+// Replay, and once more as a PNG, whose bytes are read back off the public URL
+// — a `mime` in the answer is a claim, and the signature is the fact.
+
+const cropSource =
+  process.env["MECO_CROP_URL"] ?? commons("Giuseppe_Gnazzo_-_Kart_driver.jpg");
+const CROP_SIZE = { width: 1080, height: 1350 };
+
+console.log(`\n--- crop ${CROP_SIZE.width}x${CROP_SIZE.height} on ${cropSource}`);
+let firstCrop: RenderAnswer | undefined;
+
+for (const round of ["first", "replay"] as const) {
+  const answer = await post("/v1/crop", {
+    brand: firstBrand,
+    source: { url: cropSource },
+    ...CROP_SIZE,
+  });
+  const body = answer.body as RenderAnswer;
+  const replayed = body.call?.replayed === true;
+
+  line(
+    answer.status === 200 && (round === "first" || replayed),
+    `POST /v1/crop (${round}) -> ${answer.status} in ${answer.ms.toFixed(0)} ms, replayed ${String(replayed)}, call ${body.call?.id ?? "-"}${answer.served === "" ? "" : `, served by ${answer.served}`}`
+  );
+  if (answer.status !== 200) {
+    console.log(`     ${JSON.stringify(answer.body)}`);
+    break;
+  }
+
+  const output = body.output;
+  line(
+    output?.key.startsWith("crops/") === true &&
+      output.width === CROP_SIZE.width &&
+      output.height === CROP_SIZE.height,
+    `     output: ${output?.url ?? "-"} (${output?.width}x${output?.height} ${output?.mime}, ${output?.bytes} bytes)`
+  );
+  console.log(
+    `     framing: resolvedBy ${body.framing?.resolvedBy ?? "-"}, lead ${body.framing?.leadRegionId ?? "none"}, fallback ${body.framing?.fallback ?? "none"}`
+  );
+  console.log(
+    `     faces: ${body.faces?.length ?? 0} — ${(body.faces ?? []).map((f) => `${f.regionId} ${f.verdict}${f.hidden ? " hidden" : ""}${f.inFrame ? " inFrame" : " cut"}`).join("; ") || "none"}`
+  );
+
+  if (round === "first") {
+    firstCrop = body;
+  } else if (output?.key !== undefined) {
+    line(
+      output.key === firstCrop?.output?.key,
+      `     the Replay answers the same key: ${String(output.key === firstCrop?.output?.key)}`
+    );
+  }
+
+  if (body.call?.id !== undefined) {
+    const view = await get(`/ui/calls/${body.call.id}`, { Authorization: basic });
+    const steps = stepTimes(String(view.body));
+    line(
+      view.status === 200 && steps.length > 0,
+      `GET /ui/calls/${body.call.id} -> ${view.status}, steps: ${steps.join(" | ")}`
+    );
+  }
+}
+
+const asPng = await post("/v1/crop", {
+  brand: firstBrand,
+  source: { url: cropSource },
+  ...CROP_SIZE,
+  format: "png",
+});
+const pngBody = asPng.body as RenderAnswer;
+line(
+  asPng.status === 200 && pngBody.output?.mime === "image/png",
+  `POST /v1/crop format png -> ${asPng.status}, mime ${pngBody.output?.mime ?? "-"}, ${pngBody.output?.url ?? "-"}`
+);
+if (pngBody.output?.url !== undefined) {
+  const fetched = await fetch(pngBody.output.url);
+  const head = new Uint8Array((await fetched.arrayBuffer()).slice(0, 8));
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  line(
+    fetched.ok && head.every((byte, i) => byte === signature[i]),
+    `     the bytes at that URL are a PNG: ${[...head].join(" ")}`
+  );
+}
+
+await save(firstCrop);
 
 process.exit(failed ? 1 : 0);

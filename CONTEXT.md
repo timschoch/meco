@@ -524,3 +524,7 @@ _Avoid_: cache hit, dedupe, idempotent response, short-circuit
 **Face Report**:
 What the gateway says on the wire about each face Region of one output: identify's verdict, whether redact hid it, and whether frame's window kept it. Assembled by the gateway because no single module knows all three, and never stored: the webui reads the three parts off the Call and draws them.
 _Avoid_: face summary, faces blurred, face count, redaction summary
+
+**Fill**:
+What one output must fill and what will be drawn over it, as the gateway hands it to frame: the target size in whole pixels, the Occlusion Zones, and the Subject Area. A Render's Fill is compose's Plan; a Crop's is the request itself, with nothing occluded. The one part of the pipeline that differs per Call kind, beside the paint, which is why it has a name at all.
+_Avoid_: layout (reserved against Template and Plan), plan (a Plan is compose's and needs a Template), slot, canvas, frame
