@@ -81,21 +81,23 @@ has one. **Any service that bundles a CommonJS dependency needs it**, and the
 symptom is a healthy build followed by `FUNCTION_INVOCATION_FAILED` on the
 first request — not a build error.
 
-### The fourth trap: compose's index cannot be bundled into `gateway` yet
+### The fourth trap: compose's natives are not in the `gateway` image yet
 
-Every Look under `packages/compose/lib/looks/` reads its font files with
-`readFileSync(new URL("./fonts/…", import.meta.url))` at module top level, and
 compose's index carries `sharp` and `@takumi-rs/core`, which load native
-binaries by their own paths. Measured 6 Sep 2026 with the gateway's `build.mjs`:
-the bundle builds (1072 KB, 28 inputs under takumi and react) and dies at load
-with `ENOENT: open '<bundle>/fonts/Eina02-Regular.otf'`.
+binaries by their own paths and cannot be bundled (the `models` image keeps the
+same two outside its bundle for the same reason). Measured 6 Sep 2026 with the
+gateway's `build.mjs`, after #212 made compose read its fonts on first use: the
+compose chunk builds and dies at load with
+`ERR_MODULE_NOT_FOUND Cannot find package '@takumi-rs/core'` from any directory
+with no `node_modules` above it, which is what the runtime image is.
 
 So `packages/gateway/build.mjs` splits the bundle and marks the two natives
 `external`, and `list_templates` reaches `templates()` through a dynamic
-import: the chunk loads on the first `/v1/templates`, never at boot. The runtime
-image carries neither the natives nor the fonts, so on a deployment that route
-answers `500` while every other route serves. The render ticket (#183) gives the
-image compose's runtime the way `Dockerfile.vercel` gives `models` its own, and
+import: the chunk loads on the first `/v1/templates`, never at boot. On a
+deployment that route answers `503 module_unavailable` ("compose is not in this
+image yet (#183)") while every other route serves. The render ticket (#183)
+gives the image compose's runtime (the natives in a flat `node_modules`, the
+fonts beside the bundle) the way `Dockerfile.vercel` gives `models` its own, and
 the trap closes then. Ledgered on #181.
 
 ## Release

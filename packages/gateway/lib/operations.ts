@@ -90,6 +90,26 @@ const FramingOptions = {
 
 // --- The table ---------------------------------------------------------------
 
+/**
+ * compose, loaded on first use rather than at boot: its index carries `sharp`
+ * and `@takumi-rs/core`, which the gateway image does not hold until #183
+ * (blocker on #181). An image without them answers a typed 503 on the one
+ * route that needs them and serves everything else; the suite reaches the
+ * real compose either way.
+ */
+async function compose(): Promise<typeof import("@meco/compose")> {
+  try {
+    return await import("@meco/compose");
+  } catch (cause) {
+    throw new GatewayError(
+      "module_unavailable",
+      "compose is not in this image yet (#183)",
+      undefined,
+      { cause }
+    );
+  }
+}
+
 const notImplemented = (name: string) => async (): Promise<never> => {
   throw new GatewayError(
     "not_implemented",
@@ -170,10 +190,7 @@ export const OPERATIONS: readonly Operation[] = [
     path: "/templates",
     input: z.object({ brand: Brand.optional() }),
     async handler(ctx) {
-      // Lazy, because compose's index reads every Look's font files at
-      // import time and the gateway bundle does not carry them yet
-      // (blocker on #181). The suite reaches the real compose either way.
-      const { templates } = await import("@meco/compose");
+      const { templates } = await compose();
       return ctx.brands
         .flatMap((brand) => templates(brand))
         .sort((a, b) => a.id.localeCompare(b.id));

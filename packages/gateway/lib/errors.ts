@@ -19,6 +19,8 @@ export const GATEWAY_STATUS = {
   /** An Operation in the table whose pipeline a later ticket lands. */
   not_implemented: 501,
   models_unavailable: 503,
+  /** A module this image does not carry yet: compose until #183. */
+  module_unavailable: 503,
 } as const;
 
 export type GatewayErrorCode = keyof typeof GATEWAY_STATUS;
@@ -86,9 +88,10 @@ export class GatewayError extends Error {
   constructor(
     readonly code: GatewayErrorCode,
     message: string,
-    readonly details?: unknown
+    readonly details?: unknown,
+    options?: ErrorOptions
   ) {
-    super(message);
+    super(message, options);
     this.name = "GatewayError";
   }
 }
