@@ -49,5 +49,18 @@ export const MIGRATIONS: readonly EmbeddedMigration[] = [
       "CREATE INDEX \"reference_photos_hash_index\" ON \"reference_photos\" USING btree (\"hash\");",
       "CREATE INDEX \"sources_hash_index\" ON \"sources\" USING btree (\"hash\");"
     ]
+  },
+  {
+    "tag": "0001_outputs_keyed_by_request_hash",
+    "hash": "aa967fcc977c678066f60d6b7c70ecbad4a7495609580b57f8159fb412c11385",
+    "statements": [
+      "-- Destructive, and sanctioned on #223: nothing is using meco. The new primary\n-- key would refuse a table that already holds two rows of one Brand under one\n-- Request Hash, and a migration that can fail at boot is a boot that can fail.\nDELETE FROM \"outputs\";",
+      "DROP INDEX \"outputs_brand_request_hash_index\";",
+      "DROP INDEX \"outputs_created_at_store_key_index\";",
+      "ALTER TABLE \"outputs\" DROP CONSTRAINT \"outputs_brand_store_key_pk\";",
+      "ALTER TABLE \"outputs\" ADD CONSTRAINT \"outputs_brand_request_hash_pk\" PRIMARY KEY(\"brand\",\"request_hash\");",
+      "CREATE INDEX \"outputs_brand_store_key_index\" ON \"outputs\" USING btree (\"brand\",\"store_key\");",
+      "CREATE INDEX \"outputs_created_at_store_key_request_hash_index\" ON \"outputs\" USING btree (\"created_at\",\"store_key\",\"request_hash\");"
+    ]
   }
 ];

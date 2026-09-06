@@ -21,7 +21,7 @@ export interface Page<Row> {
   readonly cursor: string | null;
 }
 
-/** Where a row sits in the order: the time it is sorted by, and a tiebreak. */
+/** Where a row sits in the order: the time it is sorted by, and its tiebreak. */
 export interface Keyset {
   /**
    * The sort time **as Postgres holds it**, its `::text` and never a parsed
@@ -43,7 +43,13 @@ export interface Keyset {
    * module, so the type is what keeps it fixed.
    */
   readonly at: string;
-  readonly tiebreak: string;
+  /**
+   * The columns after the time, in the order they are sorted by, that together
+   * make the row's place unique. The Calls list needs one — an id — and the
+   * Gallery needs two, because two Outputs of one Brand may share a Store Key
+   * (#223) and only the Request Hash after it tells them apart.
+   */
+  readonly tiebreak: readonly string[];
 }
 
 /** The sort column as the exact text a {@link Keyset} carries. */
@@ -51,7 +57,7 @@ export const cursorAt = (column: PgColumn): SQL<string> =>
   sql<string>`${column}::text`;
 
 const encode = (keyset: Keyset): string =>
-  Buffer.from(JSON.stringify([keyset.at, keyset.tiebreak])).toString(
+  Buffer.from(JSON.stringify([keyset.at, ...keyset.tiebreak])).toString(
     "base64url"
   );
 
@@ -75,31 +81,54 @@ export function decodeCursor(cursor: string): Keyset {
   }
   if (
     !Array.isArray(parsed) ||
-    parsed.length !== 2 ||
-    typeof parsed[0] !== "string" ||
-    typeof parsed[1] !== "string"
+    parsed.length < 2 ||
+    !parsed.every((one) => typeof one === "string")
   ) {
     return refuse();
   }
-  return { at: parsed[0], tiebreak: parsed[1] };
+  const [at, ...tiebreak] = parsed as string[];
+  if (at === undefined) return refuse();
+  return { at, tiebreak };
 }
 
 /**
- * `(at, tiebreak) < (cursor.at, cursor.tiebreak)` — everything strictly older
- * than where the last page ended.
+ * `(at, ...tiebreak) < (cursor.at, ...cursor.tiebreak)` — everything strictly
+ * older than where the last page ended, compared left to right.
  *
- * Written as three operators rather than Postgres's row comparison because the
+ * Written as plain operators rather than Postgres's row comparison because the
  * two adapters would otherwise have to infer the same parameter types for a
  * bare `($1, $2)`. The cast sits on the constant, so the index on
- * `(sort column, tiebreak)` is still the one that answers.
+ * `(sort column, ...tiebreak)` is still the one that answers.
+ *
+ * A cursor carrying a different number of tiebreaks than the list has columns
+ * is refused rather than padded: it is a cursor from another list, and read as
+ * a short one it would page through the wrong order in silence.
  */
 export const olderThan = (
   at: PgColumn,
-  tiebreak: PgColumn,
+  tiebreak: readonly PgColumn[],
   keyset: Keyset
 ): SQL | undefined => {
+  if (keyset.tiebreak.length !== tiebreak.length) {
+    throw new Error(
+      "@meco/records: that cursor belongs to another list. Pass back the `cursor` this list returned, or none."
+    );
+  }
+
+  /** The comparison from `tiebreak[index]` rightwards, or nothing past the end. */
+  const after = (index: number): SQL | undefined => {
+    const column = tiebreak[index];
+    const value = keyset.tiebreak[index];
+    if (column === undefined || value === undefined) return undefined;
+    const rest = after(index + 1);
+    return rest === undefined
+      ? lt(column, value)
+      : or(lt(column, value), and(eq(column, value), rest));
+  };
+
   const edge = sql`${keyset.at}::timestamptz`;
-  return or(lt(at, edge), and(eq(at, edge), lt(tiebreak, keyset.tiebreak)));
+  const rest = after(0);
+  return rest === undefined ? lt(at, edge) : or(lt(at, edge), and(eq(at, edge), rest));
 };
 
 /**

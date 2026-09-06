@@ -178,9 +178,15 @@ export const calls = pgTable(
 );
 
 /**
- * One Render, Crop or Carousel a Brand owns. Keyed by `(brand, store_key)`, so
- * two Brands whose outputs come out byte-identical are two rows on one key and
- * the bytes go only when the last of them goes.
+ * One Render, Crop or Carousel a Brand owns. Keyed by `(brand, request_hash)`,
+ * which is what the Replay looks up: one Brand asking two different things may
+ * get byte-identical bytes back, and those are two Outputs on one Store Key
+ * (#223).
+ *
+ * `store_key` is therefore a column and not part of the key, so byte-identical
+ * outputs are rows on one key whether they belong to two Brands or to one. The
+ * bytes go only when the last of those rows goes, and the count that decides
+ * that is a count of rows on the key.
  */
 export const outputs = pgTable(
   "outputs",
@@ -198,9 +204,14 @@ export const outputs = pgTable(
     createdAt: createdAt("created_at"),
   },
   (t) => [
-    primaryKey({ columns: [t.brand, t.storeKey] }),
-    index().on(t.brand, t.requestHash),
+    // The Replay lookup reads this one, so it needs no index of its own.
+    primaryKey({ columns: [t.brand, t.requestHash] }),
+    // What `outputs.delete` narrows on before it counts.
+    index().on(t.brand, t.storeKey),
+    // The Reference Count and the Sweep's guard, both of which ask across
+    // every Brand which rows still name a key.
     index().on(t.storeKey),
-    index().on(t.createdAt, t.storeKey),
+    // The Gallery's order, down to the tiebreak that makes it total.
+    index().on(t.createdAt, t.storeKey, t.requestHash),
   ]
 );
