@@ -1,4 +1,5 @@
 import type { ModuleName } from "@meco/contracts";
+import type { RecordsReach } from "@meco/records/health";
 import type { StoreHealth } from "@meco/store/health";
 
 /** What `models` looks like from here, over the Vercel service binding. */
@@ -11,9 +12,9 @@ export type ModelsReach = {
 };
 
 /**
- * `ok` is the gateway's own liveness. A `models` or a `store` that cannot be
- * reached is reported in its own block, not by failing this endpoint: the
- * gateway is up.
+ * `ok` is the gateway's own liveness. A `models`, a `store` or a `records` that
+ * cannot be reached is reported in its own block, not by failing this endpoint:
+ * the gateway is up.
  */
 export type Health = {
   readonly ok: boolean;
@@ -21,6 +22,7 @@ export type Health = {
   readonly version: string;
   readonly models: ModelsReach;
   readonly store: StoreHealth;
+  readonly records: RecordsReach;
 };
 
 export function version(env: NodeJS.ProcessEnv = process.env): string {

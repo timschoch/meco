@@ -407,8 +407,12 @@ _Avoid_: garbage collection, cleanup, purge, TTL, expiry
 How long a File with no Source Hold and no Reference Photo may stay before the Sweep removes it. Thirty days by default, a configuration value the owner can change.
 _Avoid_: TTL, expiry, grace period, lifetime
 
+**Migration**:
+One committed SQL file that moves the schema forward, named by its tag and applied once. The gateway applies every pending one at boot, under a lock, and a failure there is a failed boot. An applied Migration is history: it is never edited, only followed by another. It travels inside the container's bundle, because the runtime image carries no folder to read it from.
+_Avoid_: schema change, DDL, patch, upgrade, sync
+
 **Records Reach**:
-What the database looks like from inside the deployment: configured, reachable, how many migrations are pending, the server version, and how long one round trip took. Reported in `GET /health` beside Store Health; a database that cannot be reached is reported here rather than by failing the endpoint.
+What the database looks like from inside the deployment: configured, reachable, the server version, how many Migrations are pending, whether it is migrated, how long one round trip took, and why that round trip failed when it did. Reported in `GET /health` beside Store Health; a database that cannot be reached is reported here rather than by failing the endpoint. Reachable is a measurement and never a reading of an environment variable: the probe writes a File and its Annotation under a fixed hash and reads the Annotation back.
 _Avoid_: db status, connection, ping, healthcheck
 
 ## identify
