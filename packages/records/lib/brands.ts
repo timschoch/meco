@@ -9,7 +9,6 @@
  * Callers, `brands.get`, `brands.list` and `pnpm records:seed`. When the two
  * land, the later PR drops whichever copy is the duplicate.
  */
-import { eq } from "drizzle-orm";
 import type { DatabaseDriver } from "./database";
 import { brands } from "./schema";
 
@@ -40,19 +39,9 @@ export function brandsOver(driver: DatabaseDriver): Brands {
         .onConflictDoUpdate({ target: brands.id, set: { name: brand.name } })
         .returning();
       if (row === undefined) {
-        // `returning` on an upsert always yields the row it wrote; a driver
-        // that gave nothing back would otherwise become a silent `undefined`.
-        const [stored] = await orm
-          .select()
-          .from(brands)
-          .where(eq(brands.id, brand.id))
-          .limit(1);
-        if (stored === undefined) {
-          throw new Error(
-            `@meco/records: the brand ${brand.id} reads as missing right after it was ensured.`
-          );
-        }
-        return { ...stored, createdAt: stored.createdAt.toISOString() };
+        throw new Error(
+          `@meco/records: the brand ${brand.id} was upserted and nothing came back.`
+        );
       }
       return { ...row, createdAt: row.createdAt.toISOString() };
     },

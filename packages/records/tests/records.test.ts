@@ -42,7 +42,7 @@ const open = async (): Promise<Records> => {
 };
 
 /** The same, over the store the check will watch the bytes cross. */
-const overStore = async (store: Store): Promise<Records> => {
+const withStore = async (store: Store): Promise<Records> => {
   const migrated = over(openDatabase(), store);
   await migrated.migrate();
   return migrated;
@@ -60,7 +60,7 @@ afterAll(async () => {
 const PGLITE_TIMEOUT_MS = 30_000;
 
 describe("@meco/records over pglite", () => {
-  for (const check of recordsConformance(open, { empty, over: overStore })) {
+  for (const check of recordsConformance(open, { empty, withStore })) {
     it(check.name, check.run, PGLITE_TIMEOUT_MS);
   }
 });

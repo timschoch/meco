@@ -400,7 +400,7 @@ Deleting a Person so that nothing of them remains: the Person, every Reference P
 _Avoid_: cascade delete, purge, hard delete, GDPR delete, removal
 
 **Unenrolment**:
-Withdrawing one Reference Photo from a Person who stays: the row, its Face Print, and the bytes at its Store Key once no other row names them. Not an Erasure — the Person and every other Reference Photo of them remain, and two enrolments of one photograph keep the key until both rows are gone.
+Withdrawing one Reference Photo from a Person who stays: the row, its Face Print, and the bytes at its Store Key once no other row names them. Not an Erasure — the Person and every other Reference Photo of them remain, two enrolments of one photograph keep the key until both rows are gone, and the File is left to the Sweep rather than cascaded.
 _Avoid_: unenroll, remove photo, delete reference, revoke, opt out, de-enrolment
 
 **Reference Count**:

@@ -95,7 +95,10 @@ export interface Erasure {
 export interface Unenrolment {
   /** False when no such Reference Photo. Idempotent, as Erasure is. */
   readonly deleted: boolean;
-  /** The Store Keys whose bytes went. Empty while another row names the key. */
+  /**
+   * The Store Keys whose bytes went — at most the photo's own. Empty while
+   * another row names the key. Never a File's own key: that one is the Sweep's.
+   */
   readonly keys: readonly string[];
 }
 
@@ -106,7 +109,10 @@ export interface People {
   list(brand: string): Promise<PersonWithPrints[]>;
   /** Requires a File for the hash: an enrolment of bytes records never saw is refused. */
   enrol(photo: NewReferencePhoto): Promise<ReferencePhoto>;
-  /** Deletes one Reference Photo, and its bytes only if nothing else names them. */
+  /**
+   * Deletes one Reference Photo, and its bytes only if no row still names
+   * them. The File is left to the Sweep: the immediate cascade is Erasure's.
+   */
   unenrol(brand: string, referencePhotoId: string): Promise<Unenrolment>;
   /** Deletes the Person, its Reference Photos, their orphaned Files and every byte. */
   erase(brand: string, id: string): Promise<Erasure>;
@@ -298,7 +304,7 @@ export function peopleOver(driver: DatabaseDriver, store: Store): People {
     async unenrol(brand, referencePhotoId) {
       const removed = await orm.transaction(async (tx) => {
         const [photo] = await tx
-          .select()
+          .select({ storeKey: referencePhotos.storeKey })
           .from(referencePhotos)
           .where(
             and(
@@ -313,17 +319,12 @@ export function peopleOver(driver: DatabaseDriver, store: Store): People {
           .delete(referencePhotos)
           .where(eq(referencePhotos.id, referencePhotoId));
 
-        const orphans = await orphanedFiles(tx, [photo.hash]);
-        if (orphans.length > 0) {
-          // The Annotation goes with it by cascade, and with the Annotation
-          // every Face Print of everyone who happened to be in the photograph.
-          await tx.delete(files).where(eq(files.hash, photo.hash));
-        }
-        const keys = [
-          ...(await unreferencedKeys(tx, [photo.storeKey])),
-          ...orphans.map((one) => one.storeKey),
-        ];
-        return [...new Set(keys)];
+        // The row goes, its Face Print with it, and the bytes once no row
+        // names the key. The **File** stays: a `files` row nothing references
+        // any more is what the Sweep is for, and the immediate cascade is
+        // sanctioned for erasing a Person and for nothing else (#76, Q11).
+        // Withdrawing one photograph from a Person who stays is not that.
+        return unreferencedKeys(tx, [photo.storeKey]);
       });
 
       if (removed === null) return { deleted: false, keys: [] };

@@ -15,24 +15,10 @@
  * migration SQL and the Private Store are the deployment's own.
  */
 import { randomUUID } from "node:crypto";
-import pg from "pg";
 import { afterAll, describe, expect, it } from "vitest";
 import { blobStore } from "@meco/store";
 import { neonDatabase, peoplePrefix, records } from "../index";
-
-const DSN = process.env.RECORDS_DATABASE_URL_UNPOOLED;
-if (DSN === undefined || DSN === "") {
-  throw new Error(
-    "@meco/records: RECORDS_DATABASE_URL_UNPOOLED is not set. `vercel env pull .env.local` in this worktree."
-  );
-}
-
-const inDatabase = (name: string): string => {
-  const at = DSN.indexOf("?");
-  const base = at === -1 ? DSN : DSN.slice(0, at);
-  const query = at === -1 ? "" : DSN.slice(at);
-  return `${base.slice(0, base.lastIndexOf("/"))}/${name}${query}`;
-};
+import { scratchDatabases } from "./live-database";
 
 /**
  * Vercel documents up to 60 s of CDN propagation after a delete, which is the
@@ -44,19 +30,15 @@ const DELETE_DEADLINE_MS = 60_000;
 const CHECK_TIMEOUT_MS = DELETE_DEADLINE_MS + 60_000;
 
 const store = blobStore();
-const admin = new pg.Pool({ connectionString: DSN, max: 1 });
-const scratch = `records_live_${randomUUID().replaceAll("-", "")}`;
+const scratch = scratchDatabases();
 /** Every key this file wrote, so a failed run leaves no Reference Photo behind. */
 const written = new Set<string>();
-let created = false;
 
 describe("Erasure against Neon and the live Private Store", () => {
   it(
     "leaves no Person, no File, and nothing under people/<brand>/<personId>",
     async () => {
-      await admin.query(`create database "${scratch}"`);
-      created = true;
-      const database = neonDatabase(inDatabase(scratch));
+      const database = neonDatabase(await scratch.make());
       const meco = records({ database, store });
       try {
         await meco.migrate();
@@ -67,7 +49,9 @@ describe("Erasure against Neon and the live Private Store", () => {
 
         // Distinct bytes per run, so two runs at once never share a key and
         // one run's delete is never the other's proof.
-        const bytes = new TextEncoder().encode(`meco erasure proof ${scratch}`);
+        const bytes = new TextEncoder().encode(
+          `meco erasure proof ${randomUUID()}`
+        );
         const photo = await store.put(prefix, bytes, "image/png");
         written.add(photo.key);
         await meco.files.ensure({
@@ -129,8 +113,5 @@ afterAll(async () => {
   // Unconditional and silent about a key already gone, so naming the key the
   // Erasure removed costs nothing and a failed run still cleans up.
   await Promise.all([...written].map((key) => store.delete(key)));
-  if (created) {
-    await admin.query(`drop database if exists "${scratch}" with (force)`);
-  }
-  await admin.end();
+  await scratch.dispose();
 }, CHECK_TIMEOUT_MS);

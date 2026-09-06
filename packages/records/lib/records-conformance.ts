@@ -36,8 +36,8 @@ export interface EmptyDatabase {
 export interface RecordsFixtures {
   /**
    * A database this run may migrate from nothing. On a live backend it is a
-   * run-scoped schema the host drops afterwards, because the migration checks
-   * need a database that has never been migrated and production has been.
+   * run-scoped database the host drops afterwards, because the migration
+   * checks need one that has never been migrated and production has been.
    */
   empty(): Promise<EmptyDatabase>;
   /**
@@ -47,7 +47,7 @@ export interface RecordsFixtures {
    * store's seam — Erasure is nothing but that — cannot see it. This is how a
    * check supplies the one it will assert on.
    */
-  over(store: Store): Promise<Records>;
+  withStore(store: Store): Promise<Records>;
 }
 
 /**
@@ -152,7 +152,7 @@ const printFor = (label: string): FacePrint => {
 
 /**
  * A Brand id derived from the label, so checks sharing one database — which is
- * what the live host does, one schema for the whole run — never collide.
+ * what the live host does, one database for the whole run — never collide.
  */
 const brandFor = (label: string): string => `b-${hashOf(label).slice(0, 12)}`;
 
@@ -571,7 +571,7 @@ export function recordsConformance(
       name: "people.erase leaves no Person, no Reference Photo, no Face Print, no File and no byte under the prefix",
       async run() {
         const store = watching();
-        const records = await fixtures.over(store);
+        const records = await fixtures.withStore(store);
         const brand = brandFor("erases everything");
         await records.brands.ensure({ id: brand, name: "Erasing" });
 
@@ -618,7 +618,7 @@ export function recordsConformance(
       name: "two enrolments of one photograph are two rows on one key: unenrol leaves the key, erase deletes it once",
       async run() {
         const store = watching();
-        const records = await fixtures.over(store);
+        const records = await fixtures.withStore(store);
         const brand = brandFor("enrols one file twice");
         await records.brands.ensure({ id: brand, name: "Twice" });
 
@@ -663,7 +663,7 @@ export function recordsConformance(
       name: "an Erasure never deletes a File another Brand still holds as a Source Image, nor its bytes",
       async run() {
         const store = watching();
-        const records = await fixtures.over(store);
+        const records = await fixtures.withStore(store);
         const mine = brandFor("erases a shared source");
         const theirs = brandFor("still holds the shared source");
         await records.brands.ensure({ id: mine, name: "Mine" });
@@ -690,7 +690,7 @@ export function recordsConformance(
       name: "an Erasure never deletes a File another Brand still has a Reference Photo of",
       async run() {
         const store = watching();
-        const records = await fixtures.over(store);
+        const records = await fixtures.withStore(store);
         const mine = brandFor("erases a doubly enrolled file");
         const theirs = brandFor("enrolled the same photograph");
         await records.brands.ensure({ id: mine, name: "Mine" });
@@ -715,10 +715,10 @@ export function recordsConformance(
       },
     },
     {
-      name: "people.unenrol deletes the bytes and the File of the last Reference Photo naming them",
+      name: "people.unenrol deletes the last Reference Photo's bytes, keeps the Person, and leaves the File to the Sweep",
       async run() {
         const store = watching();
-        const records = await fixtures.over(store);
+        const records = await fixtures.withStore(store);
         const brand = brandFor("unenrols the only photo");
         await records.brands.ensure({ id: brand, name: "Only" });
 
@@ -731,22 +731,29 @@ export function recordsConformance(
         const unenrolled = await records.people.unenrol(brand, only.photo.id);
 
         strictEqual(unenrolled.deleted, true);
-        deepStrictEqual(
-          new Set(unenrolled.keys),
-          new Set([only.photo.storeKey, only.sourceKey])
-        );
+        // The photo's own key and nothing else. The Source Key belongs to a
+        // File, and a File nothing references any more is the Sweep's to take
+        // after the Retention Window: the immediate cascade was sanctioned for
+        // erasing a Person and for nothing else (#76, Q11).
+        deepStrictEqual(unenrolled.keys, [only.photo.storeKey]);
         strictEqual(await store.head(only.photo.storeKey), null);
         // The Person stays: withdrawing one photograph is not an Erasure.
         ok(await records.people.get(brand, only.person));
-        strictEqual(await records.files.get(only.hash), null);
-        strictEqual(await records.annotations.get(only.hash), null);
+        deepStrictEqual(
+          (await records.people.list(brand)).find(
+            (one) => one.id === only.person
+          )?.photos,
+          []
+        );
+        ok(await records.files.get(only.hash));
+        ok(await store.head(only.sourceKey));
       },
     },
     {
       name: "people.unenrol and people.erase of something that is not there are not errors",
       async run() {
         const store = watching();
-        const records = await fixtures.over(store);
+        const records = await fixtures.withStore(store);
         const brand = brandFor("erases nothing at all");
         await records.brands.ensure({ id: brand, name: "Nothing" });
         const absent = crypto.randomUUID();
