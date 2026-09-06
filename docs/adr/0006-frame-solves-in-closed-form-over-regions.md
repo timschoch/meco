@@ -34,6 +34,8 @@ Measured against the three real YuNet detections in [`fixtures/faces/detected.js
 | caption band, window with vertical slack | **29.0 %** | yes, 6 of 6 |
 | caption band, window already full height | 38.2 %, unmoved | yes |
 
+**Amendment, 6 Sep 2026, from [#107](https://github.com/timschoch/meco/issues/107).** The table above was measured against the design prototype. Against the shipped code the second row is **7 of 9**, not 6: the headroom zoom of [#103](https://github.com/timschoch/meco/issues/103) tightens `artemis-2-crew.jpg` at 1:1 far enough to buy that row the vertical slack it needs, and only its 4:5 and 9:16 windows are still against the bottom edge with nowhere lower to aim. The leading face is clear of the band on all nine. 29.0 % is unchanged, and so is every conclusion drawn from it. `packages/frame/tests/occlusion.test.ts` carries the row list, and the numbers here are the prototype's.
+
 29.0 % is `0.382 x 0.76`, the upper Golden Line of the Free Area. So the composition rule is not switched off by an overlay, it is re-expressed inside what the overlay leaves. The rows that did not move are the case ADR-0001 already names: a cover window touches the Source Image on one axis by construction, and an axis with no slack is fixed by the shape rather than by the solver.
 
 ## What ADR-0001 keeps

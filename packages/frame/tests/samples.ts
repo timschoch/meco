@@ -125,9 +125,15 @@ export const oneFaceAnnotation = (
 
 /**
  * An Annotation with Regions but no face among them, so the face rung has
- * nothing to compose and the ladder must walk past it.
+ * nothing to compose and the ladder must walk past it. Carrying no landmarks it
+ * also carries no Eye Line, which is what makes it the quiet fixture for a rule
+ * that must be read off the aim alone: the window is the cover window and
+ * nothing zooms it.
  */
-export const vehicleAnnotation = (source: Size): Annotation =>
+export const vehicleAnnotation = (
+  source: Size,
+  box: Box = { x: 0.2, y: 0.3, width: 0.5, height: 0.4 }
+): Annotation =>
   Annotation.parse({
     schema: 1,
     hash: HASH,
@@ -140,7 +146,7 @@ export const vehicleAnnotation = (source: Size): Annotation =>
         id: "vehicle-1",
         kind: "vehicle",
         label: "motorbike",
-        box: { x: 0.2, y: 0.3, width: 0.5, height: 0.4 },
+        box,
         score: 0.88,
         model: MODEL,
       },

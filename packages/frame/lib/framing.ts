@@ -99,6 +99,17 @@ export interface Framing {
   occlusionClear?: boolean;
 }
 
+/**
+ * The slack every containment allows, in Source Image pixels. The window is
+ * rounded before it is cut, and exact containment would report a miss for a
+ * Subject half a pixel out. Spec, "Placing the window".
+ *
+ * One budget, spent once: the Subject Area's containment and the Occlusion
+ * Zones' clearance are the same promise about the same rounding, so they read
+ * the same number rather than each keeping one that could drift.
+ */
+export const SLACK_PX = 0.5;
+
 const PHI = (1 + Math.sqrt(5)) / 2;
 
 /**

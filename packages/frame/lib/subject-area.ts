@@ -1,23 +1,21 @@
-import type { Box, Point, Size } from "@meco/contracts";
-import type { CropWindow } from "./framing";
+import type { Box, Size } from "@meco/contracts";
+import { SLACK_PX, type CropWindow } from "./framing";
 import { coverWindow } from "./window";
 
 /**
- * The containment slack, in Source Image pixels. The window is rounded before
- * it is cut, and exact containment would report a miss for a Subject half a
- * pixel out. Spec, "Placing the window".
+ * What a declared Subject Area asks of the window, and what it cost to give it.
+ *
+ * Only the size. Where the Subject then aims is the centre of the Free Area,
+ * which is the area itself until a Template covers part of it — so the aim is
+ * settled in `lib/frame-crop.ts` where both are in hand, and an area cannot
+ * answer it alone.
  */
-const SLACK_PX = 0.5;
-
-/** What a declared Subject Area asks of the window, and what it cost to give it. */
 export interface SubjectAreaSolve {
   /**
    * Never larger than the cover window: the Source Image has no more to give,
    * and a window past its edge is not a window.
    */
   size: Size;
-  /** The centre of the area. Where the Subject aims, in place of a Golden Line. */
-  aim: Point;
   /** 1 when the Source Image could fill the area, the factor short otherwise. */
   shortfall: number;
 }
@@ -79,7 +77,6 @@ export function solveSubjectArea(
     ((subject.height * source.height) / area.height) * aspect
   );
 
-  const aim = { x: area.x + area.width / 2, y: area.y + area.height / 2 };
   // The same half pixel the containment allows: a window one rounding wider
   // than the picture is not a Source Image that fell short, and a shortfall of
   // 1.0001 would read as a miss where the arithmetic only rounded.
@@ -87,7 +84,6 @@ export function solveSubjectArea(
 
   return {
     size: sourceTooSmall ? cover : windowForArea(needed, aspect, cover),
-    aim,
     shortfall: sourceTooSmall ? needed / cover.width : 1,
   };
 }
