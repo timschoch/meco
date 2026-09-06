@@ -85,7 +85,7 @@ No fetch, no store, no crop decision. `source` is a Decoded Image and `window` a
 
 One folder per Brand id under compose's private implementation: a token module (`colors`, `fonts`, `headingFamily`, `bodyFamily`, `logo`, `logoAlt?`) and the asset files beside it. `assets/` at the repo root moves in. Every font file ships with its licence text. compose refuses `unknown_brand` for a Brand with no Look.
 
-Fonts: Eina 02 (Hope Family, already committed), Outfit and Figtree variable (laica), Barlow and Barlow Condensed 400/600/700 (Swiss Hutless). 816 KB total. All OFL except Eina 02, which is a proprietary Textaxis face carrying "All rights reserved" and no licence URL; `packages/compose/lib/looks/hopefamily/fonts/LICENCE.txt` records its notices and the terms the owner still owes (#116).
+Fonts: Eina 02 (Hope Family, already committed), Outfit and Figtree variable (laica), Barlow and Barlow Condensed 400/600/700 (Swiss Hutless). 816 KB total. Barlow, Barlow Condensed, Outfit and Figtree are OFL. Eina 02 is proprietary — a Textaxis face carrying "All rights reserved" and no licence URL — and its licence is held by the owner, text pending; `packages/compose/lib/looks/hopefamily/fonts/LICENCE.txt` records the notices the binaries carry and nothing more (#116).
 
 ### The registry
 
