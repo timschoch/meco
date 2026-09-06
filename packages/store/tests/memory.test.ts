@@ -5,7 +5,7 @@
  * discovered in production.
  */
 import { describe, expect, it } from "vitest";
-import { memoryStore } from "../index";
+import { MAX_SIGNED_URL_SECONDS, memoryStore } from "../index";
 import { storeConformance } from "../conformance";
 
 /** Private, so the suite exercises the Namespace that matters most. */
@@ -41,7 +41,7 @@ const CHECK_NAMES = [
   "publicUrl names a public key under the store's own base URL",
   "publicUrl refuses a private key, naming it",
   "signedUrl refuses a public key",
-  "signedUrl refuses longer than 300 seconds, and refuses a lifetime that is no lifetime",
+  `signedUrl refuses longer than ${MAX_SIGNED_URL_SECONDS} seconds, and refuses a lifetime that is no lifetime`,
   "signedUrl names the private key it was minted for and carries what makes it expire",
 ];
 

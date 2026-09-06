@@ -28,7 +28,7 @@ export const MAX_SIGNED_URL_SECONDS = 300;
  * would have gone stale the day the stores were recreated in `fra1`. Verified
  * against the live account on 6 Sep 2026.
  */
-export function publicBlobUrl(storeId: string, key: string): string {
+export function publicUrlFor(storeId: string, key: string): string {
   const label = storeId.replace(/^store_/, "").toLowerCase();
   return `https://${label}.public.blob.vercel-storage.com/${key}`;
 }

@@ -25,7 +25,7 @@ import {
   MAX_SIGNED_URL_SECONDS,
   assertPrivateKey,
   assertPublicKey,
-  publicBlobUrl,
+  publicUrlFor,
   validUntilFor,
 } from "./urls";
 
@@ -161,10 +161,14 @@ export function blobStore(config: BlobStoreConfig = {}): Store {
     );
   }
 
-  const options = (access: Access) => {
+  /** How every call reaches one store: its credential, under this store's bound. */
+  const reaching = (access: Access) => {
     const { auth } = credentialFor(env, access);
-    return { access, ...auth, ...(abortSignal ? { abortSignal } : {}) };
+    return { ...auth, ...(abortSignal ? { abortSignal } : {}) };
   };
+
+  /** The same, for the six verbs the SDK also wants an `access` from. */
+  const options = (access: Access) => ({ access, ...reaching(access) });
 
   return {
     async put(prefix, bytes, contentType) {
@@ -266,7 +270,7 @@ export function blobStore(config: BlobStoreConfig = {}): Store {
       // The store id, not the credential: a token names whichever store it was
       // issued for, and the URL a caller publishes must name the one this
       // deployment is configured to serve from.
-      return publicBlobUrl(requireStoreId(env, "public"), key);
+      return publicUrlFor(requireStoreId(env, "public"), key);
     },
 
     async signedUrl(key, options) {
@@ -274,23 +278,23 @@ export function blobStore(config: BlobStoreConfig = {}): Store {
       assertPrivateKey(key);
       const validUntil = validUntilFor(options?.expiresInSeconds);
 
-      const { auth } = credentialFor(env, "private");
-      const common = { ...auth, ...(abortSignal ? { abortSignal } : {}) };
       // Scoped to this one pathname and to reading it: a delegation wide enough
       // to write or to name another key would outlive its reason twice over.
       const signed = await issueSignedToken({
-        ...common,
+        ...reaching("private"),
         pathname: key,
         operations: ["get"],
         validUntil,
       });
-      const { presignedUrl } = await presignUrl(signed, {
+      // Renamed on the way in: `CONTEXT.md` gives this "Signed URL" and puts
+      // "presigned URL" on its avoid-list.
+      const { presignedUrl: signedUrl } = await presignUrl(signed, {
         operation: "get",
         pathname: key,
         access: "private",
         validUntil,
       });
-      return presignedUrl;
+      return signedUrl;
     },
   };
 }
