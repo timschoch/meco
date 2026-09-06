@@ -1,6 +1,12 @@
 import { DEFAULT_ANCHOR, type Annotation, type Region } from "@meco/contracts";
 import { centreOf } from "./boxes";
 import { eyeLineOf, eyeLinePlacement, headroomZoom } from "./eye-line";
+import {
+  aimWithin,
+  clampIntoFreeArea,
+  clearOfZones,
+  freeArea,
+} from "./free-area";
 import { MAX_OCCLUSION_ZONES, type FrameInput, type Framing } from "./framing";
 import { goldenAim } from "./golden-lines";
 import { composeSubject } from "./subject";
@@ -27,9 +33,10 @@ const leadRegion = (
  * Line, the Free Area and the fallback rungs all sit behind this one call.
  *
  * Today it composes on the `match`, `face` and `kart` rungs, sizes and aims on
- * a declared Subject Area or else on the leading face's Eye Line, and falls
- * back to frame's own last resorts, the Crop Anchor the request named and then
- * the centre. The Free Area arrives on a later ticket and adds no field this
+ * a declared Subject Area or else on the leading face's Eye Line, keeps the
+ * Subject inside the Free Area an overlay leaves, and falls back to frame's own
+ * last resorts, the Crop Anchor the request named and then the centre. The
+ * fallback ladder arrives on a later ticket and adds no field this
  * signature does not already declare.
  */
 export function frameCrop(input: FrameInput): Framing {
@@ -91,15 +98,55 @@ export function frameCrop(input: FrameInput): Framing {
           source
         ));
 
-  const placement =
+  // Where the Subject aims before an overlay has its say: the centre of a
+  // declared Subject Area, the eyes' Golden Line, or the Subject's own nearest
+  // Golden Line. All three are fractions of the output frame.
+  const composition =
     composed === undefined
       ? undefined
       : eyeLine === undefined
         ? {
             at: centreOf(composed.subject),
-            aim: area?.aim ?? goldenAim(composed.subject),
+            aim:
+              declaredArea === undefined
+                ? goldenAim(composed.subject)
+                : centreOf(declaredArea),
           }
         : eyeLinePlacement(composed.subject, eyeLine);
+
+  // The Free Area, and only when a Template declared a zone. Not an
+  // optimisation: with no zone there is no Free Area and no clamp, so an empty
+  // `occlusion` list changes nothing because there is nothing for it to change
+  // — and #106's Subject Area windows keep the placement they were pinned at.
+  const free =
+    request.occlusion.length === 0
+      ? undefined
+      : freeArea(request.occlusion, declaredArea);
+
+  // What an Occlusion Zone does, and all it does. The rule is re-expressed
+  // inside what the overlay leaves, then the aim is clamped so the Subject
+  // lands there. The size is already settled above and no line here touches it:
+  // no zoom clears an overlay (ADR-0006, "Why occlusion aims but does not
+  // size").
+  const placement =
+    composition === undefined || composed === undefined || free === undefined
+      ? composition
+      : {
+          at: composition.at,
+          aim: clampIntoFreeArea(
+            // A declared area names a place, a Golden Line a proportion. The
+            // first moves to the centre of what is left of it; the second is
+            // measured off the Free Area instead of off the frame.
+            declaredArea === undefined
+              ? aimWithin(free, composition.aim)
+              : centreOf(free),
+            composition.at,
+            composed.subject,
+            free,
+            size,
+            source
+          ),
+        };
 
   const cropWindow = placement
     ? placeAtAim(placement.at, size, source, placement.aim)
@@ -147,6 +194,25 @@ export function frameCrop(input: FrameInput): Framing {
           // area missed for any other reason is an unsatisfied area at no
           // shortfall.
           subjectAreaShortfall: area?.shortfall ?? 1,
+        }),
+    // Only when a Template declared a zone, and measured on the window actually
+    // cut: the Source Image can clamp the aim back onto a zone, and that is the
+    // miss worth reporting. Never a refusal — frame answers every geometry it
+    // is given, and a zone nothing could clear still gets a window.
+    //
+    // Vacuously true when nothing was composed. The anchor and the centre
+    // compose no Subject, so no Subject landed on a zone.
+    ...(request.occlusion.length === 0
+      ? {}
+      : {
+          occlusionClear:
+            composed === undefined ||
+            clearOfZones(
+              composed.subject,
+              request.occlusion,
+              cropWindow,
+              source
+            ),
         }),
   };
 }
