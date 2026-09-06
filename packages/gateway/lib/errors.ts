@@ -36,6 +36,15 @@ const MODULE_STATUS: Record<string, number> = {
   placement_not_supported: 400,
   invalid_fields: 400,
   framing_mismatch: 500,
+  // identify
+  consent_required: 400,
+  unknown_person: 404,
+  no_face: 422,
+  unknown_region: 422,
+  too_small: 422,
+  not_a_face: 422,
+  no_print: 422,
+  other_model: 422,
   // models, through the client
   undecodable: 415,
   unsupported_mime: 415,
@@ -53,14 +62,15 @@ const MODELS_UNAVAILABLE = new Set([
 /**
  * By name, not `instanceof`: importing `ComposeError` from `@meco/compose`
  * would put compose's whole index in the bundle, which cannot load without
- * the Looks' font files beside it (blocker on #181). The class sets `name`
- * itself, so the check is as exact as the import would be.
+ * the Looks' font files beside it (blocker on #181). Each class sets `name`
+ * itself, so the check is as exact as the import would be; identify's is
+ * read the same way so the two module errors are one branch.
  */
-const isComposeError = (
+const isModuleError = (
   error: unknown
 ): error is Error & { readonly code: string } =>
   error instanceof Error &&
-  error.name === "ComposeError" &&
+  (error.name === "ComposeError" || error.name === "IdentifyError") &&
   typeof (error as { code?: unknown }).code === "string";
 
 /** What a refusal looks like on the wire, whichever Door it leaves by. */
@@ -122,7 +132,7 @@ export function toWire(error: unknown): { status: number; body: WireError } {
       body: { error: { code: "models_unavailable", message: error.message } },
     };
   }
-  if (error instanceof ModelsError || isComposeError(error)) {
+  if (error instanceof ModelsError || isModuleError(error)) {
     return {
       status: MODULE_STATUS[error.code] ?? 500,
       body: { error: { code: error.code, message: error.message } },

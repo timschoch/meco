@@ -6,14 +6,14 @@
 import { Hono } from "hono";
 import type { Caller } from "@meco/records";
 import { GatewayError } from "./errors";
-import { type Operation, type OperationContext, run } from "./operations";
+import { type Operation, type OperationDeps, run } from "./operations";
 
 /** What the Caller middleware leaves on the context for every route behind it. */
 export type CallerEnv = { Variables: { caller: Caller } };
 
 export function httpDoor(
   operations: readonly Operation[],
-  deps: Pick<OperationContext, "records" | "store" | "models">
+  deps: OperationDeps
 ): Hono<CallerEnv> {
   const door = new Hono<CallerEnv>();
 

@@ -1,17 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TIMEOUT, open, type Opened } from "./harness";
+import { TIMEOUT, useStacks } from "./harness";
 
-const opened: Opened[] = [];
-afterEach(async () => {
-  vi.unstubAllEnvs();
-  await Promise.all(opened.splice(0).map((one) => one.close()));
-});
-
-async function stack(): Promise<Opened> {
-  const one = await open();
-  opened.push(one);
-  return one;
-}
+const stack = useStacks();
+afterEach(() => vi.unstubAllEnvs());
 
 describe("the gateway probe door", () => {
   it(

@@ -77,9 +77,10 @@ export function createApp(deps: GatewayDeps): Hono<CallerEnv> {
   app.use("/v1/*", requireCaller);
   app.use("/mcp", requireCaller);
 
-  app.route("/v1", httpDoor(OPERATIONS, { records, store, models }));
+  const operationDeps = { records, models };
+  app.route("/v1", httpDoor(OPERATIONS, operationDeps));
 
-  const mcp = mcpDoor(OPERATIONS, { records, store, models }, version);
+  const mcp = mcpDoor(OPERATIONS, operationDeps, version);
   app.all("/mcp", (c) => mcp(c.req.raw, c.get("caller")));
 
   // The one door: webui is handed the gateway's own Caller lookup and never

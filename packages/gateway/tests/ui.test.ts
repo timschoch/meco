@@ -1,17 +1,8 @@
 import type { Records } from "@meco/records";
-import { afterEach, describe, expect, it } from "vitest";
-import { KEY, TIMEOUT, basic, open, type Opened } from "./harness";
+import { describe, expect, it } from "vitest";
+import { KEY, TIMEOUT, basic, useStacks } from "./harness";
 
-const opened: Opened[] = [];
-afterEach(async () => {
-  await Promise.all(opened.splice(0).map((one) => one.close()));
-});
-
-async function stack(): Promise<Opened> {
-  const one = await open();
-  opened.push(one);
-  return one;
-}
+const stack = useStacks();
 
 describe("the gateway's /ui mount", () => {
   it(

@@ -1,19 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createModelsClient } from "@meco/models";
-import { TIMEOUT, MODELS_URL, fakeModels, open, type Opened } from "./harness";
+import { TIMEOUT, MODELS_URL, fakeModels, useStacks } from "./harness";
 import modelsHealth from "./fixtures/models-health.json";
 
-const opened: Opened[] = [];
-afterEach(async () => {
-  vi.unstubAllEnvs();
-  await Promise.all(opened.splice(0).map((one) => one.close()));
-});
-
-async function stack(...args: Parameters<typeof open>): Promise<Opened> {
-  const one = await open(...args);
-  opened.push(one);
-  return one;
-}
+const stack = useStacks();
+afterEach(() => vi.unstubAllEnvs());
 
 /** A clock the test moves by hand, so the cache's TTL is a fact and not a wait. */
 function clock(start = Date.parse("2026-09-06T12:00:00Z")) {

@@ -12,11 +12,11 @@
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
 import type { Caller } from "@meco/records";
 import { toWire } from "./errors";
-import { type Operation, type OperationContext, run } from "./operations";
+import { type Operation, type OperationDeps, run } from "./operations";
 
 export function mcpDoor(
   operations: readonly Operation[],
-  deps: Pick<OperationContext, "records" | "store" | "models">,
+  deps: OperationDeps,
   version: string
 ): (request: Request, caller: Caller) => Promise<Response> {
   const serverFor = (caller: Caller): McpServer => {

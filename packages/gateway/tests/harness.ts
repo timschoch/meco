@@ -3,6 +3,7 @@
 // real models client over a `fetch` that answers from committed fixtures, so
 // no test reaches Neon, Blob or a model.
 import { createHash } from "node:crypto";
+import { afterEach } from "vitest";
 import { records, type Records } from "@meco/records";
 import { pgliteDatabase } from "@meco/records/pglite";
 import { memoryStore, type Store } from "@meco/store";
@@ -85,6 +86,48 @@ export async function open(
     deps,
     app: (overrides = {}) => createApp({ ...deps, ...overrides }),
     close: () => opened.close(),
+  };
+}
+
+/**
+ * What a test file needs: a `stack()` that opens one and an `afterEach` that
+ * closes every one it opened. Called once at a file's top level.
+ */
+export function useStacks(): (
+  ...args: Parameters<typeof open>
+) => Promise<Opened> {
+  const opened: Opened[] = [];
+  afterEach(async () => {
+    await Promise.all(opened.splice(0).map((one) => one.close()));
+  });
+  return async (...args) => {
+    const one = await open(...args);
+    opened.push(one);
+    return one;
+  };
+}
+
+/**
+ * The same Records with `people.list` watched, so a test can say whether a
+ * module ran: the Brand Wall's proof is a module that must not have.
+ */
+export function watchingPeopleList(one: Opened): {
+  records: Records;
+  listed: string[];
+} {
+  const listed: string[] = [];
+  return {
+    listed,
+    records: {
+      ...one.records,
+      people: {
+        ...one.records.people,
+        list: async (brand) => {
+          listed.push(brand);
+          return one.records.people.list(brand);
+        },
+      },
+    },
   };
 }
 

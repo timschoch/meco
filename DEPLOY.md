@@ -81,6 +81,23 @@ has one. **Any service that bundles a CommonJS dependency needs it**, and the
 symptom is a healthy build followed by `FUNCTION_INVOCATION_FAILED` on the
 first request — not a build error.
 
+### The fourth trap: compose's index cannot be bundled into `gateway` yet
+
+Every Look under `packages/compose/lib/looks/` reads its font files with
+`readFileSync(new URL("./fonts/…", import.meta.url))` at module top level, and
+compose's index carries `sharp` and `@takumi-rs/core`, which load native
+binaries by their own paths. Measured 6 Sep 2026 with the gateway's `build.mjs`:
+the bundle builds (1072 KB, 28 inputs under takumi and react) and dies at load
+with `ENOENT: open '<bundle>/fonts/Eina02-Regular.otf'`.
+
+So `packages/gateway/build.mjs` splits the bundle and marks the two natives
+`external`, and `list_templates` reaches `templates()` through a dynamic
+import: the chunk loads on the first `/v1/templates`, never at boot. The runtime
+image carries neither the natives nor the fonts, so on a deployment that route
+answers `500` while every other route serves. The render ticket (#183) gives the
+image compose's runtime the way `Dockerfile.vercel` gives `models` its own, and
+the trap closes then. Ledgered on #181.
+
 ## Release
 
 Push to `main`. Vercel builds both images and promotes them to production.

@@ -42,19 +42,16 @@ export type Health = {
   readonly records: RecordsReach;
 };
 
-export const HEALTH_TTL_MS = 30_000;
+const TTL_MS = 30_000;
 
 /**
  * A cold models start creates three ONNX sessions after it listens, longer
  * than the 2 s the skeleton allowed, so the first `/health` after idle used to
  * report a live service as down (#88, Q7).
  */
-export const MODELS_PROBE_TIMEOUT_MS = 10_000;
+const MODELS_TIMEOUT_MS = 10_000;
 
-export async function reachModels(
-  models: ModelsClient | null,
-  timeoutMs = MODELS_PROBE_TIMEOUT_MS
-): Promise<ModelsReach> {
+async function reachModels(models: ModelsClient | null): Promise<ModelsReach> {
   if (models === null) {
     return { bound: false, reachable: false, status: null, warm: null };
   }
@@ -65,7 +62,7 @@ export async function reachModels(
         reject(
           new ModelsError("timeout", "the health probe timed out", undefined)
         ),
-      timeoutMs
+      MODELS_TIMEOUT_MS
     );
     timer.unref();
   });
@@ -96,10 +93,7 @@ export interface HealthProbeDeps {
  * The memoised probe. A body younger than the TTL is answered again; the
  * promise is shared, so two requests in the same instant probe once too.
  */
-export function healthProbe(
-  deps: HealthProbeDeps,
-  ttlMs = HEALTH_TTL_MS
-): () => Promise<Health> {
+export function healthProbe(deps: HealthProbeDeps): () => Promise<Health> {
   let cached: { readonly at: number; readonly body: Promise<Health> } | null =
     null;
 
@@ -122,7 +116,7 @@ export function healthProbe(
 
   return () => {
     const now = deps.now();
-    if (cached === null || now.getTime() - cached.at >= ttlMs) {
+    if (cached === null || now.getTime() - cached.at >= TTL_MS) {
       cached = { at: now.getTime(), body: probe(now) };
     }
     return cached.body;

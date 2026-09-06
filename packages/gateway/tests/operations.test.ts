@@ -1,18 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { OPERATIONS } from "../app";
-import { HELD, KEY, TIMEOUT, open, rpc, type Opened } from "./harness";
+import { HELD, KEY, TIMEOUT, rpc, useStacks } from "./harness";
 
-const opened: Opened[] = [];
-afterEach(async () => {
-  await Promise.all(opened.splice(0).map((one) => one.close()));
-});
-
-async function stack(): Promise<Opened> {
-  const one = await open();
-  opened.push(one);
-  return one;
-}
+const stack = useStacks();
 
 const withKey = { headers: { Authorization: `Bearer ${KEY}` } };
 

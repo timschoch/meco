@@ -4,29 +4,31 @@
  * `input.parse` on the body or query, and the MCP factory registers one tool
  * per entry with the same `input` as its schema (ADR-0014, Decision 1).
  *
- * `run` is the one path from a Door to a handler: parse, then the Brand Wall,
- * then the handler. The wall stands before the handler on purpose, and a test
- * on #181 proves it by watching for a module that must not have run.
+ * `run` is the one path from a Door to a handler: the Brand Wall, then parse,
+ * then the handler. The wall stands first on purpose, so a Caller learns
+ * nothing about an input shape for a Brand it does not hold, and a test on
+ * #181 proves it by watching for a module that must not have run.
  */
 import { PLACEMENTS } from "@meco/compose/placements";
 import { Box, CropAnchor, PinTo } from "@meco/contracts";
 import type { ModelsClient } from "@meco/models";
 import type { Caller, Records } from "@meco/records";
-import type { Store } from "@meco/store";
 import { z } from "zod";
 import { GatewayError } from "./errors";
 
-/** What a handler may reach. The Caller is on it; a module never sees one. */
-export interface OperationContext {
+/** The adapters a handler may reach. A module never sees the Caller. */
+export interface OperationDeps {
+  readonly records: Records;
+  readonly models: ModelsClient | null;
+}
+
+export interface OperationContext extends OperationDeps {
   readonly caller: Caller;
   /**
    * The Brands this request may touch: the one it named, once the wall let
    * it through, or every Brand the Caller holds when it named none.
    */
   readonly brands: readonly string[];
-  readonly records: Records;
-  readonly store: Store;
-  readonly models: ModelsClient | null;
 }
 
 export interface Operation<I extends z.ZodObject = z.ZodObject> {
@@ -95,7 +97,7 @@ const notImplemented = (name: string) => async (): Promise<never> => {
   );
 };
 
-/** A Reference Photo as the wire may carry it: no print, no Store Key. */
+/** People with their Reference Photos as the wire may carry them: no print, no Store Key. */
 const listPeople = async (ctx: OperationContext) => {
   const perBrand = await Promise.all(
     ctx.brands.map((brand) => ctx.records.people.list(brand))
@@ -218,35 +220,32 @@ export const OPERATIONS: readonly Operation[] = [
 /**
  * The Brand Wall. A named Brand the Caller does not hold is refused; a named
  * Brand it holds is the one Brand this request may touch; no Brand means
- * every Brand the Caller holds.
+ * every Brand the Caller holds. Reads the raw input, before the schema: a
+ * `brand` that is not a string is no Brand named, and the schema says so next.
  */
-export function heldBrands(
-  caller: Caller,
-  brand: string | undefined
-): readonly string[] {
-  if (brand === undefined) return caller.brands;
-  if (!caller.brands.includes(brand)) {
+function heldBrands(caller: Caller, raw: unknown): readonly string[] {
+  const named =
+    typeof raw === "object" && raw !== null
+      ? (raw as { brand?: unknown }).brand
+      : undefined;
+  if (typeof named !== "string") return caller.brands;
+  if (!caller.brands.includes(named)) {
     throw new GatewayError(
       "brand_not_held",
-      `this key does not hold the brand ${brand}`
+      `this key does not hold the brand ${named}`
     );
   }
-  return [brand];
+  return [named];
 }
-
-const brandOf = (input: unknown): string | undefined => {
-  const brand = (input as { brand?: unknown }).brand;
-  return typeof brand === "string" ? brand : undefined;
-};
 
 /** One Operation, from the raw input a Door received to what it answers. */
 export async function run(
   operation: Operation,
-  deps: Pick<OperationContext, "records" | "store" | "models">,
+  deps: OperationDeps,
   caller: Caller,
   raw: unknown
 ): Promise<unknown> {
+  const brands = heldBrands(caller, raw);
   const input = operation.input.parse(raw);
-  const brands = heldBrands(caller, brandOf(input));
   return operation.handler({ ...deps, caller, brands }, input);
 }

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   BRANDS,
   HELD,
@@ -6,23 +6,14 @@ import {
   NOT_HELD,
   TIMEOUT,
   basic,
-  open,
   rpc,
-  type Opened,
+  useStacks,
+  watchingPeopleList,
 } from "./harness";
 
-const opened: Opened[] = [];
-afterEach(async () => {
-  await Promise.all(opened.splice(0).map((one) => one.close()));
-});
+const stack = useStacks();
 
-async function stack(): Promise<Opened> {
-  const one = await open();
-  opened.push(one);
-  return one;
-}
-
-const heldBrands = BRANDS.filter((b) =>
+const heldRows = BRANDS.filter((b) =>
   (HELD as readonly string[]).includes(b.id)
 );
 
@@ -73,7 +64,7 @@ describe("the Caller at the HTTP Door", () => {
       for (const answer of answers) {
         expect(answer.status).toBe(200);
         expect(answer.body).toEqual(
-          heldBrands.map(({ id, name }) => ({ id, name }))
+          heldRows.map(({ id, name }) => ({ id, name }))
         );
       }
     },
@@ -107,18 +98,8 @@ describe("the Brand Wall", () => {
     "refuses a Brand the Caller does not hold with 403 brand_not_held before any module runs",
     async () => {
       const one = await stack();
-      const listed: string[] = [];
-      const watched = {
-        ...one.records,
-        people: {
-          ...one.records.people,
-          list: async (brand: string) => {
-            listed.push(brand);
-            return one.records.people.list(brand);
-          },
-        },
-      };
-      const app = one.app({ records: watched });
+      const { records, listed } = watchingPeopleList(one);
+      const app = one.app({ records });
 
       const res = await app.request(`/v1/people?brand=${NOT_HELD}`, {
         headers: { Authorization: `Bearer ${KEY}` },
@@ -129,6 +110,23 @@ describe("the Brand Wall", () => {
         error: { code: "brand_not_held", message: expect.any(String) },
       });
       expect(listed).toEqual([]);
+    },
+    TIMEOUT
+  );
+
+  it(
+    "stands before the schema: a Brand not held is 403 even when the rest of the input is wrong",
+    async () => {
+      const one = await stack();
+      const res = await one.app().request("/v1/crop", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${KEY}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ brand: NOT_HELD, width: "wide" }),
+      });
+      expect(res.status).toBe(403);
     },
     TIMEOUT
   );
@@ -160,18 +158,8 @@ describe("the Brand Wall", () => {
     "lists every Brand the Caller holds when the request names none",
     async () => {
       const one = await stack();
-      const listed: string[] = [];
-      const watched = {
-        ...one.records,
-        people: {
-          ...one.records.people,
-          list: async (brand: string) => {
-            listed.push(brand);
-            return one.records.people.list(brand);
-          },
-        },
-      };
-      const app = one.app({ records: watched });
+      const { records, listed } = watchingPeopleList(one);
+      const app = one.app({ records });
 
       const res = await app.request("/v1/people", {
         headers: { Authorization: `Bearer ${KEY}` },
