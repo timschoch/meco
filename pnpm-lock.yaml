@@ -94,6 +94,9 @@ importers:
       '@meco/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@meco/identify':
+        specifier: workspace:*
+        version: link:../identify
       '@meco/models':
         specifier: workspace:*
         version: link:../models

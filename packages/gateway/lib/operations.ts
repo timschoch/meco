@@ -23,6 +23,12 @@ import type { Store } from "@meco/store";
 import { z } from "zod";
 import { annotationOf } from "./annotate";
 import { GatewayError } from "./errors";
+import {
+  addPerson,
+  addReferencePhoto,
+  erasePerson,
+  listPeople,
+} from "./people";
 import { SourceReference, resolveSource } from "./source";
 import { recorded } from "./trace";
 
@@ -132,27 +138,6 @@ const withoutPrints = (annotation: Annotation): Annotation => ({
   ...annotation,
   regions: annotation.regions.map(({ facePrint: _print, ...region }) => region),
 });
-
-/** People with their Reference Photos as the wire may carry them: no print, no Store Key. */
-const listPeople = async (ctx: OperationContext) => {
-  const perBrand = await Promise.all(
-    ctx.brands.map((brand) => ctx.records.people.list(brand))
-  );
-  const items = perBrand.flat().map((person) => ({
-    id: person.id,
-    brand: person.brand,
-    name: person.name,
-    createdAt: person.createdAt,
-    photos: person.photos.map((photo) => ({
-      id: photo.id,
-      hash: photo.hash,
-      regionId: photo.regionId,
-      consentAt: photo.consentAt,
-      createdAt: photo.createdAt,
-    })),
-  }));
-  return { items };
-};
 
 const define = <I extends z.ZodObject>(operation: Operation<I>): Operation =>
   operation as unknown as Operation;
@@ -264,6 +249,55 @@ export const OPERATIONS: readonly Operation[] = [
     path: "/people",
     input: z.object({ brand: Brand.optional() }),
     handler: listPeople,
+  }),
+  define({
+    name: "add_person",
+    description:
+      "Create a Person for a Brand. Enrol a Reference Photo of them next; a Person with none is nobody meco can recognise.",
+    method: "POST",
+    path: "/people",
+    input: z.object({
+      brand: Brand,
+      name: z.string().min(1).describe("What this Brand calls this person."),
+    }),
+    handler: addPerson,
+  }),
+  define({
+    name: "erase_person",
+    description:
+      "Erase a Person: the Reference Photos, their Face Prints and their bytes go with the row. Answers what went and the now-empty listing of everything that was theirs.",
+    method: "DELETE",
+    path: "/people/:id",
+    input: z.object({
+      brand: Brand,
+      id: z.string().min(1).describe("The Person id `add_person` answered."),
+    }),
+    handler: erasePerson,
+  }),
+  define({
+    name: "add_reference_photo",
+    description:
+      "Enrol a photograph of a Person so meco can recognise them. Needs the date they consented. A photograph with several faces answers `choose` and the faces to pick from; send it again naming one.",
+    method: "POST",
+    path: "/people/:id/photos",
+    input: z.object({
+      brand: Brand,
+      id: z.string().min(1).describe("The Person this photograph is of."),
+      source: SourceReference,
+      consentAt: z
+        .string()
+        .optional()
+        .describe(
+          "ISO 8601. When this person agreed to being recognised. Required: an enrolment without one is refused."
+        ),
+      regionId: z
+        .string()
+        .optional()
+        .describe(
+          "Which face, from a previous `choose` answer. Omit for a photograph with one face."
+        ),
+    }),
+    handler: addReferencePhoto,
   }),
 ];
 

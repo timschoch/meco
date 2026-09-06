@@ -11,6 +11,7 @@
     "@hono/node-server": "^1.19.7",
     "@meco/compose": "workspace:*",
     "@meco/contracts": "workspace:*",
+    "@meco/identify": "workspace:*",
     "@meco/models": "workspace:*",
     "@meco/records": "workspace:*",
     "@meco/store": "workspace:*",

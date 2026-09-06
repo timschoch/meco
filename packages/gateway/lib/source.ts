@@ -42,6 +42,14 @@ export interface ResolvedSource {
    * photograph meco knows costs no round trip to Blob.
    */
   bytes(): Promise<Uint8Array>;
+  /**
+   * The media type the source announced: the URL's `Content-Type`, or the
+   * File's `mime`. Lazy for the same reason the bytes are — `annotate` never
+   * asks, because the decoder's own answer on the Annotation outranks anything
+   * a host claimed. `enrol` asks, because `identify.enrol` needs a type before
+   * there is an Annotation to read one off.
+   */
+  contentType(): Promise<string>;
 }
 
 export interface SourceDeps {
@@ -66,25 +74,60 @@ const tooLarge = (url: string) =>
     `the source ${url} is over ${MAX_OBJECT_BYTES} bytes`
   );
 
-/** The URL's bytes, or the refusal the spec names for what went wrong. */
+/** How many redirects a Source URL may take before it is refused. */
+const MAX_REDIRECTS = 5;
+
+/**
+ * The URL's answer, following redirects by hand.
+ *
+ * `https:` only is a rule about **every** hop and not only about the one the
+ * caller typed, which is all the schema can check. Left to `fetch`, a `302`
+ * down to `http:` would pull the photograph over the wire in clear, and a
+ * `302` to a link-local address would pull it from inside the deployment. Both
+ * are things a caller who named an https URL may not do.
+ */
+async function answered(call: typeof fetch, url: string): Promise<Response> {
+  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  let at = url;
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (!at.toLowerCase().startsWith("https:")) {
+      throw unfetchable(url, `it redirected to ${at}, which is not https`);
+    }
+    let response: Response;
+    try {
+      response = await call(at, {
+        signal,
+        redirect: "manual",
+        // Named, because a public image host may refuse a bare client.
+        headers: {
+          "user-agent": "meco-gateway (+https://github.com/timschoch/meco)",
+        },
+      });
+    } catch (cause) {
+      throw unfetchable(url, "it did not answer", { cause });
+    }
+
+    const location = response.headers.get("location");
+    if (response.status >= 300 && response.status < 400 && location !== null) {
+      await response.body?.cancel();
+      // Resolved against the hop that sent it, as a browser would: a relative
+      // `Location` is ordinary and is not a way past the check above.
+      at = new URL(location, at).toString();
+      continue;
+    }
+    if (!response.ok) throw unfetchable(url, `it answered ${response.status}`);
+    return response;
+  }
+  throw unfetchable(url, `it redirected more than ${MAX_REDIRECTS} times`);
+}
+
+/** The URL's bytes and media type, or the refusal the spec names. */
 async function fetchBytes(
   call: typeof fetch,
   url: string
-): Promise<Uint8Array> {
-  let response: Response;
-  try {
-    response = await call(url, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      redirect: "follow",
-      // Named, because a public image host may refuse a bare client.
-      headers: { "user-agent": "meco-gateway (+https://github.com/timschoch/meco)" },
-    });
-  } catch (cause) {
-    throw unfetchable(url, "it did not answer", { cause });
-  }
-  if (!response.ok) {
-    throw unfetchable(url, `it answered ${response.status}`);
-  }
+): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const response = await answered(call, url);
 
   const declared = Number(response.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_OBJECT_BYTES) {
@@ -115,12 +158,24 @@ async function fetchBytes(
   }
   if (total === 0) throw unfetchable(url, "it answered no bytes");
   const bytes = new Uint8Array(total);
-  let at = 0;
+  let written = 0;
   for (const chunk of chunks) {
-    bytes.set(chunk, at);
-    at += chunk.byteLength;
+    bytes.set(chunk, written);
+    written += chunk.byteLength;
   }
-  return bytes;
+  return { bytes, contentType: mediaTypeOf(response) };
+}
+
+/**
+ * The media type alone, without the parameters a `Content-Type` may carry.
+ * Nothing is guessed when the header is missing: what a photograph is, is
+ * models' answer to make, and a guess from the URL would be the gateway making
+ * it instead.
+ */
+function mediaTypeOf(response: Response): string {
+  const header = response.headers.get("content-type");
+  if (header === null) return "application/octet-stream";
+  return (header.split(";")[0] ?? "").trim().toLowerCase();
 }
 
 export async function resolveSource(
@@ -130,11 +185,15 @@ export async function resolveSource(
   trace: Trace
 ): Promise<ResolvedSource> {
   if ("url" in source) {
-    const bytes = await trace.step("source.fetch", () =>
+    const { bytes, contentType } = await trace.step("source.fetch", () =>
       fetchBytes(deps.fetch, source.url)
     );
     const hash = createHash("sha256").update(bytes).digest("hex");
-    return { hash, bytes: async () => bytes };
+    return {
+      hash,
+      bytes: async () => bytes,
+      contentType: async () => contentType,
+    };
   }
 
   const held = await trace.step("records.sources.heldBy", () =>
@@ -146,20 +205,24 @@ export async function resolveSource(
       `this brand holds no source ${source.hash}`
     );
   }
-  let read: Promise<Uint8Array> | undefined;
+  // One read for both answers, and only if something asks: a Call the
+  // Annotation cache serves reads neither.
+  let read: Promise<{ bytes: Uint8Array; mime: string }> | undefined;
+  const stored = () =>
+    (read ??= trace.step("store.get", async () => {
+      const file = await deps.records.files.get(source.hash);
+      const bytes = file === null ? null : await deps.store.get(file.storeKey);
+      if (file === null || bytes === null) {
+        // A hold on a File whose bytes are gone is a records invariant
+        // broken, not a caller's mistake.
+        throw new Error(`the bytes of ${source.hash} are held and not stored`);
+      }
+      return { bytes, mime: file.mime };
+    }));
+
   return {
     hash: source.hash,
-    bytes: () =>
-      (read ??= trace.step("store.get", async () => {
-        const file = await deps.records.files.get(source.hash);
-        const stored =
-          file === null ? null : await deps.store.get(file.storeKey);
-        if (stored === null) {
-          // A hold on a File whose bytes are gone is a records invariant
-          // broken, not a caller's mistake.
-          throw new Error(`the bytes of ${source.hash} are held and not stored`);
-        }
-        return stored;
-      })),
+    bytes: async () => (await stored()).bytes,
+    contentType: async () => (await stored()).mime,
   };
 }

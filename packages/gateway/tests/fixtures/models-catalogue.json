@@ -1,21 +1,21 @@
 [
   {
     "name": "yunet",
-    "version": "2023mar-1",
+    "version": "1",
     "kinds": ["face"],
     "licence": "MIT",
     "warm": true
   },
   {
     "name": "edgeface",
-    "version": "xs-gamma-06-1",
+    "version": "1",
     "kinds": [],
     "licence": "MIT",
     "warm": true
   },
   {
     "name": "dfine",
-    "version": "s-obj2coco-1",
+    "version": "1",
     "kinds": ["person", "vehicle"],
     "licence": "Apache-2.0",
     "warm": true
