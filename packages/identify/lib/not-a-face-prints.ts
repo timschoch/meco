@@ -23,8 +23,6 @@ export interface NotAFacePrint {
   readonly id: string;
   /** What the human saw in the box, cut out at 2.2x its own size. */
   readonly saw: string;
-  /** The photograph it came from, in the human's words. */
-  readonly note: string;
   /** The print itself, from the Print Model, on the unit sphere. */
   readonly vector: readonly number[];
 }
@@ -33,7 +31,6 @@ export const NOT_A_FACE_PRINTS: readonly NotAFacePrint[] = [
   {
     id: "on-track-rear-helmet.jpg#0",
     saw: "back of the helmet",
-    note: "Driver facing away. The box lands on the back of the helmet, over the number panel.",
     vector: [
       0.026595537768129666, 0.01748247507424105, -0.03470247560216813,
       0.08780511503960935, 0.036526608628906616, 0.02647525006806451,

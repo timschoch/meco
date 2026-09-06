@@ -24,7 +24,7 @@ import {
   NOT_A_FACE_PRINTS,
   NOT_A_FACE_THRESHOLD,
 } from "../index";
-import { kartPrints, printPairs } from "./fixtures";
+import { cosine, kartPrints, printPairs } from "./fixtures";
 
 /**
  * The bound the fixture photographs were committed at, and the size every
@@ -104,8 +104,6 @@ describe("the identity calibration on the committed fixture prints", () => {
  */
 describe("the Not-a-Face calibration on the committed kart prints", () => {
   const reference = NOT_A_FACE_PRINTS;
-  const dot = (a: readonly number[], b: readonly number[]): number =>
-    a.reduce((sum, value, index) => sum + value * (b[index] ?? 0), 0);
 
   /** Every classified detection with a print, against the reference set. */
   const measured = kartPrints()
@@ -115,7 +113,7 @@ describe("the Not-a-Face calibration on the committed kart prints", () => {
       is: one.is,
       pixels: one.pixels,
       nearest: reference.reduce(
-        (high, print) => Math.max(high, dot(one.vector, print.vector)),
+        (high, print) => Math.max(high, cosine(one.vector, print.vector)),
         Number.NEGATIVE_INFINITY
       ),
     }))
@@ -167,6 +165,16 @@ describe("the Not-a-Face calibration on the committed kart prints", () => {
         `  band                   ${(furthestNonFace.nearest - nearestFace.nearest).toFixed(4)} — there is none`,
       ].join("\n")
     );
+
+    // The size of the sweep, asserted so that a fixture gaining or losing a
+    // print is loud. ADR-0003's amendment says "21 hand-classified
+    // detections"; `fixtures/karts/expected.json` holds 13 today, 12 of them
+    // printed and one of those the reference. The three headline cosines
+    // reproduce to the fourth decimal, so the 21 is a stale count and not a
+    // different measurement — the re-calibration ticket owns correcting it.
+    expect(measured).toHaveLength(11);
+    expect(faces).toHaveLength(9);
+    expect(nonFaces).toHaveLength(2);
 
     // ADR-0003's amendment, corrected 5 Sep 2026 at the 1600 px bound.
     expect(furthestNonFace.id).toBe("paddock-mixed.jpg#7");

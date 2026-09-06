@@ -67,8 +67,9 @@ const decodedShorterSide = (region: Region, image: Annotation): number => {
 };
 
 /**
- * The nearest Not-a-Face Print to a Face Print, when one is near enough to
- * take its identity away, and nothing otherwise.
+ * The Not-a-Face Print that takes a Face Print's identity away, and nothing
+ * when none does. It is the nearest of them when several disqualify, so the
+ * refusal names the strongest reason.
  *
  * Asked of the detection and of every enrolled print, because both directions
  * are dangerous and only one of them is catchable on the detection: a real
@@ -78,7 +79,7 @@ const decodedShorterSide = (region: Region, image: Annotation): number => {
  * Brand, and is what protects a Brand that enrolled before the rule existed
  * (ADR-0003, amendment).
  */
-const nearestNotAFace = (
+const disqualifyingNotAFace = (
   vector: readonly number[]
 ): { print: NotAFacePrint; similarity: number } | null => {
   let nearest: { print: NotAFacePrint; similarity: number } | null = null;
@@ -124,7 +125,7 @@ const partitionPrints = (
       unusable.push(photo.id);
       return false;
     }
-    if (nearestNotAFace(photo.facePrint.vector) !== null) {
+    if (disqualifyingNotAFace(photo.facePrint.vector) !== null) {
       unusable.push(photo.id);
       return false;
     }
@@ -199,7 +200,7 @@ const verdictFor = (
   // still not a face. The back of a crash helmet is what taught this rule
   // (issue #34): it was enrolled as a Person, and a stranger in a helmet was
   // named after them with their face left sharp.
-  const notAFace = nearestNotAFace(region.facePrint.vector);
+  const notAFace = disqualifyingNotAFace(region.facePrint.vector);
   if (notAFace !== null) {
     return {
       regionId,

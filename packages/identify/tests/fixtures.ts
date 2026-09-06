@@ -35,11 +35,20 @@ const KARTS = fileURLToPath(
   new URL("../../../fixtures/karts/", import.meta.url)
 );
 
-const read = (name: string): unknown =>
-  JSON.parse(readFileSync(`${FIXTURES}${name}`, "utf8"));
+const readFrom = (directory: string, name: string): unknown =>
+  JSON.parse(readFileSync(`${directory}${name}`, "utf8"));
 
-const readKart = (name: string): unknown =>
-  JSON.parse(readFileSync(`${KARTS}${name}`, "utf8"));
+const read = (name: string): unknown => readFrom(FIXTURES, name);
+
+const readKart = (name: string): unknown => readFrom(KARTS, name);
+
+/**
+ * The cosine of two Face Prints, computed here and not imported: the suite
+ * crosses `index.ts` only, and the arithmetic under test is not on it. Both
+ * are on the unit sphere, so the dot product is the cosine.
+ */
+export const cosine = (a: readonly number[], b: readonly number[]): number =>
+  a.reduce((sum, value, index) => sum + value * (b[index] ?? 0), 0);
 
 interface DetectedFace {
   readonly box: Box;
@@ -242,27 +251,75 @@ const kartPrinted = readKart("face-prints.json") as {
 };
 
 /**
- * Every committed kart print, in the order the dump wrote them. The whole
- * ground truth the Not-a-Face threshold is measured against.
+ * The human's classification of every kart detection, in detection order
+ * (`fixtures/karts/expected.json` says so, and nothing sorts them). This file
+ * and not the print dump is the ground truth: `is` and `reference` are a
+ * judgement about a photograph, and the print file merely copies them.
  */
-export const kartPrints = (): readonly KartPrint[] =>
-  kartPrinted.prints.map((one) => ({
-    id: `${one.file}#${one.index}`,
+const kartExpected = readKart("expected.json") as {
+  readonly images: readonly {
+    readonly file: string;
+    readonly note?: string;
+    readonly faces: readonly {
+      readonly label: string;
+      readonly is: "face" | "not-a-face";
+      readonly reference?: boolean;
+    }[];
+  }[];
+};
+
+/**
+ * Every committed kart print, in the order the dump wrote them, joined onto
+ * the human's classification. The whole ground truth the Not-a-Face threshold
+ * is measured against.
+ *
+ * A print the classification disagrees with throws here rather than quietly
+ * changing what the sweep measures: marking a new detection `reference: true`
+ * in `expected.json` alone has to fail loudly, not commit nothing.
+ */
+const KART_PRINTS = kartPrinted.prints.map((one): KartPrint => {
+  const id = `${one.file}#${one.index}`;
+  const image = kartExpected.images.find((each) => each.file === one.file);
+  const marked = image?.faces[one.index];
+  if (marked === undefined) {
+    throw new Error(`${id} has a print and no hand-marked classification`);
+  }
+  if (marked.label !== one.label || marked.is !== one.is) {
+    throw new Error(
+      `${id} is "${marked.is}" in expected.json and "${one.is}" in face-prints.json`
+    );
+  }
+  if ((marked.reference === true) !== (one.reference === true)) {
+    throw new Error(
+      `${id} is marked reference in one fixture file and not the other`
+    );
+  }
+  return {
+    id,
     file: one.file,
     index: one.index,
-    saw: one.label,
-    is: one.is,
-    reference: one.reference === true,
+    saw: marked.label,
+    is: marked.is,
+    reference: marked.reference === true,
     pixels: one.pixels,
     vector: one.print,
-  }));
+  };
+});
+
+/** Every committed kart print. */
+export const kartPrints = (): readonly KartPrint[] => KART_PRINTS;
 
 /** One kart print by `<file>#<index>`. */
 export const kartPrint = (id: string): KartPrint => {
-  const found = kartPrints().find((one) => one.id === id);
+  const found = KART_PRINTS.find((one) => one.id === id);
   if (found === undefined) throw new Error(`no kart print ${id}`);
   return found;
 };
+
+/** Every photograph in `fixtures/karts/` a print was taken from. */
+export const kartPhotographs = (): readonly string[] => [
+  ...new Set(KART_PRINTS.map((one) => one.file)),
+];
 
 const kartDetected = readKart("detected.json") as {
   readonly images: Record<string, DetectedImage>;
@@ -297,7 +354,7 @@ export const kartAnnotationOf = (file: string): KartAnnotation => {
 
   const faces: KartFace[] = [];
   const regions = image.faces.map((face, index) => {
-    const printed = kartPrints().find(
+    const printed = KART_PRINTS.find(
       (one) => one.file === file && one.index === index
     );
     const regionId = `face-${index + 1}`;

@@ -23,9 +23,12 @@ import {
 } from "../index";
 import {
   annotationOf,
+  cosine,
   faceIn,
   kartAnnotationOf,
+  kartPhotographs,
   kartPrint,
+  kartPrints,
   kartRegionId,
   printOf,
 } from "./fixtures";
@@ -634,10 +637,7 @@ describe("identify().match, the things that are not faces", () => {
         verdict: "unknown",
       });
       expect(
-        REAL_FACE_NEAR_THE_HELMET.vector.reduce(
-          (sum, value, index) => sum + value * (HELMET.vector[index] ?? 0),
-          0
-        )
+        cosine(REAL_FACE_NEAR_THE_HELMET.vector, HELMET.vector)
       ).toBeGreaterThan(MATCH_THRESHOLD);
     },
     PGLITE_TIMEOUT_MS
@@ -684,6 +684,60 @@ describe("identify().match, the things that are not faces", () => {
         verdict: "uncompared",
         reason: "no-print",
       });
+    },
+    PGLITE_TIMEOUT_MS
+  );
+
+  it(
+    "refuses exactly the kart detections ADR-0003 names, through the seam",
+    async () => {
+      const brand = "the-whole-sweep";
+      await open.enrol({ brand, name: "A", prints: [A_PORTRAIT] });
+
+      // The Not-a-Face sweep run as `match` and not as arithmetic beside it.
+      // `tests/calibration.test.ts` recomputes the cosines; this says the rule
+      // on the seam acts on them, over every kart photograph at once.
+      const refused: string[] = [];
+      const compared: string[] = [];
+      for (const file of kartPhotographs()) {
+        const photograph = kartAnnotationOf(file);
+        const found = await identifier().match({
+          annotation: photograph.annotation,
+          brand,
+        });
+        for (const face of found.faces) {
+          const detection = photograph.faces.find(
+            (one) => one.regionId === face.regionId
+          );
+          if (detection?.is === undefined) continue;
+          if (
+            face.verdict === "not-identifiable" &&
+            face.reason === "not-a-face"
+          ) {
+            refused.push(detection.id);
+          } else {
+            compared.push(detection.id);
+          }
+        }
+      }
+
+      expect(refused.sort()).toEqual([
+        // The reference print itself, at a similarity of 1 to itself.
+        "on-track-rear-helmet.jpg#0",
+        // A second driver's helmet, held out of the reference set.
+        "on-track-visor-open.jpg#0",
+        // A man seen from behind: the rejection the rule exists for.
+        "paddock-mixed.jpg#7",
+        // A small child looking down, 40 px: the price, and the only real
+        // face 0.60 refuses.
+        "paddock-mixed.jpg#8",
+      ]);
+      // Every non-face in the fixture set is refused, and only one face is.
+      const stillFaces = compared.map((id) => kartPrint(id).is);
+      expect(stillFaces).not.toContain("not-a-face");
+      expect(compared).toHaveLength(
+        kartPrints().filter((one) => one.is === "face").length - 1
+      );
     },
     PGLITE_TIMEOUT_MS
   );
