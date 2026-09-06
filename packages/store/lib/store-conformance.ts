@@ -14,11 +14,13 @@ import {
   ok,
   rejects,
   strictEqual,
+  throws,
 } from "node:assert/strict";
 import { createHash } from "node:crypto";
 import type { Check } from "@meco/contracts/conformance";
 import type { PutResult, Store } from "./blob";
 import { MAX_OBJECT_BYTES, isPrivate } from "./keys";
+import { MAX_SIGNED_URL_SECONDS } from "./urls";
 
 /** What an adapter's host hands {@link storeConformance}. */
 export interface StoreFixtures {
@@ -382,6 +384,93 @@ export function storeConformance(
       async run() {
         ok(isPrivate("health/a.png"));
         ok(!isPrivate("health-public/a.png"));
+      },
+    },
+    {
+      name: "publicUrl names a public key under the store's own base URL",
+      async run() {
+        const key = `crops/${"a".repeat(64)}.png`;
+
+        const url = new URL(store.publicUrl(key));
+
+        strictEqual(url.protocol, "https:");
+        // The key verbatim, so a caller that has the key has the URL and
+        // nothing has to store one beside the other.
+        strictEqual(url.pathname, `/${key}`);
+        strictEqual(url.search, "");
+        // Arithmetic on one base, not a lookup per key: two keys of the same
+        // store differ in their path and in nothing else.
+        strictEqual(
+          new URL(store.publicUrl(`renders/${"b".repeat(64)}.png`)).origin,
+          url.origin
+        );
+      },
+    },
+    {
+      name: "publicUrl refuses a private key, naming it",
+      async run() {
+        // A private key has no such URL, and returning one would be a lie a
+        // caller could publish.
+        for (const key of [
+          `people/laica/p_1/${"c".repeat(64)}.jpg`,
+          `sources/${"d".repeat(64)}.jpg`,
+          `health/${"e".repeat(64)}.png`,
+        ]) {
+          throws(() => store.publicUrl(key), new RegExp(key));
+        }
+      },
+    },
+    {
+      name: "signedUrl refuses a public key",
+      async run() {
+        // The Public Store serves its objects at an address that does not
+        // expire, so a signature there would only shorten a URL meant to last.
+        for (const key of [
+          `renders/${"a".repeat(64)}.png`,
+          `crops/${"b".repeat(64)}.png`,
+          `health-public/${"c".repeat(64)}.png`,
+        ]) {
+          await rejects(() => store.signedUrl(key), new RegExp(key));
+        }
+      },
+    },
+    {
+      name: `signedUrl refuses longer than ${MAX_SIGNED_URL_SECONDS} seconds, and refuses a lifetime that is no lifetime`,
+      async run() {
+        const key = `people/laica/p_1/${"a".repeat(64)}.jpg`;
+
+        await rejects(
+          () =>
+            store.signedUrl(key, {
+              expiresInSeconds: MAX_SIGNED_URL_SECONDS + 1,
+            }),
+          new RegExp(String(MAX_SIGNED_URL_SECONDS))
+        );
+        await rejects(() => store.signedUrl(key, { expiresInSeconds: 0 }), /0/);
+        await rejects(
+          () => store.signedUrl(key, { expiresInSeconds: -60 }),
+          /-60/
+        );
+        await rejects(
+          () => store.signedUrl(key, { expiresInSeconds: 1.5 }),
+          /1\.5/
+        );
+      },
+    },
+    {
+      name: "signedUrl names the private key it was minted for and carries what makes it expire",
+      async run() {
+        const { key } = await put(payload("signed url"));
+
+        const url = new URL(
+          await store.signedUrl(key, { expiresInSeconds: 60 })
+        );
+
+        strictEqual(url.protocol, "https:");
+        strictEqual(url.pathname, `/${key}`);
+        // A Signed URL with no query is the plain private URL, which is the
+        // one thing it must never be: that URL is the wall.
+        ok(url.search !== "", `the Signed URL for "${key}" carries no query`);
       },
     },
   ];

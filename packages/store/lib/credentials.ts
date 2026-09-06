@@ -65,6 +65,21 @@ export function credentialSourceFor(
 }
 
 /**
+ * The store id, or a refusal naming the variable. Its own function because
+ * `publicUrl` needs an address and no credential: computing the URL a caller
+ * publishes must not depend on being able to reach the store.
+ */
+export function requireStoreId(env: NodeJS.ProcessEnv, access: Access): string {
+  const storeId = storeIdFor(env, access);
+  if (storeId === null) {
+    throw new Error(
+      `@meco/store: ${STORE_ID_VAR[access]} is not set, so the ${STORE_NAME[access]} has no address. Nothing falls back to the other store.`
+    );
+  }
+  return storeId;
+}
+
+/**
  * `VERCEL_OIDC_TOKEN` first because it rotates itself; that store's injected
  * read-write token second. There is no third: a store meco cannot address is an
  * error, so that a private object can never end up in the Public Store.
@@ -73,12 +88,7 @@ export function credentialFor(
   env: NodeJS.ProcessEnv,
   access: Access
 ): Credential {
-  const storeId = storeIdFor(env, access);
-  if (storeId === null) {
-    throw new Error(
-      `@meco/store: ${STORE_ID_VAR[access]} is not set, so the ${STORE_NAME[access]} has no address. Nothing falls back to the other store.`
-    );
-  }
+  const storeId = requireStoreId(env, access);
 
   const oidcToken = read(env, "VERCEL_OIDC_TOKEN");
   if (oidcToken !== undefined) {

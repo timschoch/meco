@@ -5,16 +5,15 @@
  * discovered in production.
  */
 import { describe, expect, it } from "vitest";
-import { memoryStore } from "../index";
+import { MAX_SIGNED_URL_SECONDS, memoryStore } from "../index";
 import { storeConformance } from "../conformance";
 
 /** Private, so the suite exercises the Namespace that matters most. */
 const PREFIX = "people/laica/p_conformance";
 
 /**
- * The rows of `docs/specs/store.md`, "Testing decisions", that #124 and #125
- * implement, in the order they run. The two URL rows are #126's, so this list
- * grows with that ticket.
+ * The rows of `docs/specs/store.md`, "Testing decisions", in the order they
+ * run: #124 and #125's, then the URL rows #126 added.
  *
  * The deletion check is named without a deadline here because `memoryStore` is
  * immediately consistent and so reads once. The live Blob run names its own
@@ -39,6 +38,11 @@ const CHECK_NAMES = [
   "an unmapped content type is refused rather than guessed",
   "isPrivate matches the whole Namespace, case-insensitively",
   "isPrivate sends health to the Private Store and health-public to the Public Store",
+  "publicUrl names a public key under the store's own base URL",
+  "publicUrl refuses a private key, naming it",
+  "signedUrl refuses a public key",
+  `signedUrl refuses longer than ${MAX_SIGNED_URL_SECONDS} seconds, and refuses a lifetime that is no lifetime`,
+  "signedUrl names the private key it was minted for and carries what makes it expire",
 ];
 
 // The way an adapter author consumes the checks: one `it` per returned Check.

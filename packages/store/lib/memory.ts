@@ -9,6 +9,22 @@
  */
 import type { Listing, Store } from "./blob";
 import { assertKey, byKey, storeKey, subtreePrefix } from "./keys";
+import { assertPrivateKey, assertPublicKey, validUntilFor } from "./urls";
+
+/**
+ * The in-memory store's own two hosts, one per access, so `publicUrl` is the
+ * same arithmetic here as on Blob and the Conformance Checks are one list.
+ *
+ * `.invalid` is reserved by RFC 2606 and can never resolve, which is the point:
+ * an in-memory URL must not be mistakable for one that serves bytes. So this
+ * adapter proves the shape of a URL and every refusal around it, and whether a
+ * backend honours a signature or an expiry is proved against the live stores,
+ * where it is a property of the backend rather than of this `Map`.
+ */
+const BASE = {
+  public: "https://public.memory.store.invalid",
+  private: "https://private.memory.store.invalid",
+} as const;
 
 /** What one key holds. The bytes are the store's own copy, never the caller's. */
 type Held = {
@@ -84,6 +100,20 @@ export function memoryStore(): Store {
         });
       }
       return listed.sort(byKey);
+    },
+
+    publicUrl(key) {
+      assertKey(key);
+      assertPublicKey(key);
+      return `${BASE.public}/${key}`;
+    },
+
+    async signedUrl(key, options) {
+      assertKey(key);
+      assertPrivateKey(key);
+      // The expiry is in the URL rather than beside it, as Blob's is: what
+      // makes a Signed URL stop working travels with it.
+      return `${BASE.private}/${key}?validUntil=${validUntilFor(options?.expiresInSeconds)}`;
     },
   };
 }

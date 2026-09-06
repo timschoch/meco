@@ -319,6 +319,10 @@ _Avoid_: mock, fake, stub, test double, disk adapter
 One Stored Object as `list` names it: its Store Key, its size and when it was written. What a Listing is for is proving that a delete left nothing behind — never the Gallery, which `records` owns and `webui` reads. A Listing carries no bytes and no content type; a caller that wants either asks `head` or `get`.
 _Avoid_: entry, item, record (a record is `records`'), gallery row, index
 
+**Public URL**:
+The address a Public Store object is served at, forever, to anyone who has it. Arithmetic on the store id and the Store Key, never a lookup and never a column: a URL filed beside a key would have gone stale the day the stores were recreated in `fra1`. A private Store Key has none, and asking for one is refused rather than answered.
+_Avoid_: CDN URL, permalink, blob URL, download link
+
 **Signed URL**:
 A URL that hands over one Private Store object to whoever holds it, until it expires minutes later. Minted only by the gateway, only for a caller it has already authorised, and short-lived because the reason it was minted does not outlive the request.
 _Avoid_: presigned URL, temporary link, token URL, share link

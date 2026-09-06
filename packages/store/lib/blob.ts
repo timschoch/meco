@@ -7,10 +7,12 @@ import {
   del as blobDel,
   get as blobGet,
   head as blobHead,
+  issueSignedToken,
   list as blobList,
+  presignUrl,
   put as blobPut,
 } from "@vercel/blob";
-import { credentialFor } from "./credentials";
+import { credentialFor, requireStoreId } from "./credentials";
 import {
   type Access,
   accessFor,
@@ -19,6 +21,13 @@ import {
   storeKey,
   subtreePrefix,
 } from "./keys";
+import {
+  MAX_SIGNED_URL_SECONDS,
+  assertPrivateKey,
+  assertPublicKey,
+  publicUrlFor,
+  validUntilFor,
+} from "./urls";
 
 /** The bytes at one Store Key, with what is known about them. */
 export interface StoredObject {
@@ -87,6 +96,27 @@ export interface Store {
    * the same whole-segment rule `isPrivate` applies to the Namespace.
    */
   list(prefix: string): Promise<Listing[]>;
+  /**
+   * The address a public object is served at, forever. Arithmetic on the store
+   * id and the key, so nothing has to file a URL beside a Store Key and no URL
+   * can go stale when a store moves.
+   *
+   * Throws for a private key: that object has no such address, and handing one
+   * back would be a lie a caller could publish.
+   */
+  publicUrl(key: string): string;
+  /**
+   * A URL that hands over one private object to whoever holds it, until it
+   * expires. Minted for the gateway, which has already decided that this
+   * caller may see this object; the store never decides who may read.
+   *
+   * Throws for a public key, and refuses a lifetime over
+   * {@link MAX_SIGNED_URL_SECONDS}.
+   */
+  signedUrl(
+    key: string,
+    options?: { readonly expiresInSeconds?: number }
+  ): Promise<string>;
 }
 
 export interface BlobStoreConfig {
@@ -131,10 +161,14 @@ export function blobStore(config: BlobStoreConfig = {}): Store {
     );
   }
 
-  const options = (access: Access) => {
+  /** How every call reaches one store: its credential, under this store's bound. */
+  const reaching = (access: Access) => {
     const { auth } = credentialFor(env, access);
-    return { access, ...auth, ...(abortSignal ? { abortSignal } : {}) };
+    return { ...auth, ...(abortSignal ? { abortSignal } : {}) };
   };
+
+  /** The same, for the six verbs the SDK also wants an `access` from. */
+  const options = (access: Access) => ({ access, ...reaching(access) });
 
   return {
     async put(prefix, bytes, contentType) {
@@ -228,6 +262,39 @@ export function blobStore(config: BlobStoreConfig = {}): Store {
       } while (cursor !== undefined);
 
       return listed.sort(byKey);
+    },
+
+    publicUrl(key) {
+      assertKey(key);
+      assertPublicKey(key);
+      // The store id, not the credential: a token names whichever store it was
+      // issued for, and the URL a caller publishes must name the one this
+      // deployment is configured to serve from.
+      return publicUrlFor(requireStoreId(env, "public"), key);
+    },
+
+    async signedUrl(key, options) {
+      assertKey(key);
+      assertPrivateKey(key);
+      const validUntil = validUntilFor(options?.expiresInSeconds);
+
+      // Scoped to this one pathname and to reading it: a delegation wide enough
+      // to write or to name another key would outlive its reason twice over.
+      const signed = await issueSignedToken({
+        ...reaching("private"),
+        pathname: key,
+        operations: ["get"],
+        validUntil,
+      });
+      // Renamed on the way in: `CONTEXT.md` gives this "Signed URL" and puts
+      // "presigned URL" on its avoid-list.
+      const { presignedUrl: signedUrl } = await presignUrl(signed, {
+        operation: "get",
+        pathname: key,
+        access: "private",
+        validUntil,
+      });
+      return signedUrl;
     },
   };
 }
