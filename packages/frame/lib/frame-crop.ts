@@ -26,11 +26,11 @@ const leadRegion = (
  * The whole module. Subject composition, the ladder, the Golden Lines, the Eye
  * Line, the Free Area and the fallback rungs all sit behind this one call.
  *
- * Today it composes on the `face` and `kart` rungs, sizes and aims on a
- * declared Subject Area or else on the leading face's Eye Line, and falls back
- * to frame's own last resorts, the Crop Anchor the request named and then the
- * centre. The rung that leads on a Match and the Free Area arrive on later
- * tickets and add no field this signature does not already declare.
+ * Today it composes on the `match`, `face` and `kart` rungs, sizes and aims on
+ * a declared Subject Area or else on the leading face's Eye Line, and falls
+ * back to frame's own last resorts, the Crop Anchor the request named and then
+ * the centre. The Free Area arrives on a later ticket and adds no field this
+ * signature does not already declare.
  */
 export function frameCrop(input: FrameInput): Framing {
   const { annotation, request } = input;
@@ -42,7 +42,10 @@ export function frameCrop(input: FrameInput): Framing {
   }
 
   const source = { width: annotation.width, height: annotation.height };
-  const composed = composeSubject(annotation, request);
+  // No Matches is the same input as none that this Brand may see, and the
+  // `match` rung answers both the same way: it composes nothing and the ladder
+  // walks on.
+  const composed = composeSubject(annotation, input.matches ?? [], request);
   const declaredArea = request.subjectArea;
 
   // A Subject Area does two jobs and needs a Subject for both: it sizes the

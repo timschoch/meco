@@ -104,6 +104,8 @@ Ties: the highest `similarity`, then the lowest `regionId`. `similarity` and not
 
 Three tiers exist inside the answering rung, and only the drop rung consults them: the Leading Subject, a matched non-leading face, every other face. The prototype's cross-producer `PRIORITY` table is gone; with `pinTo` deciding which rung answers, it had nothing left to decide.
 
+**The tiers are the order of `keptRegionIds`**, cheapest last, so the drop rung sacrifices from the end and no field carries them that a caller could pair with another rung's Subject. Only `match` has a second tier to name; `face` and `kart` leave their kept Regions in Region id order. Shipped in [#104](https://github.com/timschoch/meco/issues/104).
+
 A `face` Subject is the face box alone. frame never grows it to the `person` Region containing it: the Eye Line criterion was measured on face boxes, and framing on a body is a different composition with no measurement behind it.
 
 ### Placing the window

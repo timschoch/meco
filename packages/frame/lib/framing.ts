@@ -40,7 +40,14 @@ export interface ComposedSubject {
   leadRegionId: string;
   /** The composed Subject, in source fractions. */
   subject: Box;
-  /** Every Region this rung keeps in frame, the leader included. */
+  /**
+   * Every Region this rung keeps in frame, the leader included.
+   *
+   * The `match` rung orders them by tier — the Leading Subject, then a matched
+   * non-leading face, then every other face — so that the drop rung (#104's
+   * tiers, #108's rung) can sacrifice from the end. `face` and `kart` have no
+   * second tier to name and leave them in Region id order.
+   */
   keptRegionIds: string[];
 }
 
