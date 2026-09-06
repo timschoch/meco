@@ -8,6 +8,7 @@ export {
 } from "./lib/keys";
 export {
   type BlobStoreConfig,
+  type Listing,
   type PutResult,
   type Store,
   type StoredObject,
