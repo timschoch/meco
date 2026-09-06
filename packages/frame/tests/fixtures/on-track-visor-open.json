@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "hash": "9f89432dec3d3c51525dba5afef48940a11c45d723497a318b8a261fa9abb328",
+  "mime": "image/jpeg",
+  "width": 1015,
+  "height": 1015,
+  "producedBy": [
+    {
+      "name": "dfine",
+      "version": "prototype"
+    }
+  ],
+  "regions": [
+    {
+      "id": "person-1",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.3004,
+        "y": 0.2626,
+        "width": 0.4627,
+        "height": 0.5136
+      },
+      "score": 0.4511,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-2",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.3102,
+        "y": 0.2634,
+        "width": 0.2566,
+        "height": 0.5003
+      },
+      "score": 0.8467,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "vehicle-1",
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.949,
+        "y": 0.0016,
+        "width": 0.0508,
+        "height": 0.0862
+      },
+      "score": 0.3564,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "vehicle-2",
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.0077,
+        "y": 0.4424,
+        "width": 0.9481,
+        "height": 0.4421
+      },
+      "score": 0.8794,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    }
+  ]
+}

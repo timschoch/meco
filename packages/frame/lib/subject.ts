@@ -1,21 +1,7 @@
-import type { Annotation, Box, FramingRequest, Region } from "@meco/contracts";
-import type { ResolvedBy } from "./framing";
-
-/**
- * What a rung of `pinTo` answers with when it composes something. The rung
- * that answers decides all four fields at once, so no caller can pair a
- * `resolvedBy` with another rung's Subject.
- */
-export interface ComposedSubject {
-  resolvedBy: ResolvedBy;
-  leadRegionId: string;
-  /** The composed Subject, in source fractions. */
-  subject: Box;
-  /** Every Region this rung keeps in frame, the leader included. */
-  keptRegionIds: string[];
-}
-
-const area = (box: Box): number => box.width * box.height;
+import type { Annotation, FramingRequest, Region } from "@meco/contracts";
+import { regionWithLargestBox } from "./boxes";
+import type { ComposedSubject } from "./framing";
+import { kartSubject } from "./kart";
 
 /**
  * The `face` rung: every face Region is kept and the largest box leads.
@@ -31,11 +17,7 @@ const area = (box: Box): number => box.width * box.height;
  */
 const faceSubject = (regions: Region[]): ComposedSubject | undefined => {
   const faces = regions.filter((region) => region.kind === "face");
-  const lead = faces.reduce<Region | undefined>(
-    (best, face) =>
-      best === undefined || area(face.box) > area(best.box) ? face : best,
-    undefined
-  );
+  const lead = regionWithLargestBox(faces);
 
   return lead === undefined
     ? undefined
@@ -48,20 +30,34 @@ const faceSubject = (regions: Region[]): ComposedSubject | undefined => {
 };
 
 /**
+ * One rung, asked what it composes. `match` (#104) composes nothing yet, so a
+ * ladder naming it walks past it to whatever follows.
+ */
+const composeRung = (
+  rung: FramingRequest["pinTo"][number],
+  regions: Region[]
+): ComposedSubject | undefined => {
+  switch (rung) {
+    case "face":
+      return faceSubject(regions);
+    case "kart":
+      return kartSubject(regions);
+    default:
+      return undefined;
+  }
+};
+
+/**
  * Walks `pinTo` in order. The first rung that composes a Subject wins and
  * decides `resolvedBy`; nothing composed leaves frame's own last resorts, the
  * Crop Anchor and the centre, to answer.
- *
- * `match` (#104) and `kart` (#105) compose nothing yet, so a ladder naming them
- * walks past them to whatever follows.
  */
 export function composeSubject(
   annotation: Annotation,
   request: FramingRequest
 ): ComposedSubject | undefined {
   for (const rung of request.pinTo) {
-    const composed =
-      rung === "face" ? faceSubject(annotation.regions) : undefined;
+    const composed = composeRung(rung, annotation.regions);
     if (composed !== undefined) return composed;
   }
 

@@ -1,0 +1,447 @@
+{
+  "schema": 1,
+  "hash": "00d3c24e5ff66d1b5d7e1529fb6d0aab91f20505c610c16bcbeabad4732a07cb",
+  "mime": "image/jpeg",
+  "width": 1600,
+  "height": 1067,
+  "producedBy": [
+    {
+      "name": "dfine",
+      "version": "prototype"
+    }
+  ],
+  "regions": [
+    {
+      "id": "person-1",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.2864,
+        "y": 0,
+        "width": 0.1103,
+        "height": 0.4984
+      },
+      "score": 0.8862,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-2",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.8088,
+        "y": 0,
+        "width": 0.1154,
+        "height": 0.5628
+      },
+      "score": 0.9157,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-3",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.1713,
+        "y": 0.0007,
+        "width": 0.1451,
+        "height": 0.7703
+      },
+      "score": 0.8888,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-4",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.1377,
+        "y": 0.0011,
+        "width": 0.1026,
+        "height": 0.5734
+      },
+      "score": 0.869,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-5",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.7003,
+        "y": 0.0013,
+        "width": 0.0644,
+        "height": 0.2813
+      },
+      "score": 0.2859,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-6",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.5954,
+        "y": 0.0017,
+        "width": 0.1494,
+        "height": 0.5332
+      },
+      "score": 0.8333,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-7",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.7226,
+        "y": 0.0041,
+        "width": 0.0628,
+        "height": 0.431
+      },
+      "score": 0.7227,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-8",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.4198,
+        "y": 0.0104,
+        "width": 0.1005,
+        "height": 0.4029
+      },
+      "score": 0.8844,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-9",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.6195,
+        "y": 0.0252,
+        "width": 0.0349,
+        "height": 0.0629
+      },
+      "score": 0.5206,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-10",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.8925,
+        "y": 0.0314,
+        "width": 0.0311,
+        "height": 0.0714
+      },
+      "score": 0.3167,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-11",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.8914,
+        "y": 0.0328,
+        "width": 0.0377,
+        "height": 0.1897
+      },
+      "score": 0.3045,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-12",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.8982,
+        "y": 0.0347,
+        "width": 0.0702,
+        "height": 0.2183
+      },
+      "score": 0.6553,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-13",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.896,
+        "y": 0.0349,
+        "width": 0.0759,
+        "height": 0.3459
+      },
+      "score": 0.2849,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-14",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.0007,
+        "y": 0.1817,
+        "width": 0.0739,
+        "height": 0.1998
+      },
+      "score": 0.3611,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-15",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0,
+        "y": 0.1818,
+        "width": 0.086,
+        "height": 0.3324
+      },
+      "score": 0.5865,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-16",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.8969,
+        "y": 0.2104,
+        "width": 0.0861,
+        "height": 0.344
+      },
+      "score": 0.4792,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-17",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.9008,
+        "y": 0.2115,
+        "width": 0.0799,
+        "height": 0.2167
+      },
+      "score": 0.6493,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-18",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.5615,
+        "y": 0.2592,
+        "width": 0.1476,
+        "height": 0.5003
+      },
+      "score": 0.7635,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-19",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.5651,
+        "y": 0.2603,
+        "width": 0.1331,
+        "height": 0.3016
+      },
+      "score": 0.5357,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-20",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.008,
+        "y": 0.2854,
+        "width": 0.1038,
+        "height": 0.234
+      },
+      "score": 0.6043,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-21",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.0268,
+        "y": 0.2858,
+        "width": 0.1198,
+        "height": 0.2178
+      },
+      "score": 0.4155,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-22",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.4186,
+        "y": 0.3671,
+        "width": 0.2807,
+        "height": 0.3943
+      },
+      "score": 0.3167,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-23",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.4472,
+        "y": 0.3683,
+        "width": 0.1318,
+        "height": 0.24
+      },
+      "score": 0.3021,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-24",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.4434,
+        "y": 0.3691,
+        "width": 0.148,
+        "height": 0.3673
+      },
+      "score": 0.3051,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-25",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.3402,
+        "y": 0.3692,
+        "width": 0.2525,
+        "height": 0.3895
+      },
+      "score": 0.437,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "vehicle-1",
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.2727,
+        "y": 0.3632,
+        "width": 0.4928,
+        "height": 0.3968
+      },
+      "score": 0.3451,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "vehicle-2",
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.2703,
+        "y": 0.4622,
+        "width": 0.3309,
+        "height": 0.2965
+      },
+      "score": 0.4453,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    }
+  ]
+}

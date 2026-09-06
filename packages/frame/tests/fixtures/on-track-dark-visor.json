@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "hash": "11d8a97c3ea77210bb0cf78559c415799d15aba03bdd221b3f9a2a72ccfb218d",
+  "mime": "image/jpeg",
+  "width": 1600,
+  "height": 1000,
+  "producedBy": [
+    {
+      "name": "dfine",
+      "version": "prototype"
+    }
+  ],
+  "regions": [
+    {
+      "id": "person-1",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.4071,
+        "y": 0.0973,
+        "width": 0.4274,
+        "height": 0.4956
+      },
+      "score": 0.4582,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-2",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.5705,
+        "y": 0.098,
+        "width": 0.2443,
+        "height": 0.4765
+      },
+      "score": 0.7322,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "person-3",
+      "kind": "person",
+      "label": "person",
+      "box": {
+        "x": 0.1946,
+        "y": 0.2443,
+        "width": 0.1584,
+        "height": 0.3493
+      },
+      "score": 0.8712,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "vehicle-1",
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.4008,
+        "y": 0.3321,
+        "width": 0.2515,
+        "height": 0.2532
+      },
+      "score": 0.294,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "vehicle-2",
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.403,
+        "y": 0.3996,
+        "width": 0.1221,
+        "height": 0.1696
+      },
+      "score": 0.2836,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    },
+    {
+      "id": "vehicle-3",
+      "kind": "vehicle",
+      "label": "motorbike",
+      "box": {
+        "x": 0.053,
+        "y": 0.4144,
+        "width": 0.3015,
+        "height": 0.1935
+      },
+      "score": 0.2905,
+      "model": {
+        "name": "dfine",
+        "version": "prototype"
+      }
+    }
+  ]
+}
