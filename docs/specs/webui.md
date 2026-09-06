@@ -43,7 +43,7 @@ export interface WebuiOptions {
   store: Pick<Store, "publicUrl" | "signedUrl">; // URLs only, never bytes
   caller(request: Request): Promise<Caller | null>; // the gateway's own lookup
   basePath?: string; // where the gateway mounts it, default "/ui"
-  pageSize?: number; // Outputs per Gallery page, default 12
+  pageSize?: number; // rows per page on both lists, default 12
 }
 ```
 

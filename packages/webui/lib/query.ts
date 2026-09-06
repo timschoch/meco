@@ -91,10 +91,16 @@ export const GALLERY_FIELDS = ["brand", "placement", "kind"] as const;
 /** The fields the Calls list's filter links may change. */
 export const CALLS_FIELDS = ["brand", "status"] as const;
 
-/** A query as `linkTo` reads one: the filterable fields and their values. */
-export type Filters<Field extends string> = Readonly<
-  Partial<Record<Field, string | undefined>>
->;
+/**
+ * Everything a link on one list needs: where the list lives, what it is
+ * currently narrowed to, and which fields a filter link may touch. The three
+ * always travel together, so they travel as one.
+ */
+export interface Links<Field extends string> {
+  readonly path: string;
+  readonly query: Readonly<Partial<Record<Field, string | undefined>>>;
+  readonly fields: readonly Field[];
+}
 
 /**
  * The same page with one field changed. A filter link drops the cursor: kept,
@@ -102,25 +108,23 @@ export type Filters<Field extends string> = Readonly<
  * Only the "older" link carries one, and it changes nothing else.
  */
 export function linkTo<Field extends string>(
-  path: string,
-  query: Filters<Field>,
-  fields: readonly Field[],
+  links: Links<Field>,
   change: { field: Field; value?: string } | { cursor: string }
 ): string {
   const next = new URLSearchParams();
   const changed = "field" in change ? change : null;
-  for (const field of fields) {
+  for (const field of links.fields) {
     const value =
       changed !== null && changed.field === field
         ? changed.value
-        : query[field];
+        : links.query[field];
     if (value !== undefined && value !== "") next.set(field, value);
   }
   if ("cursor" in change) next.set("cursor", change.cursor);
 
   // A sub-app mounted at the root has an empty `basePath`, and a link has to
   // be a path.
-  const at = path === "" ? "/" : path;
+  const at = links.path === "" ? "/" : links.path;
   const search = next.toString();
   return search === "" ? at : `${at}?${search}`;
 }

@@ -11,7 +11,7 @@ import type { Brand, Output, OutputKind } from "@meco/records";
 import type { Store } from "@meco/store";
 import { Layout } from "./layout";
 import { Filter, Older, Pages } from "./nav";
-import { GALLERY_FIELDS, KINDS, type GalleryQuery } from "./query";
+import { GALLERY_FIELDS, KINDS, type GalleryQuery, type Links } from "./query";
 
 export interface GalleryProps {
   readonly basePath: string;
@@ -67,15 +67,18 @@ function Card(props: {
 
 export function Gallery(props: GalleryProps) {
   const placements = placementsOf(props.outputs);
+  const links: Links<(typeof GALLERY_FIELDS)[number]> = {
+    path: props.basePath,
+    query: props.query,
+    fields: GALLERY_FIELDS,
+  };
   return (
     <Layout title="meco — Gallery">
       <h1>Gallery</h1>
       <nav>
         <Pages basePath={props.basePath} here="gallery" />
         <Filter
-          path={props.basePath}
-          query={props.query}
-          fields={GALLERY_FIELDS}
+          links={links}
           heading="brand"
           field="brand"
           options={props.brands.map((one) => ({
@@ -85,18 +88,14 @@ export function Gallery(props: GalleryProps) {
         />
         {placements.length === 0 ? null : (
           <Filter
-            path={props.basePath}
-            query={props.query}
-            fields={GALLERY_FIELDS}
+            links={links}
             heading="placement"
             field="placement"
             options={placements.map((one) => ({ value: one, label: one }))}
           />
         )}
         <Filter
-          path={props.basePath}
-          query={props.query}
-          fields={GALLERY_FIELDS}
+          links={links}
           heading="kind"
           field="kind"
           options={KINDS.map((one: OutputKind) => ({ value: one, label: one }))}
@@ -117,12 +116,7 @@ export function Gallery(props: GalleryProps) {
         </div>
       )}
 
-      <Older
-        path={props.basePath}
-        query={props.query}
-        fields={GALLERY_FIELDS}
-        cursor={props.cursor}
-      />
+      <Older links={links} cursor={props.cursor} />
     </Layout>
   );
 }

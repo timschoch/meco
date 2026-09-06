@@ -10,7 +10,7 @@
 import type { Brand, Call } from "@meco/records";
 import { Layout } from "./layout";
 import { Filter, Older, Pages } from "./nav";
-import { CALLS_FIELDS, STATUSES, type CallsQuery } from "./query";
+import { CALLS_FIELDS, STATUSES, type CallsQuery, type Links } from "./query";
 
 export interface CallsProps {
   readonly basePath: string;
@@ -52,16 +52,18 @@ function Row(props: { basePath: string; call: Call }) {
 }
 
 export function Calls(props: CallsProps) {
-  const path = `${props.basePath}/calls`;
+  const links: Links<(typeof CALLS_FIELDS)[number]> = {
+    path: `${props.basePath}/calls`,
+    query: props.query,
+    fields: CALLS_FIELDS,
+  };
   return (
     <Layout title="meco — Calls">
       <h1>Calls</h1>
       <nav>
         <Pages basePath={props.basePath} here="calls" />
         <Filter
-          path={path}
-          query={props.query}
-          fields={CALLS_FIELDS}
+          links={links}
           heading="brand"
           field="brand"
           options={props.brands.map((one) => ({
@@ -70,9 +72,7 @@ export function Calls(props: CallsProps) {
           }))}
         />
         <Filter
-          path={path}
-          query={props.query}
-          fields={CALLS_FIELDS}
+          links={links}
           heading="status"
           field="status"
           options={STATUSES.map((one) => ({ value: one, label: one }))}
@@ -101,12 +101,7 @@ export function Calls(props: CallsProps) {
         </table>
       )}
 
-      <Older
-        path={path}
-        query={props.query}
-        fields={CALLS_FIELDS}
-        cursor={props.cursor}
-      />
+      <Older links={links} cursor={props.cursor} />
     </Layout>
   );
 }
