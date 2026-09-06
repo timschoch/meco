@@ -5,6 +5,7 @@ export const COMPOSE_ERROR_CODES = [
   "placement_not_supported",
   "invalid_fields",
   "framing_mismatch",
+  "look_assets_missing",
 ] as const;
 
 export type ComposeErrorCode = (typeof COMPOSE_ERROR_CODES)[number];

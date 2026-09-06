@@ -222,15 +222,18 @@ describe("plan for a Template whose Image Slot is a column", () => {
 
 describe("plan refusals", () => {
   it("has one code per way compose refuses, and no more", () => {
-    // Closed, so a caller can branch on the code exhaustively. Four of the five
+    // Closed, so a caller can branch on the code exhaustively. Four of the six
     // are exercised below; `framing_mismatch` needs a window and so belongs to
-    // `render`, where `tests/render.test.ts` covers it.
+    // `render`, where `tests/render.test.ts` covers it, and
+    // `look_assets_missing` needs a Look's file to go missing, which
+    // `tests/assets.test.ts` arranges.
     expect(COMPOSE_ERROR_CODES).toEqual([
       "unknown_template",
       "unknown_brand",
       "placement_not_supported",
       "invalid_fields",
       "framing_mismatch",
+      "look_assets_missing",
     ]);
   });
 

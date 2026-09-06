@@ -45,13 +45,17 @@ describe("render", () => {
     }
   );
 
-  it("reaches neither the network nor the disk", async () => {
-    // A Look reads its fonts and wordmark when its module loads, so by the time
-    // `render` runs there is nothing left for it to open. Both spies watch the
-    // JavaScript layer only — sharp and takumi do their own I/O in Rust — which
-    // is why the fonts being committed, rather than fetched, is what actually
-    // makes the claim true.
+  it("reaches neither the network nor the disk once warm", async () => {
+    // A Look reads its fonts and wordmark on first use and holds them, so by
+    // the second `render` there is nothing left for it to open. The warm-up
+    // call is what makes this a statement about the memo: without it the spies
+    // would see the first read and this would only be saying that the fonts are
+    // committed rather than fetched. Both spies watch the JavaScript layer only
+    // — sharp and takumi do their own I/O in Rust — which is why the fonts being
+    // committed is what makes the network half of the claim true.
     const input = await story({ format: "png" });
+    await render(input);
+
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const readSpy = vi.spyOn(fs, "readFileSync");
     const openSpy = vi.spyOn(fs.promises, "readFile");

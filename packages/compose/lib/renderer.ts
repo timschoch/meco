@@ -9,14 +9,15 @@ let ready: Promise<Renderer> | undefined;
  *
  * Registration happens once and covers all Looks rather than the one Brand in
  * hand: takumi resolves families globally, so registering per call would make
- * the picture depend on call order. The bytes are already in memory — a Look
- * reads its fonts when its module loads — so the whole set costs nothing here.
+ * the picture depend on call order. This is also where every Look's font files
+ * are read: `fonts()` opens them on the first call and holds them, so the disk
+ * is touched once per process and never at import (#209).
  */
 export function sharedRenderer(): Promise<Renderer> {
   ready ??= (async () => {
     const created = new Renderer();
     for (const look of LOOKS.values()) {
-      for (const font of look.fonts) {
+      for (const font of look.fonts()) {
         await created.registerFont({
           name: font.family,
           data: font.data,
@@ -29,7 +30,12 @@ export function sharedRenderer(): Promise<Renderer> {
   return ready;
 }
 
-/** The image table takumi resolves a Template's wordmark `src` against. */
+/**
+ * The image table takumi resolves a Template's wordmark `src` against.
+ *
+ * `logo()` reads the file on its first call and holds it, so this runs once per
+ * process however many Renders follow.
+ */
 export function lookImages(look: Look): { src: string; data: Uint8Array }[] {
-  return [{ src: LOGO_SRC, data: look.logo }];
+  return [{ src: LOGO_SRC, data: look.logo() }];
 }

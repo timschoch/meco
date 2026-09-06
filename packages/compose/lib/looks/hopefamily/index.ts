@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import type { Look, LookFont } from "../../../template";
+import { lookAsset } from "../assets";
 
 function bytes(relative: string): Uint8Array {
-  return readFileSync(fileURLToPath(new URL(relative, import.meta.url)));
+  return lookAsset(relative, import.meta.url);
 }
 
 function face(family: string, weight: number, file: string): LookFont {
@@ -46,11 +45,11 @@ export const hopefamily = {
     black: "#0b1217",
     white: "#ffffff",
   },
-  fonts: [
+  fonts: () => [
     face("Eina02", 400, "Eina02-Regular.otf"),
     face("Eina02", 600, "Eina02-SemiBold.otf"),
   ],
   headingFamily: "Eina02",
   bodyFamily: "Eina02",
-  logo: bytes("./logo.png"),
+  logo: () => bytes("./logo.png"),
 } as const satisfies Look;
