@@ -22,7 +22,7 @@ rather than re-exporting a whole subtree through one index.
 
 ## The rules
 
-`.dependency-cruiser.cjs` enforces eight, all `error`:
+`.dependency-cruiser.cjs` enforces nine, all `error`:
 
 - **entrypoint-boundary-from-app** — code outside every package imports a
   package's entry points, never anything in its subfolders.
@@ -39,10 +39,21 @@ rather than re-exporting a whole subtree through one index.
   agree on, so it depends on none of them.
 - **services-do-not-import-each-other** — `gateway` and `models` deploy as
   separate containers. `gateway` reaches `models` over the Vercel service
-  binding at runtime, never by importing it.
+  binding at runtime, and imports exactly one file to do it:
+  `packages/models/index.ts`, the client that holds the wire. Nothing else
+  crosses, in either direction.
+- **models-client-stays-thin** — a root file of `models` other than `app.ts`,
+  `catalogue.ts` and `server.ts` is a client another package imports, so it may
+  reach neither the ONNX Runtime, sharp, Hono nor those three host entry
+  points — not directly, and not through anything it imports. Without it one
+  import would put the runtime and the weights in the gateway's image.
 
 Run them: `pnpm lint:boundaries`. `tests/boundaries.test.ts` runs the same
 check and additionally asserts it goes red on a planted violation.
+
+Third-party packages stay in the graph (`doNotFollow`, not `exclude`): a rule
+about what a file reaches has to see what it reaches. Only a package's own
+`packages/<name>/dist/` is excluded.
 
 ## Adding a package
 

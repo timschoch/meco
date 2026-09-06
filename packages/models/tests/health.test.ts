@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createApp, type CatalogueEntry, type Health } from "../app";
+import { createApp, type CatalogueEntry, type ModelsHealth } from "../app";
 import { catalogue } from "../catalogue";
 import { fakeCatalogue, fakeDetector } from "./fakes";
 
@@ -8,7 +8,7 @@ describe("models GET /health", () => {
     const res = await createApp(catalogue).request("/health");
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Health;
+    const body = (await res.json()) as ModelsHealth;
     expect(body).toMatchObject({
       ok: true,
       service: "models",
@@ -23,7 +23,9 @@ describe("models GET /health", () => {
     await warmed.warm();
     const app = createApp(fakeCatalogue(cold, warmed));
 
-    const { models } = (await (await app.request("/health")).json()) as Health;
+    const { models } = (await (
+      await app.request("/health")
+    ).json()) as ModelsHealth;
 
     expect(models).toEqual([
       { name: "cold", version: "1", warm: false },
