@@ -136,10 +136,22 @@ describe("every models refusal on the wire, and on the Call", () => {
         expect(failed.rows[0]?.steps.map((s) => s.name)).toEqual([
           "source.fetch",
           "records.annotations.get",
+          "source.facts",
+          "store.put",
+          "records.files.ensure",
+          "store.signedUrl",
           "models.annotate",
         ]);
-        // Bytes models refused are never filed.
-        await expect(one.store.list("sources")).resolves.toEqual([]);
+        // The bytes are filed before models is called, because models is
+        // handed a Signed URL and cannot fetch what is not in the store. What
+        // still holds is the part that matters: this Brand gets no Source
+        // Hold on a photograph no Model ever annotated, so the File is
+        // unheld, the Gallery never lists it, and the Sweep takes it and its
+        // bytes once the Retention Window is out.
+        await expect(one.store.list("sources")).resolves.toHaveLength(1);
+        await expect(
+          one.records.sources.heldBy(HELD[0], fixtureAnnotation(FILE).hash)
+        ).resolves.toBe(false);
       },
       TIMEOUT
     );

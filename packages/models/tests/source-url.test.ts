@@ -53,14 +53,33 @@ describe("POST /annotate with a { url } body", async () => {
     expect(String(fetch.mock.calls[0]?.[0])).toBe(SIGNED);
   });
 
-  it("times the fetch beside the decode and the Models", async () => {
+  it("times the fetch beside the decode and the Models, and says how many hops it took", async () => {
     const app = createApp(catalogue, {
       fetch: answering(() => new Response(bytes)),
     });
     const res = await byUrl(app, { url: SIGNED }, "?models=yunet");
+    // `hops` is a parameter of the fetch stage, never a stage of its own: a
+    // count read as milliseconds would be a number with the wrong unit.
     expect(res.headers.get("server-timing")).toMatch(
-      /^fetch;dur=[\d.]+, decode;dur=[\d.]+, yunet;dur=[\d.]+$/
+      /^fetch;dur=[\d.]+;hops=1, decode;dur=[\d.]+, yunet;dur=[\d.]+$/
     );
+  });
+
+  it("counts every hop a redirect added", async () => {
+    let served = false;
+    const app = createApp(catalogue, {
+      fetch: vi.fn<typeof globalThis.fetch>(async () => {
+        if (served) return new Response(bytes);
+        served = true;
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://store.test/moved.jpg" },
+        });
+      }),
+    });
+    const res = await byUrl(app, { url: SIGNED }, "?models=yunet");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("server-timing")).toMatch(/^fetch;dur=[\d.]+;hops=2,/);
   });
 
   it("fetches nothing when the Models named are not in the Catalogue", async () => {

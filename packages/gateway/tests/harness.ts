@@ -43,9 +43,14 @@ export const CRON_SECRET = "cron_test_the_sweep_secret";
 export const basic = (user: string, key: string): string =>
   `Basic ${Buffer.from(`${user}:${key}`).toString("base64")}`;
 
-/** What the fake host puts on `Server-Timing`: its own clock, as it would. */
+/**
+ * What the fake host puts on `Server-Timing`: its own clock, as it would.
+ * `fetch` leads because the pipeline hands models a Signed URL, so the host
+ * fetches the photograph before it decodes anything; `hops` rides on it as a
+ * parameter the client is expected to pass over.
+ */
 export const SERVER_TIMING =
-  "decode;dur=12.0, yunet;dur=43.6, dfine;dur=180.2, edgeface;dur=50.1";
+  "fetch;dur=93.8;hops=1, decode;dur=12.0, yunet;dur=43.6, dfine;dur=180.2, edgeface;dur=50.1";
 
 /**
  * models' wire from fixtures. `/health` and `/models` answer the committed

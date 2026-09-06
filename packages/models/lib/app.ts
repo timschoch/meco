@@ -168,8 +168,11 @@ export function createApp(catalogue: Catalogue, options: AppOptions = {}): Hono 
           new TextDecoder().decode(await readBody(c.req.raw))
         );
         laps.start();
-        bytes = await fetchSource(call, url);
-        laps.lap("fetch");
+        const fetched = await fetchSource(call, url);
+        bytes = fetched.bytes;
+        // The hop count rides on the fetch stage rather than on a stage of its
+        // own: it is a fact about the fetch, not a duration.
+        laps.lap("fetch", `hops=${fetched.hops}`);
       } else {
         bytes = await readBody(c.req.raw);
         if (bytes.byteLength === 0) {

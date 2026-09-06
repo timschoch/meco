@@ -419,13 +419,19 @@ describe("POST /v1/annotate on a photograph meco has never seen", () => {
       expect(recorded.steps.map((s) => s.name)).toEqual([
         "source.fetch",
         "records.annotations.get",
+        // Filed before models is called, not after: models is handed a Signed
+        // URL and cannot fetch a photograph that is not in the store yet. The
+        // media type comes from `imageFacts`, the same read `add_source` makes.
+        "source.facts",
+        "store.put",
+        "records.files.ensure",
+        "store.signedUrl",
         "models.annotate",
+        "models.fetch",
         "models.decode",
         "models.yunet",
         "models.dfine",
         "models.edgeface",
-        "store.put",
-        "records.files.ensure",
         "records.annotations.put",
         "records.sources.hold",
         "identify.match",
