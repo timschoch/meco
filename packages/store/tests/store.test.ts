@@ -21,9 +21,10 @@ describe("isPrivate", () => {
     expect(isPrivate("health/abc.png")).toBe(true);
   });
 
-  it("sends the two public Namespaces to the Public Store", () => {
+  it("sends the three public Namespaces to the Public Store", () => {
     expect(isPrivate("renders/abc.jpg")).toBe(false);
     expect(isPrivate("crops/abc.jpg")).toBe(false);
+    expect(isPrivate("health-public/abc.png")).toBe(false);
   });
 
   it("compares the Namespace case-insensitively", () => {
@@ -36,13 +37,14 @@ describe("isPrivate", () => {
     expect(isPrivate("sourcesomething/abc.jpg")).toBe(false);
   });
 
-  it("names the five Namespaces", () => {
+  it("names the six Namespaces", () => {
     expect(NAMESPACES).toEqual([
       "sources",
       "renders",
       "crops",
       "people",
       "health",
+      "health-public",
     ]);
   });
 });
