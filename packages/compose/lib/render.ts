@@ -4,7 +4,7 @@ import type { RgbaImage } from "@takumi-rs/helpers";
 import type { Box, DecodedImage } from "@meco/contracts";
 import { ComposeError } from "./errors";
 import type { MeasuredBox } from "./measured-tree";
-import { layout, resolve } from "./plan";
+import { layout, resolve, type PlanInput } from "./plan";
 import { lookImages, sharedRenderer } from "./renderer";
 
 /** The formats compose encodes, the same set as the contracts `Target`. */
@@ -33,11 +33,8 @@ const DEFAULT_QUALITY = 90;
  */
 const ASPECT_TOLERANCE_PX = 1;
 
-export interface RenderInput {
-  readonly template: string;
-  readonly placement: string;
-  readonly brand: string;
-  readonly fields: unknown;
+/** A Plan's four inputs plus the picture and the window frame chose. */
+export interface RenderInput extends PlanInput {
   /** The redacted Source Image, at the resolution the Annotation describes. */
   readonly source: DecodedImage;
   /** What frame chose, in Source Image fractions. */

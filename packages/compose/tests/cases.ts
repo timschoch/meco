@@ -66,10 +66,7 @@ export async function inputFor(
   const placement = PLACEMENTS.find((p) => p.id === test.placement);
   if (!placement) throw new Error(`Unknown Placement ${test.placement}.`);
   return {
-    template: test.template,
-    placement: test.placement,
-    brand: test.brand,
-    fields: test.fields,
+    ...planFor(test),
     source,
     window: centredWindow(source, placement),
     ...overrides,

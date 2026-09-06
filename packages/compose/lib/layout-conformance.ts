@@ -1,10 +1,11 @@
-import { deepStrictEqual } from "node:assert/strict";
+import { deepStrictEqual, ok } from "node:assert/strict";
 import sharp from "sharp";
 import type { MeasuredNode } from "@takumi-rs/core";
 import type { RgbaImage } from "@takumi-rs/helpers";
 import { Box, MAX_OCCLUSION_ZONES, type DecodedImage } from "@meco/contracts";
 import type { Check } from "@meco/contracts/conformance";
 import type { PlacementId } from "../placements";
+import type { Template } from "../template";
 import { layout, planOf, resolve, type Layout, type Plan } from "./plan";
 import type { MeasuredBox } from "./measured-tree";
 import { TEMPLATES } from "./templates/registry";
@@ -82,10 +83,6 @@ function leavesSlot(zone: MeasuredBox, slot: MeasuredBox): boolean {
   );
 }
 
-function assert(condition: boolean, message: string): void {
-  if (!condition) throw new Error(message);
-}
-
 /** One layout pass per Template x Placement, however many Checks ask for it. */
 function once<T>(make: () => Promise<T>): () => Promise<T> {
   let started: Promise<T> | undefined;
@@ -93,15 +90,20 @@ function once<T>(make: () => Promise<T>): () => Promise<T> {
 }
 
 function checksFor(
-  templateId: string,
-  brand: string,
+  template: Template,
   placement: PlacementId,
-  fields: unknown,
   fixtures: LayoutFixtures
 ): Check[] {
-  const name = `${templateId} at ${placement}`;
+  const name = `${template.id} at ${placement}`;
+  // The Template's own `example`, so the suite runs the Fields its author says
+  // are real and no test invents a second set to keep in step.
   const resolved = () =>
-    resolve({ template: templateId, brand, placement, fields });
+    resolve({
+      template: template.id,
+      brand: template.brand,
+      placement,
+      fields: template.example,
+    });
   const measured = once(async () => layout(resolved()));
   const planned = once(async (): Promise<Plan> =>
     planOf(resolved(), await measured())
@@ -114,7 +116,7 @@ function checksFor(
       // reaching it at all is half the answer; the size is the other half.
       run: async () => {
         const { slot } = await measured();
-        assert(
+        ok(
           slot.width > 0 && slot.height > 0,
           `The Image Slot measured ${slot.width}x${slot.height}.`
         );
@@ -135,7 +137,7 @@ function checksFor(
         // and a clipped zone is where that first shows.
         const { slot, zones } = await measured();
         const escaped = zones.filter((zone) => leavesSlot(zone, slot));
-        assert(
+        ok(
           escaped.length === 0,
           `${escaped.length} Occlusion Zone(s) leave the ${slot.width}x${slot.height} Image Slot and are clipped: ${JSON.stringify(escaped)}`
         );
@@ -145,7 +147,7 @@ function checksFor(
       name: `${name} keeps every text run inside its own box`,
       run: async () => {
         const overflowing = overflowingRuns((await measured()).measured);
-        assert(
+        ok(
           overflowing.length === 0,
           `Text overflows its box: ${overflowing.join("; ")}`
         );
@@ -181,7 +183,7 @@ function checksFor(
       name: `${name} declares no more Occlusion Zones than a FramingRequest holds`,
       run: async () => {
         const { occlusion } = await planned();
-        assert(
+        ok(
           occlusion.length <= MAX_OCCLUSION_ZONES,
           `${occlusion.length} Occlusion Zones; a FramingRequest holds ${MAX_OCCLUSION_ZONES}.`
         );
@@ -203,13 +205,7 @@ function checksFor(
 export function layoutConformance(fixtures: LayoutFixtures): Check[] {
   return [...TEMPLATES.values()].flatMap((template) =>
     template.placements.flatMap((placement) =>
-      checksFor(
-        template.id,
-        template.brand,
-        placement,
-        template.example,
-        fixtures
-      )
+      checksFor(template, placement, fixtures)
     )
   );
 }

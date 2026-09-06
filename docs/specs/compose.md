@@ -113,7 +113,9 @@ Tests cross the entry points only, enforced by dependency-cruiser. Prior art: co
 - `subjectArea`, when declared, is a valid Box;
 - no more Occlusion Zones than the `MAX_OCCLUSION_ZONES` a FramingRequest holds, so a Template that cannot be framed fails here and not at the gateway.
 
-Exact assertions, no tolerance. Each check names the mutation that turns it red: a `<div>` where `<Occludes>` belongs, a title three times longer than the box, a Template that reads `image.width` into its layout.
+Exact assertions. The Plan's own numbers carry no tolerance: `tests/plan.test.ts` names the text block in whole Image Slot pixels, 92, 1437, 896 by 391 for the example Fields. The two containment rules allow half a pixel, because takumi lays out in floats and a run that exactly fills its line comes back a fraction over; anything a reader would see is whole pixels.
+
+Each check names the mutation that turns it red: a `<div>` where `<Occludes>` belongs, a title three times longer than the box, a Template that reads `image.width` into its layout.
 
 **Golden images**, one per Template x Placement, rendered from a fixture photo and the `example` Fields, compared by mean absolute pixel difference against a threshold set from a cross-platform measurement (takumi is byte-deterministic on one machine; Linux CI is the open question). Regenerated only by an explicit script, never by the suite.
 
