@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 import type { Annotation, FacePrint } from "@meco/contracts";
 import type { Check } from "@meco/contracts/conformance";
 import { type Listing, type Store, memoryStore } from "@meco/store";
-import type { CallKind, NewCall } from "./calls";
+import type { CallError, CallKind, NewCall, Step } from "./calls";
 import { reachRecords, recordsTables } from "./health";
 import { verifying } from "./neon-database";
 import { peoplePrefix } from "./people";
@@ -911,6 +911,32 @@ export function recordsConformance(
       },
     },
     {
+      name: "calls.record refuses Steps and an error that are not the shape records keeps",
+      async run() {
+        const records = await open();
+        const { brand, callerId } = await calling(
+          records,
+          "records a malformed call"
+        );
+        const call = { callerId, brand, kind: "crop", status: "ok" } as const;
+
+        // `steps` and `error` are jsonb columns, so nothing but this stands
+        // between a mistyped Step and a Calls list the webui cannot render.
+        await rejects(() =>
+          records.calls.record({
+            ...call,
+            steps: [{ name: "frame.choose" }] as unknown as Step[],
+          })
+        );
+        await rejects(() =>
+          records.calls.record({
+            ...call,
+            error: { code: "boom" } as unknown as CallError,
+          })
+        );
+      },
+    },
+    {
       name: "calls.get of an id never recorded is null, not a throw",
       async run() {
         const records = await open();
@@ -1237,6 +1263,51 @@ export function recordsConformance(
           [...first.rows, ...second.rows].map((one) => one.storeKey),
           [4, 3, 2, 1].map(key)
         );
+      },
+    },
+    {
+      name: "a cursor walks the whole Gallery however fast the rows were written",
+      async run() {
+        const records = await open();
+        const mine = await calling(records, "writes its outputs in a burst");
+        const call = await records.calls.record({
+          callerId: mine.callerId,
+          brand: mine.brand,
+          kind: "crop",
+          status: "ok",
+        });
+
+        // Enough rows for seven pages, so the walk is the whole list and not
+        // one hop. What it cannot provoke is two rows in one millisecond at
+        // different microseconds — pglite's clock is millisecond-resolution and
+        // two round trips to Neon are milliseconds apart — which is why the
+        // cursor's precision is fixed by its type instead (`page.ts`).
+        const keys: string[] = [];
+        for (let index = 0; index < 20; index++) {
+          const storeKey = `renders/burst-${String(index).padStart(2, "0")}.png`;
+          await records.outputs.record({
+            brand: mine.brand,
+            storeKey,
+            callId: call.id,
+            kind: "crop",
+            requestHash: hashOf(`burst ${index}`),
+          });
+          keys.push(storeKey);
+        }
+
+        const walked: string[] = [];
+        let cursor: string | undefined;
+        do {
+          const page = await records.outputs.list({
+            brand: mine.brand,
+            limit: 3,
+            ...(cursor === undefined ? {} : { cursor }),
+          });
+          walked.push(...page.rows.map((one) => one.storeKey));
+          cursor = page.cursor ?? undefined;
+        } while (cursor !== undefined);
+
+        deepStrictEqual(walked, [...keys].reverse());
       },
     },
     {

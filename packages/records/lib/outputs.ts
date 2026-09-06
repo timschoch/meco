@@ -20,11 +20,12 @@
  */
 import type { Store } from "@meco/store";
 import { type SQL, and, desc, eq } from "drizzle-orm";
-import { type CallStatus, asCallStatus } from "./calls";
+import { type CallStatus, asCallStatus, oneOf } from "./calls";
 import type { DatabaseDriver } from "./database";
 import {
   type Keyset,
   type Page,
+  cursorAt,
   decodeCursor,
   olderThan,
   pageOf,
@@ -96,15 +97,8 @@ export interface Outputs {
 
 const KINDS: readonly OutputKind[] = ["crop", "render", "carousel"];
 
-const asOutputKind = (given: string): OutputKind => {
-  const found = KINDS.find((one) => one === given);
-  if (found === undefined) {
-    throw new Error(
-      `@meco/records: ${given} is no output kind. One of ${KINDS.join(", ")}.`
-    );
-  }
-  return found;
-};
+const asOutputKind = (given: string): OutputKind =>
+  oneOf(KINDS, given, "output kind");
 
 /**
  * The Output's own columns plus the three its Call carries. One query rather
@@ -121,6 +115,9 @@ const selection = {
   sourceHash: calls.sourceHash,
   status: calls.status,
   startedAt: calls.startedAt,
+  // The sort time as Postgres's own text, for a cursor that must not lose the
+  // microseconds a parsed `Date` drops. Read by `list` and ignored elsewhere.
+  cursorAt: cursorAt(outputs.createdAt),
 };
 
 type OutputRow = {
@@ -134,6 +131,7 @@ type OutputRow = {
   readonly sourceHash: string | null;
   readonly status: string;
   readonly startedAt: Date;
+  readonly cursorAt: string;
 };
 
 const asOutput = (row: OutputRow): Output => ({
@@ -149,9 +147,9 @@ const asOutput = (row: OutputRow): Output => ({
   startedAt: row.startedAt.toISOString(),
 });
 
-const keysetOf = (output: Output): Keyset => ({
-  at: new Date(output.createdAt),
-  tiebreak: output.storeKey,
+const keysetOf = (row: OutputRow): Keyset => ({
+  at: row.cursorAt,
+  tiebreak: row.storeKey,
 });
 
 export function outputsOver(driver: DatabaseDriver, store: Store): Outputs {
@@ -200,7 +198,12 @@ export function outputsOver(driver: DatabaseDriver, store: Store): Outputs {
     async byRequest(brand, requestHash) {
       const [row] = await read(
         and(eq(outputs.brand, brand), eq(outputs.requestHash, requestHash))
-      ).limit(1);
+      )
+        // Nothing makes `(brand, request_hash)` unique — a Brand may hold two
+        // Outputs of one request if a Replay was ever missed — so the newest is
+        // named rather than whichever row the plan happened to reach first.
+        .orderBy(desc(outputs.createdAt), desc(outputs.storeKey))
+        .limit(1);
       // A miss is `null`. The gateway asks this before every Call, so the
       // ordinary first request must not be an error path.
       return row === undefined ? null : asOutput(row);
@@ -235,7 +238,7 @@ export function outputsOver(driver: DatabaseDriver, store: Store): Outputs {
         .orderBy(desc(outputs.createdAt), desc(outputs.storeKey))
         .limit(query.limit + 1);
 
-      return pageOf(rows.map(asOutput), query.limit, keysetOf);
+      return pageOf(rows, query.limit, asOutput, keysetOf);
     },
 
     async delete(brand, storeKey) {

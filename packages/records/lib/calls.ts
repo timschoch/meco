@@ -17,11 +17,12 @@
  * because the webui needs the verdicts too (decision on #162). `steps` and
  * `error` are records' own shapes and are typed here.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, getTableColumns } from "drizzle-orm";
 import type { DatabaseDriver } from "./database";
 import {
   type Keyset,
   type Page,
+  cursorAt,
   decodeCursor,
   olderThan,
   pageOf,
@@ -136,20 +137,21 @@ const KINDS: readonly CallKind[] = [
 const STATUSES: readonly CallStatus[] = ["ok", "failed"];
 
 /**
- * `kind` and `status` are `text` and not a Postgres enum, so the closed set is
- * written down once in TypeScript and checked here. Without this the column
- * takes whatever a caller mistyped, and the Calls list grows a status nothing
- * can render.
+ * A closed set is `text` and not a Postgres enum, so it is written down once in
+ * TypeScript and checked here. Without this the column takes whatever a caller
+ * mistyped, and the Calls list grows a status nothing can render.
+ *
+ * Shared with `outputs.ts`, which has a closed `kind` of its own.
  */
-function oneOf<Value extends string>(
+export function oneOf<Value extends string>(
   allowed: readonly Value[],
   given: string,
-  column: string
+  noun: string
 ): Value {
   const found = allowed.find((one) => one === given);
   if (found === undefined) {
     throw new Error(
-      `@meco/records: ${given} is no call ${column}. One of ${allowed.join(", ")}.`
+      `@meco/records: ${given} is no ${noun}. One of ${allowed.join(", ")}.`
     );
   }
   return found;
@@ -157,7 +159,45 @@ function oneOf<Value extends string>(
 
 /** The same check, for the Call facts an Output carries on the Gallery. */
 export const asCallStatus = (given: string): CallStatus =>
-  oneOf(STATUSES, given, "status");
+  oneOf(STATUSES, given, "call status");
+
+/**
+ * Parsed, not cast, as `people.ts` parses a Face Print. `steps` and `error` are
+ * records' own shapes but they live in jsonb columns, so what comes back is
+ * whatever some build once wrote there. Checked on the way in as well, because
+ * a Step list nothing validated is a Calls list the webui cannot render.
+ */
+function asSteps(value: unknown): readonly Step[] {
+  // A Call has a list of Steps, possibly empty. `null` would make every caller
+  // handle "no Steps" twice.
+  if (value === null || value === undefined) return [];
+  const isStep = (one: unknown): one is Step =>
+    typeof one === "object" &&
+    one !== null &&
+    typeof (one as Step).name === "string" &&
+    typeof (one as Step).durMs === "number";
+  if (!Array.isArray(value) || !value.every(isStep)) {
+    throw new Error(
+      "@meco/records: a Call's steps are `[{ name, durMs }]`, and these are not."
+    );
+  }
+  return value;
+}
+
+function asCallError(value: unknown): CallError | null {
+  if (value === null || value === undefined) return null;
+  const { module, code, message } = (value ?? {}) as Partial<CallError>;
+  if (
+    typeof module !== "string" ||
+    typeof code !== "string" ||
+    typeof message !== "string"
+  ) {
+    throw new Error(
+      "@meco/records: a Call's error is `{ module, code, message }`, and this is not."
+    );
+  }
+  return { module, code, message };
+}
 
 /** A stored row as the seam reports it: the driver's `Date` becomes ISO 8601. */
 type CallRow = {
@@ -182,25 +222,26 @@ const asCall = (row: CallRow): Call => ({
   id: row.id,
   callerId: row.callerId,
   brand: row.brand,
-  kind: oneOf(KINDS, row.kind, "kind"),
+  kind: oneOf(KINDS, row.kind, "call kind"),
   sourceHash: row.sourceHash,
   request: row.request,
   framing: row.framing,
   matches: row.matches,
   redactions: row.redactions,
-  // A Call has a list of Steps, possibly empty. `null` would make every caller
-  // handle "no Steps" twice.
-  steps: (row.steps ?? []) as readonly Step[],
+  steps: asSteps(row.steps),
   cost: row.cost,
-  error: (row.error ?? null) as CallError | null,
-  status: oneOf(STATUSES, row.status, "status"),
+  error: asCallError(row.error),
+  status: asCallStatus(row.status),
   startedAt: row.startedAt.toISOString(),
   durationMs: row.durationMs,
 });
 
-const keysetOf = (call: Call): Keyset => ({
-  at: new Date(call.startedAt),
-  tiebreak: call.id,
+/** The row as `list` reads it: the Call's columns plus its lossless sort time. */
+type ListedCallRow = CallRow & { readonly cursorAt: string };
+
+const keysetOf = (row: ListedCallRow): Keyset => ({
+  at: row.cursorAt,
+  tiebreak: row.id,
 });
 
 export function callsOver(driver: DatabaseDriver): Calls {
@@ -214,16 +255,16 @@ export function callsOver(driver: DatabaseDriver): Calls {
           id: crypto.randomUUID(),
           callerId: call.callerId,
           brand: call.brand,
-          kind: oneOf(KINDS, call.kind, "kind"),
+          kind: oneOf(KINDS, call.kind, "call kind"),
           sourceHash: call.sourceHash ?? null,
           request: call.request ?? null,
           framing: call.framing ?? null,
           matches: call.matches ?? null,
           redactions: call.redactions ?? null,
-          steps: call.steps === undefined ? [] : [...call.steps],
+          steps: [...asSteps(call.steps)],
           cost: call.cost ?? null,
-          error: call.error ?? null,
-          status: oneOf(STATUSES, call.status, "status"),
+          error: asCallError(call.error),
+          status: asCallStatus(call.status),
           // Omitted rather than defaulted to this process's clock, so a Call
           // the gateway did not time is ordered by the same clock as every
           // other row in the database.
@@ -255,14 +296,19 @@ export function callsOver(driver: DatabaseDriver): Calls {
         query.brand === undefined ? undefined : eq(calls.brand, query.brand),
         query.status === undefined
           ? undefined
-          : eq(calls.status, oneOf(STATUSES, query.status, "status")),
+          : eq(calls.status, asCallStatus(query.status)),
         query.cursor === undefined
           ? undefined
           : olderThan(calls.startedAt, calls.id, decodeCursor(query.cursor)),
       ].filter((one) => one !== undefined);
 
       const rows = await orm
-        .select()
+        // The sort time twice: as the driver parses it for `startedAt`, and as
+        // Postgres's own text for the cursor, which must not lose microseconds.
+        .select({
+          ...getTableColumns(calls),
+          cursorAt: cursorAt(calls.startedAt),
+        })
         .from(calls)
         .where(narrowed.length === 0 ? undefined : and(...narrowed))
         // The id as well as the time, so two Calls the gateway stamped with the
@@ -271,7 +317,7 @@ export function callsOver(driver: DatabaseDriver): Calls {
         .orderBy(desc(calls.startedAt), desc(calls.id))
         .limit(query.limit + 1);
 
-      return pageOf(rows.map(asCall), query.limit, keysetOf);
+      return pageOf(rows, query.limit, asCall, keysetOf);
     },
   };
 }
