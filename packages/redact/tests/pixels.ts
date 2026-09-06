@@ -39,6 +39,28 @@ export const rectangleOf = (
 };
 
 /**
+ * The part of `rect` that lies on the image, or `undefined` when none of it
+ * does.
+ *
+ * Restated here rather than imported, like the rectangle rule above. This is
+ * the sentence the module is built from: the write is clipped and the ellipse
+ * is not.
+ */
+export const clipOf = (
+  rect: Rectangle,
+  image: Pick<DecodedImage, "width" | "height">
+): Rectangle | undefined => {
+  const left = Math.min(image.width, Math.max(0, rect.left));
+  const top = Math.min(image.height, Math.max(0, rect.top));
+  const width =
+    Math.min(image.width, Math.max(0, rect.left + rect.width)) - left;
+  const height =
+    Math.min(image.height, Math.max(0, rect.top + rect.height)) - top;
+
+  return width > 0 && height > 0 ? { left, top, width, height } : undefined;
+};
+
+/**
  * Where a pixel centre falls in the ellipse inscribed in `rect`, as a fraction
  * of the ellipse's own radius. 1 is the ellipse's edge; above 1 is outside it.
  */

@@ -1,6 +1,6 @@
 import type { DecodedImage, Match, Redaction, Region } from "@meco/contracts";
 import { paintMask } from "./mask";
-import { pixelRectangle } from "./pixel-rectangle";
+import { clipToImage, pixelRectangle } from "./pixel-rectangle";
 import { unknownFaces } from "./unknown-faces";
 
 /**
@@ -40,29 +40,38 @@ export interface RedactResult {
  * Hides every Unknown Face in the Source Image and says which ones it hid.
  *
  * The masks are painted into a copy, so the image the caller handed in is
- * still the image it handed in. Turning the policy off, or having nothing to
- * hide, costs not even that copy: the request's own buffer comes straight back
- * out, which is what `blurUnknownFaces: false` returning the input byte for
- * byte means.
+ * still the image it handed in. Nothing to paint costs not even that copy: the
+ * request's own buffer comes straight back out, which is what
+ * `blurUnknownFaces: false` returning the input byte for byte means.
+ *
+ * **The Records are taken off the masks, not off the Unknown Faces.** A box
+ * that covers no whole pixel has no mask, and a Redaction Record says a face
+ * was hidden — reporting one for a face nothing was drawn over would be a
+ * claim the pixels do not support.
  */
 export const redact = async (request: RedactRequest): Promise<RedactResult> => {
   const hidden = request.redaction.blurUnknownFaces
     ? unknownFaces(request.regions, request.matches)
     : [];
 
-  if (hidden.length === 0) {
+  const masks = hidden.flatMap((region) => {
+    const ellipse = pixelRectangle(region.box, request.image);
+    const patch = clipToImage(ellipse, request.image);
+    return patch ? [{ region, mask: { ellipse, patch } }] : [];
+  });
+
+  if (masks.length === 0) {
     return { image: request.image, redactions: [] };
   }
 
   const data = Uint8Array.from(request.image.data);
-  for (const region of hidden) {
-    const rect = pixelRectangle(region.box, request.image);
-    if (rect) await paintMask(request.image, data, rect);
+  for (const { mask } of masks) {
+    await paintMask(request.image, data, mask);
   }
 
   return {
     image: { ...request.image, data },
-    redactions: hidden.map((region) => ({
+    redactions: masks.map(({ region }) => ({
       regionId: region.id,
       reason: "unknown-face",
     })),
