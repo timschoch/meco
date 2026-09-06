@@ -83,9 +83,9 @@ A Template must lay out identically whatever the image bytes are; the Plan depen
 
 No fetch, no store, no crop decision. `source` is a Decoded Image and `window` a Box in Source Image fractions, both contracts types; the gateway lifts the window (frame's `windowFraction`) out of the Framing. compose imports nothing from `@meco/frame`. Precondition: `source` is at the Annotation's own resolution, the one frame divided by. redact blurs in place and does not resize, so this holds today; a resize step anywhere before compose would scale the window correctly but make the one-pixel tolerance below mean something else.
 
-### The Cut
+### The bare Crop
 
-`cut` is the same pixel path with no Template over it: `extract`, `resize` to the target with lanczos3, the same `framing_mismatch` refusal read against the target instead of the Image Slot, and the same encoder at the same defaults. The picture is already the canvas's size, so takumi draws it 1:1. It exists because compose owns pixels and the gateway's bare Crop route must not reach for sharp to skip a Template (#88).
+`cut` produces a [Crop](../../CONTEXT.md#language) — the same stored output as a Render, with no Template — over the same pixel path: `extract`, `resize` to the target with lanczos3, the same `framing_mismatch` refusal read against the target instead of the Image Slot, and the same encoder at the same defaults. The picture is already the canvas's size, so takumi draws it 1:1. No new vocabulary: it is the Crop the domain already names, and this is compose making one. It exists because compose owns pixels and the gateway's bare Crop route must not reach for sharp to skip a Template (#88).
 
 ### Building Blocks
 

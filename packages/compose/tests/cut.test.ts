@@ -3,23 +3,15 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ComposeError, cut, render } from "../index";
 import { CUT_CASE, cutInputFor, inputFor, STORY_CASE } from "./cases";
-import { GOLDENS } from "./goldens";
+import { GOLDEN_THRESHOLD, GOLDENS } from "./goldens";
 import { centredWindow, decode, widenBy } from "./fixture";
-import { meanAbsoluteDifference, raster, type Raster } from "./pixels";
-
-/** The same number `render.test.ts` measured, on the same fixture and size. */
-const GOLDEN_THRESHOLD = 0.02;
-
-/** JPEG q90 of a 1080x1920 photograph is ~200 KB; anything tiny is an empty frame. */
-const SMALLEST_PLAUSIBLE_CUT = 10_000;
-
-const MAGIC: Record<string, (b: Uint8Array) => boolean> = {
-  jpeg: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-  png: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
-  webp: (b) =>
-    String.fromCharCode(...b.slice(0, 4)) === "RIFF" &&
-    String.fromCharCode(...b.slice(8, 12)) === "WEBP",
-};
+import {
+  MAGIC,
+  meanAbsoluteDifference,
+  raster,
+  SMALLEST_PLAUSIBLE_OUTPUT,
+  type Raster,
+} from "./pixels";
 
 describe("cut", () => {
   it("turns a fixture photograph into a 1080x1920 JPEG by default", async () => {
@@ -27,7 +19,7 @@ describe("cut", () => {
 
     expect(mime).toBe("image/jpeg");
     expect(MAGIC.jpeg?.(bytes)).toBe(true);
-    expect(bytes.length).toBeGreaterThan(SMALLEST_PLAUSIBLE_CUT);
+    expect(bytes.length).toBeGreaterThan(SMALLEST_PLAUSIBLE_OUTPUT);
 
     const decoded = await raster(bytes);
     expect([decoded.width, decoded.height]).toEqual([1080, 1920]);
@@ -120,18 +112,31 @@ describe("cut and render", () => {
    */
   const CLEAR = { top: 0.2, bottom: 0.44, left: 16 };
 
-  /** Every byte of one region of a picture, row by row. */
-  const region = (picture: Raster): Buffer => {
-    const rows: Uint8Array[] = [];
+  /** A band of rows well inside the scrim, where the Template must show. */
+  const COVERED = { top: 0.55, bottom: 0.6, left: 16 };
+
+  /** Every byte of one band of a picture, row by row. */
+  const band = (
+    picture: Raster,
+    rows: { top: number; bottom: number; left: number }
+  ): Buffer => {
+    const out: Uint8Array[] = [];
     for (
-      let y = Math.round(picture.height * CLEAR.top);
-      y < Math.round(picture.height * CLEAR.bottom);
+      let y = Math.round(picture.height * rows.top);
+      y < Math.round(picture.height * rows.bottom);
       y++
     ) {
-      const start = (y * picture.width + CLEAR.left) * 3;
-      rows.push(picture.data.subarray(start, (y + 1) * picture.width * 3));
+      const start = (y * picture.width + rows.left) * 3;
+      out.push(picture.data.subarray(start, (y + 1) * picture.width * 3));
     }
-    return Buffer.concat(rows);
+    return Buffer.concat(out);
+  };
+
+  /** How many bytes of two equal-length buffers disagree. */
+  const differences = (a: Buffer, b: Buffer): number => {
+    let count = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) count++;
+    return count;
   };
 
   it("put the same pixels in the Image Slot", async () => {
@@ -149,14 +154,22 @@ describe("cut and render", () => {
     );
 
     expect([bare.width, bare.height]).toEqual([drawn.width, drawn.height]);
-    // Counted rather than compared with `toEqual`: the region is 1.2 MB, and
+
+    // Counted rather than compared with `toEqual`: the band is 1.2 MB, and
     // vitest builds an element-by-element diff for a failing Buffer comparison
     // that takes longer than the render it is checking.
-    const [a, b] = [region(bare), region(drawn)];
-    let differing = 0;
-    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) differing++;
-    expect(`${differing} of ${a.length} bytes differ`).toBe(
-      `0 of ${a.length} bytes differ`
-    );
+    const clear = band(bare, CLEAR).length;
+    expect(
+      `${differences(band(bare, CLEAR), band(drawn, CLEAR))} of ${clear} bytes differ`
+    ).toBe(`0 of ${clear} bytes differ`);
+
+    // The band above is only worth comparing while the Template really does
+    // leave it alone, and that is a fact about `swisshutless-story`'s gradient
+    // stops, not about `cut`. Lower down, where the scrim is at full strength,
+    // the two must disagree — so a Template edit that drops the scrim turns
+    // this red instead of quietly making the check above vacuous.
+    expect(
+      differences(band(bare, COVERED), band(drawn, COVERED))
+    ).toBeGreaterThan(0);
   });
 });

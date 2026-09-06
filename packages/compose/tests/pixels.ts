@@ -1,5 +1,21 @@
 import sharp from "sharp";
 
+/**
+ * Whether these bytes are the format they claim, read off the file's own magic
+ * number. `raster` below would decode any of the three, so the header is what
+ * says which one compose actually encoded.
+ */
+export const MAGIC: Record<string, (b: Uint8Array) => boolean> = {
+  jpeg: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  png: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
+  webp: (b) =>
+    String.fromCharCode(...b.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...b.slice(8, 12)) === "WEBP",
+};
+
+/** JPEG q90 of a full-frame photograph is ~200 KB; anything tiny is an empty frame. */
+export const SMALLEST_PLAUSIBLE_OUTPUT = 10_000;
+
 export interface Raster {
   readonly width: number;
   readonly height: number;
