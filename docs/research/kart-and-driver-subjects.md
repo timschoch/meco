@@ -1,6 +1,6 @@
 # Framing a Crop on a kart and its driver
 
-*Research date: 5 Sep 2026. Two kinds of number appear below and they are always labelled. **Measured** means this study ran it against the deployed service at `https://meco-teal.vercel.app` and counted the answers. **Cited** means a primary source was read — model card, LICENSE file, official pricing page, paper — and the URL is at the bottom. A number with neither label does not appear.*
+_Research date: 5 Sep 2026. Two kinds of number appear below and they are always labelled. **Measured** means this study ran it against the deployed service at `https://meco-teal.vercel.app` and counted the answers. **Cited** means a primary source was read — model card, LICENSE file, official pricing page, paper — and the URL is at the bottom. A number with neither label does not appear._
 
 > **This is a point-in-time research snapshot, not the spec.** It answers the question [`docs/plans/faces-and-subject-aware-crop.md`](../plans/faces-and-subject-aware-crop.md) parked under "Later, not in this plan", and it assumes [`subject-aware-cropping.md`](./subject-aware-cropping.md) Q5 has been read. Domain terms are the ones defined in [`CONTEXT.md`](../../CONTEXT.md) — Source Image, Subject, Subject Box, Crop, Crop Anchor, Person, Face Print, Match, Face Blur — and are used exactly as defined.
 
@@ -8,7 +8,7 @@
 
 ## TL;DR
 
-1. **A helmet is not a face, and meco already believes it is.** Measured on 32 on-track karting photographs: `POST /faces/detect` puts a box on the leading driver's head in **9 of 32 (28%)**, finds nothing at all in **19 of 32 (59%)**, and in **4 of 32 (13%)** returns a confident box on the *wrong* subject — a spectator in the crowd, or a distant driver while the foreground driver is missed. On 12 paddock and podium photographs with helmets off it is **12 of 12**. The face pipeline does not have a karting problem; it has a *visor* problem, and the paddock half already works.
+1. **A helmet is not a face, and meco already believes it is.** Measured on 32 on-track karting photographs: `POST /faces/detect` puts a box on the leading driver's head in **9 of 32 (28%)**, finds nothing at all in **19 of 32 (59%)**, and in **4 of 32 (13%)** returns a confident box on the _wrong_ subject — a spectator in the crowd, or a distant driver while the foreground driver is missed. On 12 paddock and podium photographs with helmets off it is **12 of 12**. The face pipeline does not have a karting problem; it has a _visor_ problem, and the paddock half already works.
 
 2. **Person matching on a helmeted driver is not unreliable — it is actively wrong, and it is wrong today.** Measured: nine different drivers, nine helmets, 36 pairs. Median Face Print similarity **0.907**, minimum **0.639**. Twelve different people with helmets off: median **0.012**, maximum **0.388**. The same person photographed at two events, helmet off: **0.783**. `MATCH_THRESHOLD` is **0.50** (`src/people.ts:278`). **Every one of the 36 helmet pairs clears it, and 28 of 36 sit above the genuine same-person score.** EdgeFace collapses every full-face helmet onto approximately one identity. With a single Person enrolled there is no runner-up, so `MATCH_MARGIN` never fires and every helmeted stranger becomes a Match. This breaks `pinTo: "person"` and it breaks **Face Blur** — see [Q2](#q2--identity-the-measurement-that-decides-it), which is the one part of this document that is a bug report rather than a plan.
 
@@ -16,24 +16,24 @@
 
 4. **The thing that ships this week needs no new model.** Measured: `pinTo: "attention"` — the saliency producer that is already merged — frames the kart and its driver well in **25 of 32**, acceptably in **29 of 32**, and loses the driver's head in **3 of 32**. That is not close to the face producer's 9 of 32. The change is one line of policy, not one line of ML: **stop letting a face outrank saliency when the "face" is a helmet.**
 
-5. **The recommendation, when the 9% matters: a D-FINE-N kart detector feeding RTMPose-t — and [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning) found the fine-tuning is not a prerequisite.** Measured: the *pretrained* COCO model yields a usable kart-and-driver box in **31 of 32** with no dataset at all, because `motorbike` resolves a kart and `person` resolves the driver. (Q11 first measured 21 of 32 against an export built from superseded weights; [Q12](#q12--what-licence-is-the-model-in-production-under-and-where-is-that-written-down) found the corrected checkpoint and the numbers moved with it.) That clears saliency's 25 — and the two still fail on **disjoint** photographs, so the answer remains a ladder rather than a replacement.
+5. **The recommendation, when the 9% matters: a D-FINE-N kart detector feeding RTMPose-t — and [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning) found the fine-tuning is not a prerequisite.** Measured: the _pretrained_ COCO model yields a usable kart-and-driver box in **31 of 32** with no dataset at all, because `motorbike` resolves a kart and `person` resolves the driver. (Q11 first measured 21 of 32 against an export built from superseded weights; [Q12](#q12--what-licence-is-the-model-in-production-under-and-where-is-that-written-down) found the corrected checkpoint and the numbers moved with it.) That clears saliency's 25 — and the two still fail on **disjoint** photographs, so the answer remains a ladder rather than a replacement.
 
-6. **Second choice: RF-DETR-Nano, and it lost on size, not on accuracy.** The premise that killed it in Q5 — "no pre-exported ONNX" — is now false. `onnx-community/rfdetr_nano-ONNX` exists and is properly tagged `apache-2.0`. But [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning) measured the quantised D-FINE build as slower *and* less accurate than fp32, so the honest comparison is fp32 to fp32: **108.1 MB against 15.3 MB**, seven times the bytes for +5.7 COCO AP and an identical amount of TypeScript decode work. Cited. Take it only if a pilot shows 42.8 AP cannot find a kart.
+6. **Second choice: RF-DETR-Nano, and it lost on size, not on accuracy.** The premise that killed it in Q5 — "no pre-exported ONNX" — is now false. `onnx-community/rfdetr_nano-ONNX` exists and is properly tagged `apache-2.0`. But [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning) measured the quantised D-FINE build as slower _and_ less accurate than fp32, so the honest comparison is fp32 to fp32: **108.1 MB against 15.3 MB**, seven times the bytes for +5.7 COCO AP and an identical amount of TypeScript decode work. Cited. Take it only if a pilot shows 42.8 AP cannot find a kart.
 
-7. **Reading the race number will not identify a driver, and the honest version of that sentence is uncomfortable.** The one published dataset with this exact geometry — professional photographers, numbers on a vehicle panel *and on the helmet*, motion blur, glare, occlusion — reports state-of-the-art scene-text spotters at **0.12–0.15 end-to-end F1 out of the box** and **0.527 after fine-tuning on 2,400 in-domain images**, with the authors writing that even the fine-tuned models "fall short of real-world viability". Cited. Do not put OCR in the crop path. If the number is wanted, buy it offline: **$16 per 100,000 photographs** on Gemini 2.5 Flash-Lite, cited, and design the consumer to accept "unknown" about half the time.
+7. **Reading the race number will not identify a driver, and the honest version of that sentence is uncomfortable.** The one published dataset with this exact geometry — professional photographers, numbers on a vehicle panel _and on the helmet_, motion blur, glare, occlusion — reports state-of-the-art scene-text spotters at **0.12–0.15 end-to-end F1 out of the box** and **0.527 after fine-tuning on 2,400 in-domain images**, with the authors writing that even the fine-tuned models "fall short of real-world viability". Cited. Do not put OCR in the crop path. If the number is wanted, buy it offline: **$16 per 100,000 photographs** on Gemini 2.5 Flash-Lite, cited, and design the consumer to accept "unknown" about half the time.
 
 8. **Nothing in the recommendation is a rewrite.** `CROP_PRODUCERS` in `src/crop-solver.ts:33` is a `const` array and the solver reads `leader.producer` generically at line 500. A `kart` producer is one string in that array, one number in `PRIORITY` (`src/crop.ts:84`), and one branch in `subjectBoxes`. **`src/crop-solver.ts` needs no logic change at all** — ADR-0001's purity holds.
 
 ### The recommendation in one table
 
-| | What | Added weight | When |
-|---|---|---|---|
-| **Now** | Saliency outranks a helmet: don't let the face producer lead when the detected "face" is not a face | **0** | This week |
-| **Now** | Refuse to Match a face whose print is helmet-shaped — or gate Matching on the paddock case | **0** | Same change |
-| **Next** | **Pretrained** D-FINE-N → `kart` Subject Box above saliency ([Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning)) | +15.3 MB (fp32; **not** q4f16) | No dataset needed |
-| **Next** | RTMPose-t on the kart box → driver's head, eye line on the visor | +13.4 MB | With the above |
-| **Not** | OCR of the race number in the crop path | +6.6 MB, 0.22 s | Never |
-| **Maybe** | Race number read offline by a VLM, stored on the Annotation | 0 in the image | If someone asks for it |
+|           | What                                                                                                                                               | Added weight                   | When                   |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ---------------------- |
+| **Now**   | Saliency outranks a helmet: don't let the face producer lead when the detected "face" is not a face                                                | **0**                          | This week              |
+| **Now**   | Refuse to Match a face whose print is helmet-shaped — or gate Matching on the paddock case                                                         | **0**                          | Same change            |
+| **Next**  | **Pretrained** D-FINE-N → `kart` Subject Box above saliency ([Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning)) | +15.3 MB (fp32; **not** q4f16) | No dataset needed      |
+| **Next**  | RTMPose-t on the kart box → driver's head, eye line on the visor                                                                                   | +13.4 MB                       | With the above         |
+| **Not**   | OCR of the race number in the crop path                                                                                                            | +6.6 MB, 0.22 s                | Never                  |
+| **Maybe** | Race number read offline by a VLM, stored on the Annotation                                                                                        | 0 in the image                 | If someone asks for it |
 
 ---
 
@@ -54,12 +54,12 @@ Six of the 44 are committed under [`fixtures/karts/`](../../fixtures/karts/) wit
 
 ### Result — on track, helmeted (n = 32)
 
-| Outcome | Count | Share |
-|---|---|---|
-| Box on the **leading driver's head** | **9** | 28% |
-| Box on a driver's head, but a **background** one, while the foreground driver is missed | 2 | 6% |
-| Boxes only on **spectators** behind the track | 2 | 6% |
-| **Nothing** | 19 | 59% |
+| Outcome                                                                                 | Count | Share |
+| --------------------------------------------------------------------------------------- | ----- | ----- |
+| Box on the **leading driver's head**                                                    | **9** | 28%   |
+| Box on a driver's head, but a **background** one, while the foreground driver is missed | 2     | 6%    |
+| Boxes only on **spectators** behind the track                                           | 2     | 6%    |
+| **Nothing**                                                                             | 19    | 59%   |
 
 The 9 successes score **0.64–0.82**. The ten spectator faces in the worst false positive score **0.62–0.82**. There is no confidence band that separates a helmet from a face in the crowd behind it.
 
@@ -103,12 +103,12 @@ Then every pairwise cosine.
 
 ### Result
 
-| Comparison | Pairs | Min | Median | Max |
-|---|---|---|---|---|
-| **Helmet vs helmet**, nine different drivers | 36 | **0.639** | **0.907** | 0.967 |
-| Face vs face, different people | 65 | −0.224 | 0.012 | 0.388 |
-| Helmet vs face | 108 | −0.149 | −0.003 | 0.433 |
-| **Same person**, helmet off, two events | 1 | — | **0.783** | — |
+| Comparison                                   | Pairs | Min       | Median    | Max   |
+| -------------------------------------------- | ----- | --------- | --------- | ----- |
+| **Helmet vs helmet**, nine different drivers | 36    | **0.639** | **0.907** | 0.967 |
+| Face vs face, different people               | 65    | −0.224    | 0.012     | 0.388 |
+| Helmet vs face                               | 108   | −0.149    | −0.003    | 0.433 |
+| **Same person**, helmet off, two events      | 1     | —         | **0.783** | —     |
 
 All measured.
 
@@ -116,13 +116,13 @@ All measured.
 
 Different people with their faces showing sit at a median of 0.012 and never reach 0.39. That is the separation ADR-0003 calibrated on, and it is excellent — a threshold anywhere from 0.30 to 0.80 decides that set correctly.
 
-Different *drivers in helmets* sit at a median of **0.907**. The worst-separated pair of strangers is 0.639. **Every single one of the 36 pairs clears 0.50.** Twenty-eight of the 36 score higher than the genuine same-person pair at 0.783.
+Different _drivers in helmets_ sit at a median of **0.907**. The worst-separated pair of strangers is 0.639. **Every single one of the 36 pairs clears 0.50.** Twenty-eight of the 36 score higher than the genuine same-person pair at 0.783.
 
 To EdgeFace, all full-face helmets are one person.
 
 ### Why the margin does not save it
 
-`MATCH_MARGIN = 0.05` requires the winner to beat the best *other* Person. ADR-0003 already records that the margin is "a guard at the size of run-to-run noise, chosen and not measured". Here it does nothing useful and in one configuration it does actual harm:
+`MATCH_MARGIN = 0.05` requires the winner to beat the best _other_ Person. ADR-0003 already records that the margin is "a guard at the size of run-to-run noise, chosen and not measured". Here it does nothing useful and in one configuration it does actual harm:
 
 - **One Person enrolled** — the ordinary case for Swiss Hutless, where the Brand cares about one driver. There is no runner-up at all, so the margin is not consulted. Every helmeted stranger scores 0.64–0.97 against the enrolled Person and **is named as them**.
 - **Two similar Persons enrolled** — both score ~0.9 against any helmet, the margin bites, and meco reports "unknown" for a photograph where it should have reported nothing in the first place. Right answer, wrong reason, and it will silently stop working when a Person is deleted.
@@ -134,7 +134,7 @@ Two merged behaviours are affected right now:
 1. **`pinTo: "person"` (the default when a `brand` is given)** frames the Crop on whichever helmet EdgeFace happened to like. `resolvedBy` reports `"person"` and `matches` names a real Person. Nothing in the response says it is guessing.
 2. **`blurUnknownFaces`** blurs "every detected face that is not a Match". In a karting photograph every detected helmet **is** a Match, so **nothing is blurred**. The option that exists to protect people who did not consent fails open, and fails open specifically on the brand that needs it.
 
-`src/crop.ts:408-412` states the intent exactly right — *"who may be shown is not [a composition choice]"*. The intent is correct; the input is a helmet.
+`src/crop.ts:408-412` states the intent exactly right — _"who may be shown is not [a composition choice]"_. The intent is correct; the input is a helmet.
 
 The cheapest correct fix is not a new model. Face Prints of helmets are not merely similar to each other, they are **orthogonal to real faces** — the helmet-vs-face median is −0.003 across 108 pairs. A helmet print is a recognisable object. Options, in ascending cost:
 
@@ -148,36 +148,36 @@ Choosing between these is a decision for whoever owns ADR-0003. **This document'
 
 ### The nine, named — and what the Not-a-Face rule actually measures
 
-*Added 5 Sep 2026 for [#40](https://github.com/timschoch/meco/issues/40). The document defined the nine by description and not by name, which made the shipped Not-a-Face band rest on a deduction. It does not have to: the eight numbers are below, measured.*
+_Added 5 Sep 2026 for [#40](https://github.com/timschoch/meco/issues/40). The document defined the nine by description and not by name, which made the shipped Not-a-Face band rest on a deduction. It does not have to: the eight numbers are below, measured._
 
 The nine helmet detections, with the licence that decides whether each could ever be committed:
 
-| # | Commons file | Licence | Committed as |
-|---|---|---|---|
-| 1 | `Action v max.jpg` | CC BY-SA 3.0 | — |
-| 2 | **`Albert2010.jpg`** | **CC0** | **`on-track-rear-helmet.jpg`** |
-| 3 | **`Danny Buntschu, début en karting (2012).jpg`** | **CC0** | **`on-track-visor-open.jpg`** |
-| 4 | `Elena Lana - Test BMW FB02 in Jarama (1).JPG` | CC BY-SA 3.0 | — |
-| 5 | `Kart2.jpg` | CC BY-SA 2.0 | — |
-| 6 | `Karting (13275452385).jpg` | CC BY-SA 2.0 | — |
-| 7 | `Karting (13275894684).jpg` | CC BY-SA 2.0 | — |
-| 8 | `Sauro Cesetti.jpg` | CC BY-SA 3.0 | — |
-| 9 | `Telaiotony.jpg` | CC BY-SA 3.0 | — |
+| #   | Commons file                                      | Licence      | Committed as                   |
+| --- | ------------------------------------------------- | ------------ | ------------------------------ |
+| 1   | `Action v max.jpg`                                | CC BY-SA 3.0 | —                              |
+| 2   | **`Albert2010.jpg`**                              | **CC0**      | **`on-track-rear-helmet.jpg`** |
+| 3   | **`Danny Buntschu, début en karting (2012).jpg`** | **CC0**      | **`on-track-visor-open.jpg`**  |
+| 4   | `Elena Lana - Test BMW FB02 in Jarama (1).JPG`    | CC BY-SA 3.0 | —                              |
+| 5   | `Kart2.jpg`                                       | CC BY-SA 2.0 | —                              |
+| 6   | `Karting (13275452385).jpg`                       | CC BY-SA 2.0 | —                              |
+| 7   | `Karting (13275894684).jpg`                       | CC BY-SA 2.0 | —                              |
+| 8   | `Sauro Cesetti.jpg`                               | CC BY-SA 3.0 | —                              |
+| 9   | `Telaiotony.jpg`                                  | CC BY-SA 3.0 | —                              |
 
 **`on-track-rear-helmet.jpg` is one of the nine**, so the deduction behind [ADR-0003](../adr/0003-face-recognition-licence-consent-and-threshold.md)'s amendment is sound. **Two of the nine are CC0 and both are already committed**; the other seven are CC BY-SA and cannot join them under `fixtures/karts/LICENCE.md`'s bar. There is nothing new to commit, so the calibration cannot be widened by adding fixtures from this set — the measurement below is what is available instead.
 
 **The shipped reference print against the other eight**, computed directly rather than deduced:
 
-| vs | cosine | |
-|---|---|---|
-| `on-track-visor-open.jpg` | **0.7092** | caught |
-| `Action v max.jpg` | 0.8587 | caught |
-| `Karting (13275452385).jpg` | 0.9021 | caught |
-| `Telaiotony.jpg` | 0.9116 | caught |
-| `Elena Lana …` | 0.9440 | caught |
-| `Sauro Cesetti.jpg` | 0.9502 | caught |
-| `Karting (13275894684).jpg` | 0.9600 | caught |
-| `Kart2.jpg` | 0.9629 | caught |
+| vs                          | cosine     |        |
+| --------------------------- | ---------- | ------ |
+| `on-track-visor-open.jpg`   | **0.7092** | caught |
+| `Action v max.jpg`          | 0.8587     | caught |
+| `Karting (13275452385).jpg` | 0.9021     | caught |
+| `Telaiotony.jpg`            | 0.9116     | caught |
+| `Elena Lana …`              | 0.9440     | caught |
+| `Sauro Cesetti.jpg`         | 0.9502     | caught |
+| `Karting (13275894684).jpg` | 0.9600     | caught |
+| `Kart2.jpg`                 | 0.9629     | caught |
 
 **Eight of eight caught at `NOT_A_FACE_THRESHOLD = 0.60`, with the worst at 0.7092.** That 0.7092 is the same number issue #34 reported from production, which is what it should be: the reproduction enrolled this reference and matched a different helmeted human against it.
 
@@ -196,16 +196,16 @@ Two corrections to how the band was justified, both in the rule's favour:
 
 The brief asked whether the on-track and paddock cases need different answers. They do, and the split is clean enough to be a design boundary rather than a caveat.
 
-| | On track, helmeted | Paddock, podium, helmet off |
-|---|---|---|
-| Detection | 28% on the right head (measured) | 100% (measured) |
-| Identity | **Impossible.** No facial skin; helmets collapse to one identity | Works. Same-person 0.783, strangers ≤ 0.388 (measured) |
-| What the Crop should frame | The **kart and its driver together** — a head crop loses the brand | The face, with the existing eye-line rule |
-| Right producer today | `saliency` | `face` / `person` |
-| Right producer later | `kart`, with `face` demoted | Unchanged |
-| Face Blur | Fails open — see Q2 | Works |
+|                            | On track, helmeted                                                 | Paddock, podium, helmet off                            |
+| -------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------ |
+| Detection                  | 28% on the right head (measured)                                   | 100% (measured)                                        |
+| Identity                   | **Impossible.** No facial skin; helmets collapse to one identity   | Works. Same-person 0.783, strangers ≤ 0.388 (measured) |
+| What the Crop should frame | The **kart and its driver together** — a head crop loses the brand | The face, with the existing eye-line rule              |
+| Right producer today       | `saliency`                                                         | `face` / `person`                                      |
+| Right producer later       | `kart`, with `face` demoted                                        | Unchanged                                              |
+| Face Blur                  | Fails open — see Q2                                                | Works                                                  |
 
-A photograph that is 90 % kart and 10 % helmet is a photograph *of a kart*. This came out of the comparison and was not anticipated: in several cases where the face producer *did* correctly find the helmet, the resulting Crop was **worse** than the saliency one, because the solver did what it is supposed to do and composed on the face — filling a 4:5 frame with a helmet and cutting the kart, the livery and the sponsor decals out of the picture. For a karting brand that is a loss even when the detection was right.
+A photograph that is 90 % kart and 10 % helmet is a photograph _of a kart_. This came out of the comparison and was not anticipated: in several cases where the face producer _did_ correctly find the helmet, the resulting Crop was **worse** than the saliency one, because the solver did what it is supposed to do and composed on the face — filling a 4:5 frame with a helmet and cutting the kart, the livery and the sponsor decals out of the picture. For a karting brand that is a loss even when the detection was right.
 
 ---
 
@@ -213,11 +213,11 @@ A photograph that is 90 % kart and 10 % helmet is a photograph *of a kart*. This
 
 Before any new model: the merged saliency producer was measured against the same 32 on-track photographs. Each was cropped through `POST /v1/crop` at 540 × 675 (4:5) with `pinTo: "attention"`, and every result was looked at.
 
-| Outcome | Count | Share |
-|---|---|---|
-| Kart **and** driver's head well framed | **25** | 78% |
-| Both present, composition mediocre — distracting foreground, subject small | 4 | 13% |
-| **Driver's head cut off**, kart only | 3 | 9% |
+| Outcome                                                                    | Count  | Share |
+| -------------------------------------------------------------------------- | ------ | ----- |
+| Kart **and** driver's head well framed                                     | **25** | 78%   |
+| Both present, composition mediocre — distracting foreground, subject small | 4      | 13%   |
+| **Driver's head cut off**, kart only                                       | 3      | 9%    |
 
 Against the face producer's 9 of 32 on the same photographs, this is not a close contest. `sharp`'s attention heuristic likes the high-contrast, saturated, sharply-focused object in the frame, and on a race track that object is a kart.
 
@@ -243,19 +243,19 @@ The plan's proposal — **D-FINE-N to find the kart, RTMPose-t to find the drive
 
 ### D-FINE-N — sizes right, licence chain and postprocessing wrong
 
-| Claim in Q5 | Verdict | What is actually true |
-|---|---|---|
-| `onnx-community/dfine_n_coco-ONNX` exists, 15,258,358 B fp32 / 5,966,346 B q4f16 | ✅ | Both byte counts confirmed exactly. Repo last modified 2025-04-30. Also ships int8 at 4,477,908 B |
-| 4 M params, 42.8 COCO AP | ✅ | Upstream README, unchanged |
-| Apache-2.0 | ⚠️ **Not on the artefact** | The ONNX repo's model card carries **no licence field and no licence tag**. Apache-2.0 is verifiable upstream (`Peterande/D-FINE` LICENSE, and the base model `ustc-community/dfine-nano-coco` declares `license: apache-2.0`) — but the card's `base_model` link points at `ustc-community/dfine_n_coco`, which **404s**. The licence chain on the exact file meco would ship runs through a broken link |
-| Postprocessing is traced into the exported graph — `labels`/`boxes` xyxy absolute/`scores` sigmoided, top-300, no NMS | ❌ **False** | The graph was loaded and read. `INPUT: pixel_values [batch,3,h,w]` — one input, **no `orig_target_sizes`**. `OUTPUT: logits [batch,300,80]`, `pred_boxes [batch,300,4]`. Scores are **raw logits**. Boxes are **cxcywh, normalised 0..1**. `300` is the fixed decoder query count, not a top-k selection. The "no NMS" half is correct |
+| Claim in Q5                                                                                                           | Verdict                    | What is actually true                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------------------------------------------------------------------------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `onnx-community/dfine_n_coco-ONNX` exists, 15,258,358 B fp32 / 5,966,346 B q4f16                                      | ✅                         | Both byte counts confirmed exactly. Repo last modified 2025-04-30. Also ships int8 at 4,477,908 B                                                                                                                                                                                                                                                                                                         |
+| 4 M params, 42.8 COCO AP                                                                                              | ✅                         | Upstream README, unchanged                                                                                                                                                                                                                                                                                                                                                                                |
+| Apache-2.0                                                                                                            | ⚠️ **Not on the artefact** | The ONNX repo's model card carries **no licence field and no licence tag**. Apache-2.0 is verifiable upstream (`Peterande/D-FINE` LICENSE, and the base model `ustc-community/dfine-nano-coco` declares `license: apache-2.0`) — but the card's `base_model` link points at `ustc-community/dfine_n_coco`, which **404s**. The licence chain on the exact file meco would ship runs through a broken link |
+| Postprocessing is traced into the exported graph — `labels`/`boxes` xyxy absolute/`scores` sigmoided, top-300, no NMS | ❌ **False**               | The graph was loaded and read. `INPUT: pixel_values [batch,3,h,w]` — one input, **no `orig_target_sizes`**. `OUTPUT: logits [batch,300,80]`, `pred_boxes [batch,300,4]`. Scores are **raw logits**. Boxes are **cxcywh, normalised 0..1**. `300` is the fixed decoder query count, not a top-k selection. The "no NMS" half is correct                                                                    |
 
 The behaviour Q5 described **does exist** — it is what `tools/deployment/export_onnx.py` produces upstream, wrapping `cfg.postprocessor.deploy()`. It is simply not what Hugging Face ships. So there is a fork:
 
 - **Use the HF export** and write sigmoid, cxcywh→xyxy, scale-to-image and top-k in TypeScript. Perhaps 40 lines. Free of a Python step.
 - **Run the upstream export yourself** and get `labels`/`boxes`/`scores` in the graph. This is the repo's existing bar — `packages/faces/scripts/export-edgeface.py` pins an upstream commit SHA and the export is verified against the source model. Doing the same for D-FINE means a second Python script, a second pinned SHA, and a second verification.
 
-**Recommendation: use the HF export and write the decode.** Fine-tuning already requires a Python step and a checked-in `.onnx`, so the export script exists either way — but the *pre-export* is a byte-identical artefact anyone can re-download and diff, and 40 lines of arithmetic in TypeScript is easier to test than a Python graph surgery. Note the preprocessing while you are there: `preprocessor_config.json` says `size: 640×640`, `do_rescale: true` (1/255), and **`do_normalize: false`** — no ImageNet mean/std, which contradicts what a reader would assume from every other model in this repo.
+**Recommendation: use the HF export and write the decode.** Fine-tuning already requires a Python step and a checked-in `.onnx`, so the export script exists either way — but the _pre-export_ is a byte-identical artefact anyone can re-download and diff, and 40 lines of arithmetic in TypeScript is easier to test than a Python graph surgery. Note the preprocessing while you are there: `preprocessor_config.json` says `size: 640×640`, `do_rescale: true` (1/255), and **`do_normalize: false`** — no ImageNet mean/std, which contradicts what a reader would assume from every other model in this repo.
 
 Two constraints from Q5 stand and must be repeated because getting them wrong is silent: stay on **`dfine_n_coco`** (the only D-FINE size with no Objects365 lineage) and **train from COCO weights, not the recommended Objects365 ones**.
 
@@ -263,15 +263,15 @@ Two constraints from Q5 stand and must be repeated because getting them wrong is
 
 Every claim verified, including both byte counts to the byte:
 
-| | |
-|---|---|
-| SDK zip | 12,547,710 B — live `HEAD` returns 200, `Last-Modified` 31 Aug 2023 |
-| `end2end.onnx` inside | **13,350,364 B** |
-| Licence | Apache-2.0, `open-mmlab/mmpose` LICENSE |
-| Graph | opset 11, `input [batch,3,256,192]`, `simcc_x [batch,K,384]`, `simcc_y [batch,K,512]`. SimCC decode is **not** in the graph |
-| Preprocessing | `TopDownGetBboxCenterScale(padding=1.25)` → `TopDownAffine([192,256])` → **ImageNet mean/std** — the opposite of D-FINE-N |
-| COCO AP, body7 | **t 65.9**, s 69.7 |
-| Still linked | Yes — line 212 of MMPose `main`'s `projects/rtmpose/README.md` |
+|                       |                                                                                                                             |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| SDK zip               | 12,547,710 B — live `HEAD` returns 200, `Last-Modified` 31 Aug 2023                                                         |
+| `end2end.onnx` inside | **13,350,364 B**                                                                                                            |
+| Licence               | Apache-2.0, `open-mmlab/mmpose` LICENSE                                                                                     |
+| Graph                 | opset 11, `input [batch,3,256,192]`, `simcc_x [batch,K,384]`, `simcc_y [batch,K,512]`. SimCC decode is **not** in the graph |
+| Preprocessing         | `TopDownGetBboxCenterScale(padding=1.25)` → `TopDownAffine([192,256])` → **ImageNet mean/std** — the opposite of D-FINE-N   |
+| COCO AP, body7        | **t 65.9**, s 69.7                                                                                                          |
+| Still linked          | Yes — line 212 of MMPose `main`'s `projects/rtmpose/README.md`                                                              |
 
 **One new fact, and it is a risk rather than a blocker: MMPose and MMDeploy are dormant.** Neither is archived, but MMPose's last push was 4 Aug 2025 and MMDeploy's was 30 Sep 2024. For a pinned `.onnx` downloaded once and committed, a frozen upstream is close to harmless — the artefact does not rot. It does mean nobody will fix a bug in it, and it should be written into whatever ADR accepts this.
 
@@ -291,16 +291,16 @@ The alternative to two models is one model that does both. None qualifies:
 
 **RF-DETR-Nano.** Q5 rejected it partly on a premise that has since become false, so it deserves a fair re-hearing.
 
-| | D-FINE-N | RF-DETR-Nano |
-|---|---|---|
-| Licence | Apache-2.0 upstream; **not declared on the ONNX repo** | Apache-2.0, **declared in the ONNX repo's cardData and tags** |
-| Pre-exported ONNX | Yes | **Yes** — `onnx-community/rfdetr_nano-ONNX`, which Q5 said did not exist |
-| fp32 | **15,258,358 B** | 108,074,865 B |
-| q4f16 | **5,966,346 B** | 18,996,625 B |
-| Params | 4 M | 30.5 M |
-| Input | 640 × 640 | 384 × 384 |
-| COCO AP | 42.8 | **48.4** |
-| Graph output | `logits` + `pred_boxes`, 80 classes, undecoded | `logits` + `pred_boxes`, **91** classes, undecoded |
+|                   | D-FINE-N                                               | RF-DETR-Nano                                                             |
+| ----------------- | ------------------------------------------------------ | ------------------------------------------------------------------------ |
+| Licence           | Apache-2.0 upstream; **not declared on the ONNX repo** | Apache-2.0, **declared in the ONNX repo's cardData and tags**            |
+| Pre-exported ONNX | Yes                                                    | **Yes** — `onnx-community/rfdetr_nano-ONNX`, which Q5 said did not exist |
+| fp32              | **15,258,358 B**                                       | 108,074,865 B                                                            |
+| q4f16             | **5,966,346 B**                                        | 18,996,625 B                                                             |
+| Params            | 4 M                                                    | 30.5 M                                                                   |
+| Input             | 640 × 640                                              | 384 × 384                                                                |
+| COCO AP           | 42.8                                                   | **48.4**                                                                 |
+| Graph output      | `logits` + `pred_boxes`, 80 classes, undecoded         | `logits` + `pred_boxes`, **91** classes, undecoded                       |
 
 All cited.
 
@@ -314,7 +314,7 @@ It is a genuinely safe fallback. Take it if a pilot shows 42.8 AP cannot reliabl
 
 Two models were checked and **disqualified on licence**, both of which would otherwise have won:
 
-- **DEIMv2-N** — 43.0 AP at 3.6 M params, better than D-FINE-N on both axes. Its `LICENSE.md` reads *"No rights are granted for Commercial Use"* and names SaaS and APIs explicitly. Covers the weights. Dead.
+- **DEIMv2-N** — 43.0 AP at 3.6 M params, better than D-FINE-N on both axes. Its `LICENSE.md` reads _"No rights are granted for Commercial Use"_ and names SaaS and APIs explicitly. Covers the weights. Dead.
 - **YOLO26 / YOLO26-pose** — pre-exported ONNX exists and is popular. Upstream weights are AGPL-3.0. Dead, as every YOLO before it.
 
 ---
@@ -325,18 +325,18 @@ If EdgeFace cannot name a helmeted driver, what can? Three candidates, costed.
 
 ### Race number — the obvious answer, and it does not work
 
-Karts carry a number panel front and rear, and numbers often appear on the helmet. Reading it is a scene-text problem, and there is one published dataset with almost exactly this geometry: **RnD**, 2,411 photographs from 16 professional motorsports photographers at 50 off-road motorcycle events, numbers on the bike plate, the wheels, and *the cheeks of the racer's helmet*. Cited.
+Karts carry a number panel front and rear, and numbers often appear on the helmet. Reading it is a scene-text problem, and there is one published dataset with almost exactly this geometry: **RnD**, 2,411 photographs from 16 professional motorsports photographers at 50 off-road motorcycle events, numbers on the bike plate, the wheels, and _the cheeks of the racer's helmet_. Cited.
 
 Its results are the whole answer:
 
-| | Detection F1 | **End-to-end F1** |
-|---|---|---|
-| SwinTextSpotter, off the shelf | 0.232 | **0.120** |
-| YAMTS, off the shelf | 0.276 | **0.148** |
-| SwinTextSpotter, fine-tuned on 2,411 images | 0.734 | 0.459 |
-| YAMTS, fine-tuned | 0.775 | **0.527** |
+|                                             | Detection F1 | **End-to-end F1** |
+| ------------------------------------------- | ------------ | ----------------- |
+| SwinTextSpotter, off the shelf              | 0.232        | **0.120**         |
+| YAMTS, off the shelf                        | 0.276        | **0.148**         |
+| SwinTextSpotter, fine-tuned on 2,411 images | 0.734        | 0.459             |
+| YAMTS, fine-tuned                           | 0.775        | **0.527**         |
 
-And per condition, fine-tuned: motion blur 0.529 end-to-end, glare **0.289**. Detection stays high while recognition collapses — the dominant failure is "found the panel, cannot resolve the digits". The paper's own qualitative note is that occlusion *"often prevents smaller helmet numbers from being recognized"*. The authors' conclusion: *"even fine-tuned models fall short of real-world viability."* All cited.
+And per condition, fine-tuned: motion blur 0.529 end-to-end, glare **0.289**. Detection stays high while recognition collapses — the dominant failure is "found the panel, cannot resolve the digits". The paper's own qualitative note is that occlusion _"often prevents smaller helmet numbers from being recognized"_. The authors' conclusion: _"even fine-tuned models fall short of real-world viability."_ All cited.
 
 The reassuring 87–93 % figures from football jersey-number work do not transfer: those are **tracklet-level**, won by majority-voting an average of 482 frames per player and discarding the illegible ones. A photograph is one frame. There is no vote.
 
@@ -350,10 +350,10 @@ The clean stack exists — **PP-OCRv6-tiny, Apache-2.0, first-party ONNX, 1,780,
 
 The number only has to be read **once per Source Image**, and meco already has the place to put it: the Annotation, keyed by content hash, computed on a miss and reused by every Crop. That turns a per-request cost into a one-off.
 
-| | Input tokens, 1920 × 1080 | Per 100,000 photographs |
-|---|---|---|
-| Claude Haiku 4.5 | 1,560 | $166.00 ($83 batched) |
-| Gemini 2.5 Flash-Lite | 1,548 | **$16.28** ($8.14 batched) |
+|                       | Input tokens, 1920 × 1080 | Per 100,000 photographs    |
+| --------------------- | ------------------------- | -------------------------- |
+| Claude Haiku 4.5      | 1,560                     | $166.00 ($83 batched)      |
+| Gemini 2.5 Flash-Lite | 1,548                     | **$16.28** ($8.14 batched) |
 
 Cited, from the official pricing and vision pages. Sixteen dollars to read a hundred thousand race photographs is less than the engineering hours to export one ONNX file, adds nothing to the image, and sidesteps the entire licence minefield above.
 
@@ -377,15 +377,15 @@ The plan requires that this be an addition. It is. Every claim below was read fr
 
 The additions, in full:
 
-| File | Change |
-|---|---|
-| `src/crop-solver.ts:33` | `"kart"` in `CROP_PRODUCERS`. No other change |
-| `src/crop.ts:84` | `kart: 45` in `PRIORITY` — above `face` (40), below `person` (50). A named Person still wins; a helmet no longer does |
-| `src/crop.ts:37` | `"kart"` in `PIN_TO` |
-| `src/crop.ts:329` | One branch in `subjectBoxes`, ahead of the face branch |
-| `src/faces.ts` | A `detectKart()` client beside `detect` and `embed` |
-| `packages/faces` | `POST /kart` — kart box plus head point, same bearer check, same statelessness |
-| `src/api.ts:294` | `resolvedBy` gains a value. **A public API change** — the only one |
+| File                    | Change                                                                                                                |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `src/crop-solver.ts:33` | `"kart"` in `CROP_PRODUCERS`. No other change                                                                         |
+| `src/crop.ts:84`        | `kart: 45` in `PRIORITY` — above `face` (40), below `person` (50). A named Person still wins; a helmet no longer does |
+| `src/crop.ts:37`        | `"kart"` in `PIN_TO`                                                                                                  |
+| `src/crop.ts:329`       | One branch in `subjectBoxes`, ahead of the face branch                                                                |
+| `src/faces.ts`          | A `detectKart()` client beside `detect` and `embed`                                                                   |
+| `packages/faces`        | `POST /kart` — kart box plus head point, same bearer check, same statelessness                                        |
+| `src/api.ts:294`        | `resolvedBy` gains a value. **A public API change** — the only one                                                    |
 
 The Subject Box the producer yields:
 
@@ -409,22 +409,22 @@ The box is the **kart**, not the head. That is the point of Q3: a Crop that fram
 
 The faces image today, from `DEPLOY.md`:
 
-| | |
-|---|---|
+|                      |                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------- |
 | Image, `linux/amd64` | 377 MB on disk, 234 MB of it the `node:24-slim` base; **129 MB in the registry** |
-| Models | YuNet 229,738 B + EdgeFace 7,277,244 B |
-| Cold, 12 MP | ~470 ms `docker run` to served detection |
-| Warm detect, 12 MP | ~38 ms median |
+| Models               | YuNet 229,738 B + EdgeFace 7,277,244 B                                           |
+| Cold, 12 MP          | ~470 ms `docker run` to served detection                                         |
+| Warm detect, 12 MP   | ~38 ms median                                                                    |
 
 The delta this adds:
 
-| Option | On disk | Cold-start cost |
-|---|---|---|
+| Option                                      | On disk      | Cold-start cost                                                                                               |
+| ------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------- |
 | **D-FINE-N fp32 + RTMPose-t** ← recommended | **+28.6 MB** | Two more ORT sessions. D-FINE's own session create measured at **167 ms** (Q11); the pair is still unmeasured |
-| D-FINE-N fp32 alone, no pose | +15.3 MB | 167 ms session create, 28 ms warm — both measured |
-| D-FINE-N q4f16 + RTMPose-t | +19.4 MB | **Rejected** — Q11 measured q4f16 at 2.3× the inference time of fp32 and worse accuracy |
-| RF-DETR-Nano fp32 + RTMPose-t | +121.4 MB | as above |
-| PP-OCRv6-tiny, both stages | +6.6 MB | +0.22 s **per request**, not per boot |
+| D-FINE-N fp32 alone, no pose                | +15.3 MB     | 167 ms session create, 28 ms warm — both measured                                                             |
+| D-FINE-N q4f16 + RTMPose-t                  | +19.4 MB     | **Rejected** — Q11 measured q4f16 at 2.3× the inference time of fp32 and worse accuracy                       |
+| RF-DETR-Nano fp32 + RTMPose-t               | +121.4 MB    | as above                                                                                                      |
+| PP-OCRv6-tiny, both stages                  | +6.6 MB      | +0.22 s **per request**, not per boot                                                                         |
 
 On a 129 MB registry image the recommended pair is roughly **+15 %**, and most of that is RTMPose-t rather than the detector.
 
@@ -470,11 +470,11 @@ Ships in a day. Fixes the visible problem for the brand that has it.
 
 ## Q11 — Does an off-the-shelf COCO detector find the driver, with no fine-tuning?
 
-*Added 5 Sep 2026, after the rest of this document. It asks whether the fine-tuning in [Q10](#q10--staged-plan) stage 1 is actually a prerequisite. **It is not**, and the reason is not the class anybody expected.*
+_Added 5 Sep 2026, after the rest of this document. It asks whether the fine-tuning in [Q10](#q10--staged-plan) stage 1 is actually a prerequisite. **It is not**, and the reason is not the class anybody expected._
 
 > **Read [Q12](#q12--what-licence-is-the-model-in-production-under-and-where-is-that-written-down) alongside this section.** Every number below was measured against `onnx-community/dfine_n_coco-ONNX`, which was exported on 2025-04-30 — before its base checkpoint was corrected by a commit titled `Fix weights` on 2025-08-20. On the fixed weights the same code, the same photographs and the same thresholds give **29 of 32 rather than 21**, and **31 of 32** once the largest-box rule this section left untested is applied. The findings below all hold in shape; the rates are the floor, not the result.
 
-Q5 and Q10 both assume a **fine-tuned** kart detector, which means a labelled dataset, which is a project rather than a week. But the thing that has to be framed is a *driver*, and `person` is a COCO class that every pretrained detector ships with. So the assumption was tested rather than carried.
+Q5 and Q10 both assume a **fine-tuned** kart detector, which means a labelled dataset, which is a project rather than a week. But the thing that has to be framed is a _driver_, and `person` is a COCO class that every pretrained detector ships with. So the assumption was tested rather than carried.
 
 ### Method
 
@@ -486,11 +486,11 @@ Every box was rendered over its photograph and looked at, as in Q1.
 
 ### Result 1 — `person` alone
 
-| Outcome | Count | Share |
-|---|---|---|
-| `person` box on the **leading driver** | **20** | 63% |
-| `person` boxes only on **spectators or marshals** | 5 | 16% |
-| No `person` at all | 7 | 22% |
+| Outcome                                           | Count  | Share |
+| ------------------------------------------------- | ------ | ----- |
+| `person` box on the **leading driver**            | **20** | 63%   |
+| `person` boxes only on **spectators or marshals** | 5      | 16%   |
+| No `person` at all                                | 7      | 22%   |
 
 Against the face producer's 9 of 32, that is more than double. Against saliency's 25 of 32, it is worse.
 
@@ -500,23 +500,23 @@ And the 5 failures are the **same failures**, on the same photographs. On the tw
 
 This was not the hypothesis, and it is the finding.
 
-| Class | Fires on the right object | Share |
-|---|---|---|
-| `motorbike` → **the kart** | **21 / 32** | 66% |
-| `person` → the driver | 20 / 32 | 63% |
-| **Neither, nothing at all** | 3 / 32 | 9% |
+| Class                       | Fires on the right object | Share |
+| --------------------------- | ------------------------- | ----- |
+| `motorbike` → **the kart**  | **21 / 32**               | 66%   |
+| `person` → the driver       | 20 / 32                   | 63%   |
+| **Neither, nothing at all** | 3 / 32                    | 9%    |
 
-COCO has no kart class, so a kart is resolved to the nearest thing in the vocabulary — and `motorbike` is a remarkably good nearest thing: an open-wheeled, seated vehicle with a rider on it. The boxes are tight on the kart, not on the grandstand. The confusions when it misses are `boat`, `car` and `train`, which are all *also* roughly the right region and the wrong word.
+COCO has no kart class, so a kart is resolved to the nearest thing in the vocabulary — and `motorbike` is a remarkably good nearest thing: an open-wheeled, seated vehicle with a rider on it. The boxes are tight on the kart, not on the grandstand. The confusions when it misses are `boat`, `car` and `train`, which are all _also_ roughly the right region and the wrong word.
 
 ### Result 3 — the combined box, which is what a producer would actually yield
 
 The natural rule needs no model at all: **take the highest-scoring `motorbike` box, add every `person` box that overlaps it by more than 25 % of the smaller box, and union them.** That is "the kart and whoever is on it", and it fixes the crowd problem for free — a spectator does not overlap the kart.
 
-| Outcome | Count | Share |
-|---|---|---|
-| Union box **usable to frame on** — the leading kart, its driver, tight | **21** | 66% |
-| Right subject, but the driver's head is clipped above the box, or the subject is distant | 4 | 13% |
-| **Wrong subject or nothing** | 7 | 22% |
+| Outcome                                                                                  | Count  | Share |
+| ---------------------------------------------------------------------------------------- | ------ | ----- |
+| Union box **usable to frame on** — the leading kart, its driver, tight                   | **21** | 66%   |
+| Right subject, but the driver's head is clipped above the box, or the subject is distant | 4      | 13%   |
+| **Wrong subject or nothing**                                                             | 7      | 22%   |
 
 Box tightness, measured: median area **24.4 % of the frame**, range 0.1 %–80.4 %. Three of 29 exceed 60 %; the four under 2 % are exactly the spectator-and-marshal failures. **A grandstand box never happened.** This is question 2 answered: the box is a Subject Box, not a region proposal.
 
@@ -525,22 +525,22 @@ Box tightness, measured: median area **24.4 % of the frame**, range 0.1 %–80.4
 No, and the margin is not small.
 
 - `motorbike` **rescues 6 photographs** where `person` found nothing (4) or only the crowd (2). Four of those are photographs where YuNet also found nothing — genuinely new coverage.
-- `motorbike` **hurts twice**, both the same way: the highest-scoring kart is a *distant* one, so the union walks away from the foreground subject. A largest-box rule instead of a highest-score rule would probably fix both, and was not tested.
+- `motorbike` **hurts twice**, both the same way: the highest-scoring kart is a _distant_ one, so the union walks away from the foreground subject. A largest-box rule instead of a highest-score rule would probably fix both, and was not tested.
 
-Adding `bicycle` changed nothing on this set. Do not add `car`, `boat` or `train`: they fire on the kart *and* on trackside vehicles, and the precision is not worth it.
+Adding `bicycle` changed nothing on this set. Do not add `car`, `boat` or `train`: they fire on the kart _and_ on trackside vehicles, and the precision is not worth it.
 
 ### Result 5 — size and speed, measured
 
-| | fp32 | q4f16 |
-|---|---|---|
-| Bytes | **15,258,358** | 5,966,346 |
-| Session create | **167 ms** | 223 ms |
-| First inference | 35 ms | 41 ms |
-| **Warm median, 20 runs** | **28 ms** | **64 ms** |
-| `motorbike` present, of 32 | **21** | 17 |
-| `person` present, of 32 | **25** | 23 |
+|                            | fp32           | q4f16     |
+| -------------------------- | -------------- | --------- |
+| Bytes                      | **15,258,358** | 5,966,346 |
+| Session create             | **167 ms**     | 223 ms    |
+| First inference            | 35 ms          | 41 ms     |
+| **Warm median, 20 runs**   | **28 ms**      | **64 ms** |
+| `motorbike` present, of 32 | **21**         | 17        |
+| `person` present, of 32    | **25**         | 23        |
 
-**Do not ship the quantised build.** It is 2.3× *slower* and less accurate — it loses four kart detections and two driver detections out of 32, and it drops two photographs the fp32 build handles, including the helmet portrait. This is the same trap Q5 recorded for MoveNet, where the int8 build measured 31.83 ms against 14.41 ms for fp32, and it should now be treated as the default expectation for this runtime rather than a surprise.
+**Do not ship the quantised build.** It is 2.3× _slower_ and less accurate — it loses four kart detections and two driver detections out of 32, and it drops two photographs the fp32 build handles, including the helmet portrait. This is the same trap Q5 recorded for MoveNet, where the int8 build measured 31.83 ms against 14.41 ms for fp32, and it should now be treated as the default expectation for this runtime rather than a surprise.
 
 So the honest budget is **+15,258,358 B and ~28 ms**, not the +6.0 MB the TL;DR table quoted. Note also that `sharp` decode and resize of a 1920 × 1440 JPEG measured **31 ms** — more than the inference. The model is not the cost.
 
@@ -548,11 +548,11 @@ So the honest budget is **+15,258,358 B and ~28 ms**, not the +6.0 MB the TL;DR 
 
 A pretrained detector is **worse than saliency** on this set: 21 usable boxes against 25. That could end the section. It should not, because **the two fail on disjoint photographs**:
 
-| | Saliency | Pretrained detector |
-|---|---|---|
-| Usable | 25 | 21 |
-| Fails hard | **3** — the driver's head is cut off, the kart's bodywork won the frame | **7** — a spectator, a marshal, a distant kart, or nothing |
-| Photographs where **both** fail hard | **0** | |
+|                                      | Saliency                                                                | Pretrained detector                                        |
+| ------------------------------------ | ----------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Usable                               | 25                                                                      | 21                                                         |
+| Fails hard                           | **3** — the driver's head is cut off, the kart's bodywork won the frame | **7** — a spectator, a marshal, a distant kart, or nothing |
+| Photographs where **both** fail hard | **0**                                                                   |                                                            |
 
 The detector fixes **two of saliency's three failures** outright: on both, saliency framed the bodywork and lost the helmet, and a `person` box lands squarely on the driver. And saliency handles **all seven** of the detector's failures, because a crowd is not salient and a kart is.
 
@@ -579,14 +579,14 @@ Fine-tuning still buys three specific things, and they are now improvements rath
 
 Run against the six committed photographs in `fixtures/karts/`, D-FINE-N fp32 at threshold 0.28:
 
-| Fixture | What it finds | Against YuNet |
-|---|---|---|
-| `on-track-dark-visor.jpg` | **`person` 0.34 and 0.30, on both drivers** | YuNet: **zero faces** |
+| Fixture                    | What it finds                                             | Against YuNet                             |
+| -------------------------- | --------------------------------------------------------- | ----------------------------------------- |
+| `on-track-dark-visor.jpg`  | **`person` 0.34 and 0.30, on both drivers**               | YuNet: **zero faces**                     |
 | `on-track-rear-helmet.jpg` | `person` 0.43 on the driver, `motorbike` 0.28 on the kart | YuNet: one box, on the back of the helmet |
-| `on-track-visor-open.jpg` | `motorbike` 0.35 on the kart, **no `person`** | YuNet: 0.81 on the visor |
-| `paddock-mixed.jpg` | 8 × `person`, `motorbike` 0.37 | YuNet: 9 faces |
-| `podium-trophy.jpg` | `person` 0.48 | YuNet: 0.92 |
-| `podium-trophy-2.jpg` | `person` 0.32 | YuNet: 0.92 |
+| `on-track-visor-open.jpg`  | `motorbike` 0.35 on the kart, **no `person`**             | YuNet: 0.81 on the visor                  |
+| `paddock-mixed.jpg`        | 8 × `person`, `motorbike` 0.37                            | YuNet: 9 faces                            |
+| `podium-trophy.jpg`        | `person` 0.48                                             | YuNet: 0.92                               |
+| `podium-trophy-2.jpg`      | `person` 0.32                                             | YuNet: 0.92                               |
 
 The first row is the whole argument in one line. **The photograph the face detector cannot see at all is a photograph where a pretrained COCO detector puts a box on each driver** — and the third row is the honest counterweight: a large, sharp, unmissable driver that `person` does not find, while `motorbike` finds the kart underneath them. Neither model is reliable alone. Together with saliency, they cover the set.
 
@@ -594,19 +594,19 @@ The first row is the whole argument in one line. **The photograph the face detec
 
 ## Q12 — What licence is the model in production under, and where is that written down?
 
-*Added 5 Sep 2026, as the gate on the kart producer build. [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning) recorded that the ONNX model card declares no licence. This resolves that, and in doing so found that **the artefact Q11 measured is built from superseded weights** — so the answer changes the numbers as well as the paperwork.*
+_Added 5 Sep 2026, as the gate on the kart producer build. [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning) recorded that the ONNX model card declares no licence. This resolves that, and in doing so found that **the artefact Q11 measured is built from superseded weights** — so the answer changes the numbers as well as the paperwork._
 
 **The one-sentence answer: D-FINE-N is Apache-2.0, and the artefact to ship is [`AnnotateIt/dfine-nano-coco-onnx`](https://huggingface.co/AnnotateIt/dfine-nano-coco-onnx), which declares `license: apache-2.0` on the model itself and ships the Apache-2.0 text as a `LICENSE` file — unlike `onnx-community/dfine_n_coco-ONNX`, which declares nothing.**
 
 ### The chain, link by link
 
-| Link | What it is | Licence | Where that is written |
-|---|---|---|---|
-| 1. Training code | `Peterande/D-FINE` | **Apache-2.0** | `LICENSE` — read directly, 169 lines, the verbatim Apache License 2.0 text, no added clause |
-| 2. Released checkpoint | `dfine_n_coco.pth` | Apache-2.0 by the repo that released it | Linked from the D-FINE README model zoo, hosted on `Peterande/storage` releases |
-| 3. HF weights | `ustc-community/dfine-nano-coco` | **Apache-2.0, declared** | `license: apache-2.0` in the card's YAML **and** as the HF tag `license:apache-2.0` |
-| 4a. ONNX as measured in Q11 | `onnx-community/dfine_n_coco-ONNX` | **none declared** | no `license` in cardData, no `license:*` tag, no `LICENSE` file |
-| 4b. ONNX recommended | `AnnotateIt/dfine-nano-coco-onnx` | **Apache-2.0, declared** | `license: apache-2.0` in cardData **and** tag, **plus** an 11,357-byte `LICENSE` file carrying the full Apache-2.0 text |
+| Link                        | What it is                         | Licence                                 | Where that is written                                                                                                   |
+| --------------------------- | ---------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 1. Training code            | `Peterande/D-FINE`                 | **Apache-2.0**                          | `LICENSE` — read directly, 169 lines, the verbatim Apache License 2.0 text, no added clause                             |
+| 2. Released checkpoint      | `dfine_n_coco.pth`                 | Apache-2.0 by the repo that released it | Linked from the D-FINE README model zoo, hosted on `Peterande/storage` releases                                         |
+| 3. HF weights               | `ustc-community/dfine-nano-coco`   | **Apache-2.0, declared**                | `license: apache-2.0` in the card's YAML **and** as the HF tag `license:apache-2.0`                                     |
+| 4a. ONNX as measured in Q11 | `onnx-community/dfine_n_coco-ONNX` | **none declared**                       | no `license` in cardData, no `license:*` tag, no `LICENSE` file                                                         |
+| 4b. ONNX recommended        | `AnnotateIt/dfine-nano-coco-onnx`  | **Apache-2.0, declared**                | `license: apache-2.0` in cardData **and** tag, **plus** an 11,357-byte `LICENSE` file carrying the full Apache-2.0 text |
 
 **Link 3 is the one that matters, and it is clean.** The weights repo declares Apache-2.0 itself rather than inheriting it. Its commit history shows where the weights came from: `Add model from convert_d_fine_original_pytorch_checkpoint_to_hf.py` (28 Mar 2025) — a **format conversion of Peterande's released checkpoint**, not an independent retrain. So the grant does not have to travel from the code to the weights by implication; the party that published the weights stated it.
 
@@ -620,11 +620,11 @@ The conversion tool is the [`convert-to-onnx`](https://huggingface.co/spaces/onn
 
 A further sign that the card is unmaintained rather than deliberate: its `base_model` names `ustc-community/dfine_n_coco` with underscores, which **404s**. HF's own tags resolve the correct hyphenated repo, so the machine-readable provenance is right and the human-readable link is broken.
 
-Hugging Face documents **no default licence** for a repo that declares none. Their licence docs say only that you *"are able to add a license… to let other users know about the permissions that you want to attribute"*, and their own taxonomy includes an opt-in `unknown` value that nobody selected here. The HF Terms of Service do grant each user a licence over public repo content, but scoped *"through our Services and functionalities"* — a platform grant, not a basis for redistributing weights inside a commercial product. **An untagged repo is a licence gap, not a licence grant**, and that is the whole problem with 4a.
+Hugging Face documents **no default licence** for a repo that declares none. Their licence docs say only that you _"are able to add a license… to let other users know about the permissions that you want to attribute"_, and their own taxonomy includes an opt-in `unknown` value that nobody selected here. The HF Terms of Service do grant each user a licence over public repo content, but scoped _"through our Services and functionalities"_ — a platform grant, not a basis for redistributing weights inside a commercial product. **An untagged repo is a licence gap, not a licence grant**, and that is the whole problem with 4a.
 
 ### Is COCO a problem?
 
-**No — and this is the question that was worth asking, because the repo has been burned by exactly this before.** [Q7](#q7--identity-without-a-face) records SVHN's *"for non-commercial use only"* quietly tainting digit models. COCO is not that.
+**No — and this is the question that was worth asking, because the repo has been burned by exactly this before.** [Q7](#q7--identity-without-a-face) records SVHN's _"for non-commercial use only"_ quietly tainting digit models. COCO is not that.
 
 From COCO's terms of use:
 
@@ -638,20 +638,20 @@ Contrast Objects365, which is the genuine hazard:
 
 > The Objects365 dataset is available for the **academic purpose only**. … **You will NOT distribute the above images.**
 
-That is an explicit whole-dataset commercial gate, and **D-FINE's own README says so** at line 137: *"Checkpoints trained or pretrained on Objects365 (`*_obj365`, `*_obj2coco`) may be subject to the Objects365 dataset terms and should not be assumed to be commercially cleared under the D-FINE license."*
+That is an explicit whole-dataset commercial gate, and **D-FINE's own README says so** at line 137: _"Checkpoints trained or pretrained on Objects365 (`*_obj365`, `*_obj2coco`) may be subject to the Objects365 dataset terms and should not be assumed to be commercially cleared under the D-FINE license."_
 
-`dfine_n_coco` is COCO-only and sits outside that carve-out — and the carve-out is itself useful evidence, because a maintainer who names the checkpoints that are *not* cleared is telling you the others are. Q5's rule stands: **stay on `dfine_n_coco`, never an `_obj365` or `_obj2coco` variant.** The same rule rules out `PekingU/rtdetr_*_coco_o365`.
+`dfine_n_coco` is COCO-only and sits outside that carve-out — and the carve-out is itself useful evidence, because a maintainer who names the checkpoints that are _not_ cleared is telling you the others are. Q5's rule stands: **stay on `dfine_n_coco`, never an `_obj365` or `_obj2coco` variant.** The same rule rules out `PekingU/rtdetr_*_coco_o365`.
 
-**The one residual, stated so it is not a surprise later:** COCO's annotation JSON carries eight per-image Flickr licences and three of them are NonCommercial (`by-nc-sa/2.0`, `by-nc/2.0`, `by-nc-nd/2.0`). Whether a per-image NC licence flows through to a *trained model* — as opposed to redistributing the pixels — is unresolved by COCO's terms and by anything else found. It is diffuse, industry-wide, and applies equally to **every** COCO-pretrained detector, so it does not distinguish between any of the candidates in [Q6](#q6--second-choice-and-why-it-lost) or here. It is not a reason to choose differently; it is a reason to know.
+**The one residual, stated so it is not a surprise later:** COCO's annotation JSON carries eight per-image Flickr licences and three of them are NonCommercial (`by-nc-sa/2.0`, `by-nc/2.0`, `by-nc-nd/2.0`). Whether a per-image NC licence flows through to a _trained model_ — as opposed to redistributing the pixels — is unresolved by COCO's terms and by anything else found. It is diffuse, industry-wide, and applies equally to **every** COCO-pretrained detector, so it does not distinguish between any of the candidates in [Q6](#q6--second-choice-and-why-it-lost) or here. It is not a reason to choose differently; it is a reason to know.
 
 ### Do weights inherit the code licence?
 
 Not automatically, and anyone who says otherwise is guessing. What was actually found:
 
 - **The Apache Software Foundation is silent.** Their licence FAQ and legal pages contain no mention of machine learning, model weights, or trained models. Verified negative.
-- **OSI treats parameters as separately licensable.** The Open Source AI Definition lists Code and Parameters as distinct required components, with *"Parameters shall be made available under OSI-approved terms"* — it never says a code licence covers them.
-- **The Linux Foundation built OpenMDW because code licences do not fit weights**, naming as an open problem *"whether the trained weights are licensable under typical understandings applicable to IP rights in software."*
-- **There are real counterexamples.** BLOOM's licence states verbatim: *"Whereas the Apache 2.0 license was applicable to resources used to develop the Model, the licensing conditions have been modified for the access and distribution of the Model."* Stable Diffusion is MIT code with OpenRAIL-M checkpoints.
+- **OSI treats parameters as separately licensable.** The Open Source AI Definition lists Code and Parameters as distinct required components, with _"Parameters shall be made available under OSI-approved terms"_ — it never says a code licence covers them.
+- **The Linux Foundation built OpenMDW because code licences do not fit weights**, naming as an open problem _"whether the trained weights are licensable under typical understandings applicable to IP rights in software."_
+- **There are real counterexamples.** BLOOM's licence states verbatim: _"Whereas the Apache 2.0 license was applicable to resources used to develop the Model, the licensing conditions have been modified for the access and distribution of the Model."_ Stable Diffusion is MIT code with OpenRAIL-M checkpoints.
 - **No court ruling or Copyright Office guidance addresses it.** That silence is the finding.
 
 **Which is why link 3 carries the weight of this answer, not link 1.** The claim is not "the code is Apache-2.0 so the weights must be". The claim is "the party that published these weights declared them Apache-2.0, in machine-readable metadata, on the repo the ONNX is a format conversion of" — and a format conversion is a derivative work that Apache-2.0 §4 expressly permits distributing, provided recipients get a copy of the licence. **`onnx-community` ships no `LICENSE` and no `NOTICE`, so it cannot discharge §4 on our behalf. `AnnotateIt` does.**
@@ -672,15 +672,15 @@ This was found while checking dates, and it is the more consequential half of th
 
 So every number in Q11 was measured against a superseded checkpoint. Re-measured on the **same 32 photographs, the same decode, the same threshold and NMS**:
 
-| | onnx-community (2025-04-30) | AnnotateIt (fixed weights) |
-|---|---|---|
-| `person` present | 25 / 32 | **31 / 32** |
-| `motorbike` present | 21 / 32 | **29 / 32** |
-| **Usable kart-and-driver box** | **21 / 32** | **29 / 32** |
-| …with the largest-box rule (below) | — | **31 / 32** |
-| Photographs with nothing at all | 3 | 1 |
-| Bytes | 15,258,358 | 15,434,935 |
-| Warm inference, interleaved minimum | 28 ms | **27 ms** |
+|                                     | onnx-community (2025-04-30) | AnnotateIt (fixed weights) |
+| ----------------------------------- | --------------------------- | -------------------------- |
+| `person` present                    | 25 / 32                     | **31 / 32**                |
+| `motorbike` present                 | 21 / 32                     | **29 / 32**                |
+| **Usable kart-and-driver box**      | **21 / 32**                 | **29 / 32**                |
+| …with the largest-box rule (below)  | —                           | **31 / 32**                |
+| Photographs with nothing at all     | 3                           | 1                          |
+| Bytes                               | 15,258,358                  | 15,434,935                 |
+| Warm inference, interleaved minimum | 28 ms                       | **27 ms**                  |
 
 The typical union-box score rises from the 0.28–0.55 band to **0.66–0.90**. The failures Q11 documented individually are simply gone: the crowd-only shots, the marshal, the spectator, the head-clipped boxes — all now frame the kart and its driver.
 
@@ -730,7 +730,7 @@ What must be written down:
 
 ## Q13 — Is there one photograph that proves tag, blur and kart at once?
 
-*Added 5 Sep 2026. The owner's demonstration wants a single image where a known Person is named, every stranger is blurred, and the kart and its driver are framed. **No CC0 or public-domain photograph does all three, and the reason is structural rather than a failure to look hard enough.** The closest honest answer is two photographs, and it is below.*
+_Added 5 Sep 2026. The owner's demonstration wants a single image where a known Person is named, every stranger is blurred, and the kart and its driver are framed. **No CC0 or public-domain photograph does all three, and the reason is structural rather than a failure to look hard enough.** The closest honest answer is two photographs, and it is below._
 
 ### What was searched
 
@@ -746,29 +746,29 @@ Three specific leads were chased to the end and all three failed:
 
 The two requirements pull the camera in opposite directions, and it is measurable. Every row is different people in **one** photograph, so every score should be low:
 
-| Photograph | Faces | Median face width | Worst cross-person cosine | Kart in frame |
-|---|---|---|---|---|
-| Team photo, 13 people | 13 | **86 px** | 0.391 | **no** |
-| Podium, 3 drivers | 3 | 69 px | 0.314 | **no** |
-| 1961 press, kart and men | 5 | 61 px | 0.186 | yes (0.44) |
-| `paddock-mixed.jpg` | 8 | 54 px | **0.668** | yes (0.50) |
-| `street-karting-crowd.jpg` | 12 | 31 px | **0.712** | yes (0.85) |
+| Photograph                 | Faces | Median face width | Worst cross-person cosine | Kart in frame |
+| -------------------------- | ----- | ----------------- | ------------------------- | ------------- |
+| Team photo, 13 people      | 13    | **86 px**         | 0.391                     | **no**        |
+| Podium, 3 drivers          | 3     | 69 px             | 0.314                     | **no**        |
+| 1961 press, kart and men   | 5     | 61 px             | 0.186                     | yes (0.44)    |
+| `paddock-mixed.jpg`        | 8     | 54 px             | **0.668**                 | yes (0.50)    |
+| `street-karting-crowd.jpg` | 12    | 31 px             | **0.712**                 | yes (0.85)    |
 
 **A frame wide enough to contain a kart and its driver puts everyone else far enough away that their faces land in the band where EdgeFace stops discriminating.** A frame tight enough for reliable faces contains no kart. The two photographs with the strongest kart detections are the two with the worst face confusion, and that ordering is not a coincidence — it is the same lens.
 
-This is the case [ADR-0003](../adr/0003-face-recognition-licence-consent-and-threshold.md) said its fixture set could not measure: *"no two people in the fixtures look alike and so nothing there is ever decided by the runner-up."* These photographs contain it.
+This is the case [ADR-0003](../adr/0003-face-recognition-licence-consent-and-threshold.md) said its fixture set could not measure: _"no two people in the fixtures look alike and so nothing there is ever decided by the runner-up."_ These photographs contain it.
 
 ### The merged rules hold — checked on a photograph they were never calibrated on
 
 `street-karting-crowd.jpg` was found after [#38](https://github.com/timschoch/meco/pull/38) merged, so it is genuinely out of sample. Applying **both** of that fix's rules — `MIN_FACE_PX = 40` on the shorter side, and `NOT_A_FACE_THRESHOLD = 0.60` — to every embeddable face:
 
-| Photograph | Embeddable | Enrollable after both rules | Cross-person pairs still over `MATCH_THRESHOLD` |
-|---|---|---|---|
-| `paddock-mixed.jpg`, as committed at 1400 px | 8 | 3 | **0 of 3** |
-| the same photograph at the production 1600 px bound | 8 | 5 | **0 of 10** |
-| `street-karting-crowd.jpg`, 1600 px | 12 | 2 | **0 of 1** |
+| Photograph                                          | Embeddable | Enrollable after both rules | Cross-person pairs still over `MATCH_THRESHOLD` |
+| --------------------------------------------------- | ---------- | --------------------------- | ----------------------------------------------- |
+| `paddock-mixed.jpg`, as committed at 1400 px        | 8          | 3                           | **0 of 3**                                      |
+| the same photograph at the production 1600 px bound | 8          | 5                           | **0 of 10**                                     |
+| `street-karting-crowd.jpg`, 1600 px                 | 12         | 2                           | **0 of 1**                                      |
 
-**Zero false matches at every size.** The fix works, and it is worth recording *which half* does the work, because it is not the obvious one:
+**Zero false matches at every size.** The fix works, and it is worth recording _which half_ does the work, because it is not the obvious one:
 
 At the 1600 px bound — the size `src/faces.ts` actually feeds the embedder — **`MIN_FACE_PX` passes all eight** of `paddock-mixed`'s faces, and two cross-person pairs sit at **0.6489** and **0.5126**, both over threshold. What removes them is the Not-a-Face rule rejecting the two faces involved at 0.6563 and 0.6778. The size floor is not the guard here; the non-face check is, on inputs that are unambiguously faces. That is a stronger result for #38 than its own calibration claimed, and it is also a warning: the two rules are not independent, and loosening `NOT_A_FACE_THRESHOLD` would expose false matches that `MIN_FACE_PX` does not catch.
 
@@ -810,7 +810,7 @@ Run in that order the demonstration is honest and each claim is carried by the i
 
 Listed because a gap that is not written down gets filled with a guess.
 
-1. **Whether an EdgeFace helmet print carries the livery.** The 0.639–0.967 spread across 36 stranger pairs says *something* varies. No same-driver-same-helmet pair existed in the sample, so livery and lighting cannot be separated. This is the cheapest unrun experiment in the document and it might make Q7's third option free.
+1. **Whether an EdgeFace helmet print carries the livery.** The 0.639–0.967 spread across 36 stranger pairs says _something_ varies. No same-driver-same-helmet pair existed in the sample, so livery and lighting cannot be separated. This is the cheapest unrun experiment in the document and it might make Q7's third option free.
 2. **Cold start with four models.** Nobody has run it. It is the constraint most likely to change the recommendation, and it decides fp32 versus q4f16.
 3. **Whether a fine-tuned D-FINE-N actually finds a kart.** 42.8 COCO AP is a general-object number. A kart is small, low, partly occluded by its own driver, and often one of several. **No published number exists for this class**, and none can until the pilot runs.
 4. **Minimum training-set size.** Q5 flagged it as unverified; still unverified. RF-DETR's docs state no minimum, HF notes a GPU is required.
@@ -828,6 +828,7 @@ Listed because a gap that is not written down gets filled with a guess.
 Verified 5 Sep 2026. Face detection and Face Print numbers were measured against `https://meco-teal.vercel.app` on that date. [Q11](#q11--does-an-off-the-shelf-coco-detector-find-the-driver-with-no-fine-tuning)'s object-detection numbers were measured locally: `onnxruntime-node@1.29.0`, CPU execution provider, Apple M4 (10 cores), `sharp@0.35.3`, against `onnx/model.onnx` downloaded from the model card below.
 
 **Models**
+
 - D-FINE ONNX, recommended — <https://huggingface.co/AnnotateIt/dfine-nano-coco-onnx> (`LICENSE`, `PROVENANCE.md`, `validation-report.json`)
 - D-FINE ONNX, licence-less, superseded weights — <https://huggingface.co/onnx-community/dfine_n_coco-ONNX> · base model <https://huggingface.co/ustc-community/dfine-nano-coco> · upstream <https://github.com/Peterande/D-FINE> (LICENSE, `README.md`, `tools/deployment/export_onnx.py`, `src/zoo/dfine/postprocessor.py`)
 - RF-DETR — <https://huggingface.co/onnx-community/rfdetr_nano-ONNX> · <https://github.com/roboflow/rf-detr>
@@ -838,6 +839,7 @@ Verified 5 Sep 2026. Face detection and Face Print numbers were measured against
 - fast-plate-ocr (MIT, plate-shaped) — <https://github.com/ankandrew/fast-plate-ocr>
 
 **Papers and datasets**
+
 - RnD, motorcycle racer numbers — <https://arxiv.org/pdf/2311.09256>
 - RBNR, marathon bibs — <https://people.csail.mit.edu/talidekel/papers/RBNR.pdf> · <https://people.csail.mit.edu/talidekel/RBNR.html>
 - Jersey number recognition — <https://openaccess.thecvf.com/content/CVPR2024W/CVsports/papers/Koshkina_A_General_Framework_for_Jersey_Number_Recognition_in_Sports_Video_CVPRW_2024_paper.pdf>
@@ -845,6 +847,7 @@ Verified 5 Sep 2026. Face detection and Face Print numbers were measured against
 - Non-commercial jersey weights — <https://github.com/mkoshkina/jersey-number-pipeline> · <https://github.com/lukaszgrad/uncertainty-jnr>
 
 **Licences and terms**
+
 - COCO terms of use — <https://cocodataset.org/#termsofuse>
 - Objects365 terms — <https://www.objects365.org/download.html>
 - HF licence documentation — <https://huggingface.co/docs/hub/repositories-licenses> · terms — <https://huggingface.co/terms-of-service>
@@ -853,6 +856,7 @@ Verified 5 Sep 2026. Face detection and Face Print numbers were measured against
 - BLOOM, code licence ≠ model licence — <https://huggingface.co/bigscience/bloom-7b1/raw/main/LICENSE>
 
 **Pricing**
+
 - Claude — <https://platform.claude.com/docs/en/about-claude/pricing> · <https://platform.claude.com/docs/en/build-with-claude/vision>
 - Gemini — <https://ai.google.dev/gemini-api/docs/pricing> · <https://ai.google.dev/gemini-api/docs/image-understanding>
 

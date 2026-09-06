@@ -90,11 +90,11 @@ export const MAX_OCCLUSION_ZONES: 16;
 
 `pinTo` is walked in order. The first entry that composes a Subject wins and decides `resolvedBy`.
 
-| `pinTo` entry | Composes                                                                                                                           | Leading Subject                          |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `match`       | the face Regions, when at least one has a Match                                                                                    | the Match with the highest `similarity`  |
-| `face`        | the face Regions, when there are any                                                                                               | the largest face box                     |
-| `kart`        | largest `vehicle` Region ∪ every Region overlapping it > 0.25 of the smaller box; largest `person` Region when there is no vehicle | the composed union, which is one Subject |
+| `pinTo` entry | Composes                                                                                                                                                                                | Leading Subject                          |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `match`       | the face Regions, when at least one has a Match                                                                                                                                         | the Match with the highest `similarity`  |
+| `face`        | the face Regions, when there are any                                                                                                                                                    | the largest face box                     |
+| `kart`        | largest `vehicle` Region ∪ every `person` or `vehicle` Region overlapping it > 0.25 of the smaller box. No `vehicle` Region, no Subject: the rung declines and the ladder walks past it | the composed union, which is one Subject |
 
 Nothing composed → the Crop Anchor named in the request → the centre. `resolvedBy` is `anchor` or `center`, and `leadRegionId` and `subject` are both absent: no Region led and no Subject was composed. A window standing in for the Subject it does not have would be held by every rung of the fallback ladder without meaning it, and the point the anchor stands at is not a `Box`, whose sides are above zero. Decided on [#82](https://github.com/timschoch/meco/issues/82), shipped in [#101](https://github.com/timschoch/meco/issues/101).
 
@@ -185,7 +185,7 @@ Written down because determinism is a promise the tests check: the Golden Line t
 
 Vitest, through `packages/frame/index.ts` only, enforced by dependency-cruiser. No image library, no network, no store.
 
-- **Fixtures are recordings of real detections**, converted into contracts `Annotation` JSON under `packages/frame/tests/`: the three faces in [`fixtures/faces/detected.json`](../../fixtures/faces/detected.json) (real YuNet output) and the six karting photographs in [`fixtures/karts/objects.json`](../../fixtures/karts/objects.json) (real D-FINE output, each carrying the Subject the prototype's rule composed). Each fixture is `Annotation.parse`d by the contracts schema inside the test, so a fixture that drifts from the contract fails frame's suite rather than rotting quietly.
+- **Fixtures are recordings of the shipped Catalogue.** `packages/frame/tests/record.ts` POSTs the nine photographs under [`fixtures/`](../../fixtures/) to a running `models` container and writes the Annotations it gets back to `packages/frame/tests/fixtures/`. It refuses to write anything whose `producedBy` is not exactly what `GET /models` listed, so a recording always names the Models that made it. Each fixture is `Annotation.parse`d by the contracts schema inside the test, so a fixture that drifts from the contract fails frame's suite rather than rotting quietly. Re-run it whenever an adapter version moves.
 - **Every assertion is a number read back off the window**: the Eye Line within 2 % of the upper Golden Line at 1:1, 4:5 and 9:16; the window on the picture; every kept Subject contained or a rung named; the Subject clear of the Occlusion Zones or `occlusionClear: false`; the composed kart Subject equal to the recording.
 - **Only axes with slack are asserted.** A cover window touches the Source Image on one axis by construction, and an axis with no slack is fixed by the shape, not by the solver.
 - **Property tests** for the promises the signature does not carry: determinism over repeated calls, whole-pixel windows, containment in the Source Image, aspect within one pixel, and every tie-break rule above.
@@ -197,5 +197,4 @@ Vitest, through `packages/frame/index.ts` only, enforced by dependency-cruiser. 
 - Saliency in any form, including a caller-supplied point. ADR-0006 says why and where it would arrive if it ever earned a place.
 - Growing a face Subject to the body Region containing it. Wanted eventually, no measurement yet.
 - Non-rectangular Occlusion Zones. A Template that needs one lists several rectangles ([What belongs in a FramingRequest #70](https://github.com/timschoch/meco/issues/70)).
-- Re-measuring the 0.25 kart overlap constant, which waits on the new adapters and has its own ticket.
 - Choosing between two karts in one photograph. The prototype recorded that its answer is not stable across resolutions (`on-track-dark-visor.jpg`, [Which kart the union rule returns moves with the resolution #42](https://github.com/timschoch/meco/issues/42)); both answers are a kart with a driver on it, and nothing here makes it worse.

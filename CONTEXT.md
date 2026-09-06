@@ -75,9 +75,9 @@ Everything true of one Source Image's bytes: its Content Hash, size and type, th
 _Avoid_: metadata, tags, detection result, analysis
 
 **Kart Producer**:
-How frame composes one Subject from a kart and its driver together. It takes the largest `vehicle` Region, unions it with every Region overlapping it, and yields one Subject Box — falling back to the largest `person` Region when no vehicle was found. That fallback is what lets a driver be framed without their kart, and it is also its known limit: on a photograph that is not of a kart at all it frames the largest person and still calls itself `kart`. It selects on Region Kind and never on a Label, so replacing the Model that draws the boxes moves nothing here.
+How frame composes one Subject from a kart and its driver together. It takes the largest `vehicle` Region, unions it with every `person` or `vehicle` Region overlapping it, and yields one Subject Box. No `vehicle` Region, no kart: the producer declines and the ladder walks past it. It used to seed on the largest `person` instead, which framed a body and still called the answer `kart`. It selects on Region Kind and never on a Label, so replacing the Model that draws the boxes moves nothing here.
 
-Named for what it frames, not for what detects it. The Subject of a karting photograph is neither the kart nor the driver but both — a frame on the driver's head loses the livery the photograph was taken for, and a frame on the kart cuts the helmet off. A helmet is also not a face, which is the reason this producer exists at all: measured on 32 on-track photographs, the face detector puts a box on the leading driver's head in 9 of them.
+Named for what it frames, not for what detects it. The Subject of a karting photograph is neither the kart nor the driver but both — a frame on the driver's head loses the livery the photograph was taken for, and a frame on the kart cuts the helmet off. The prototype's reason for it was that a helmet is not a face: measured on 32 on-track photographs, its face detector put a box on the leading driver's head in 9 of them. The shipped YuNet does not miss the helmet — 0.6488 through a dark visor, 0.8080 through an open one (#109) — so the reason is the composition and not the detector's blind spot, and it is why this producer precedes the Face Producer in the default Pin To.
 _Avoid_: vehicle producer, motorbike producer, kart detector
 
 **Subject Area**:
@@ -200,7 +200,9 @@ _Avoid_: result, solution, answer, crop (a Crop is the stored image)
 The caller's ordered list of what to compose the Subject from — `match`, `face`,
 `kart` — walked in order until one of them yields. The caller's ladder, not
 frame's: frame's own last resorts are the Crop Anchor and the centre, and they
-are not in the caller's vocabulary.
+are not in the caller's vocabulary. The default is `match`, `kart`, `face`,
+most specific first: `kart` yields only on a `vehicle` Region, so a photograph
+without one still reaches `face`.
 _Avoid_: gravity, strategy, priority, focus, target
 
 **Leading Subject**:

@@ -4,6 +4,7 @@ import { frameCrop } from "../index";
 import {
   FACE_FIXTURES,
   KART_FIXTURES,
+  PODIUM_FIXTURES,
   SOURCES,
   TARGETS,
   facesAnnotation,
@@ -13,6 +14,7 @@ import {
 
 const SQUARE = { width: 1080, height: 1080 };
 const FACE_ONLY = { pinTo: ["face"] };
+const KART_ONLY = { pinTo: ["kart"] };
 
 /** Whether a box, in source fractions, lies inside a window. Whole pixels, no slack. */
 const holds = (
@@ -291,7 +293,11 @@ describe("what a rung reports", () => {
  * window is a window whatever rung answered.
  */
 describe("the window, whichever rung ran", () => {
-  const ANNOTATIONS = [...FACE_FIXTURES, ...KART_FIXTURES].map((f) => ({
+  const ANNOTATIONS = [
+    ...FACE_FIXTURES,
+    ...PODIUM_FIXTURES,
+    ...KART_FIXTURES,
+  ].map((f) => ({
     name: f.name,
     annotation: Annotation.parse(f.raw),
   }));
@@ -324,27 +330,50 @@ describe("the window, whichever rung ran", () => {
   }
 });
 
+/** Which rungs the nine recordings reach at the four shapes, on one ladder. */
+const rungsReached = (extra: Record<string, unknown>): string[] =>
+  [
+    ...new Set(
+      [...FACE_FIXTURES, ...PODIUM_FIXTURES, ...KART_FIXTURES].flatMap(
+        (fixture) => {
+          const annotation = Annotation.parse(fixture.raw);
+
+          return TARGETS.map(
+            ({ target }) =>
+              frameCrop({ annotation, request: requestFor(target, extra) })
+                .fallback ?? "none"
+          );
+        }
+      )
+    ),
+  ].sort();
+
+/**
+ * Each ladder's own set, asserted whole rather than unioned. A union would
+ * pass on one ladder reaching everything and the other reaching nothing.
+ *
+ * The default ladder reaches all five, which is what `kart` before `face`
+ * bought: `clip` is only reached by a Subject no window of the target shape
+ * can hold, and on these nine photographs that is the kart union. With `face`
+ * first the kart rung never answered a recording carrying a face, and the
+ * default ladder reached four.
+ *
+ * The kart rung alone reaches four of the five and not the same four: nothing
+ * it composes needs `zoom-out`.
+ */
 describe("the recordings reach every rung", () => {
-  it("answers on all four, and on none at all", () => {
-    const reached = new Set(
-      [...FACE_FIXTURES, ...KART_FIXTURES].flatMap((fixture) => {
-        const annotation = Annotation.parse(fixture.raw);
-
-        return TARGETS.map(
-          ({ target }) =>
-            frameCrop({ annotation, request: requestFor(target) }).fallback ??
-            "none"
-        );
-      })
-    );
-
-    expect([...reached].sort()).toEqual([
+  it("reaches all five on the default ladder", () => {
+    expect(rungsReached({})).toEqual([
       "clip",
       "drop",
       "none",
       "relax",
       "zoom-out",
     ]);
+  });
+
+  it("reaches four of them on the kart rung alone", () => {
+    expect(rungsReached(KART_ONLY)).toEqual(["clip", "drop", "none", "relax"]);
   });
 });
 
@@ -355,9 +384,14 @@ describe("the recordings reach every rung", () => {
  *
  * This is the other half of the partition. Uniqueness alone would pass a
  * Framing that quietly lost a Region from both lists.
+ *
+ * The kart entries name their rung, and under `DEFAULT_PIN_TO` they would get
+ * it anyway since #109 put `kart` ahead of `face`. Naming it keeps the check
+ * about the partition rather than about the ladder's order, which is
+ * `pinTo`'s promise and is asserted in `kart.test.ts`.
  */
 const COMPOSED_ON = [
-  ...FACE_FIXTURES.map((fixture) => {
+  ...[...FACE_FIXTURES, ...PODIUM_FIXTURES].map((fixture) => {
     const annotation = Annotation.parse(fixture.raw);
     const faces = annotation.regions
       .filter((region) => region.kind === "face")
@@ -366,6 +400,7 @@ const COMPOSED_ON = [
     return {
       name: fixture.name,
       annotation,
+      ladder: {},
       keptRegionIds: [
         fixture.leadRegionId,
         ...faces.filter((id) => id !== fixture.leadRegionId),
@@ -375,15 +410,19 @@ const COMPOSED_ON = [
   ...KART_FIXTURES.map((fixture) => ({
     name: fixture.name,
     annotation: Annotation.parse(fixture.raw),
+    ladder: KART_ONLY,
     keptRegionIds: fixture.keptRegionIds,
   })),
 ];
 
 describe("kept and dropped partition the Regions the rung composed on", () => {
-  for (const { name, annotation, keptRegionIds } of COMPOSED_ON) {
+  for (const { name, annotation, ladder, keptRegionIds } of COMPOSED_ON) {
     for (const { name: shape, target } of TARGETS) {
       it(`loses nobody and doubles nobody: ${name} at ${shape}`, () => {
-        const framing = frameCrop({ annotation, request: requestFor(target) });
+        const framing = frameCrop({
+          annotation,
+          request: requestFor(target, ladder),
+        });
         const both = [...framing.keptRegionIds, ...framing.droppedRegionIds];
 
         expect(new Set(both).size).toBe(both.length);

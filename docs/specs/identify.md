@@ -67,10 +67,19 @@ export interface Identification {
 }
 
 export type FaceVerdict = { regionId: string } & (
-  | { verdict: "match"; personId: string; similarity: number; runnerUp?: number }
+  | {
+      verdict: "match";
+      personId: string;
+      similarity: number;
+      runnerUp?: number;
+    }
   | { verdict: "unknown"; best?: number; runnerUp?: number }
   | { verdict: "uncompared"; reason: "no-print" | "other-model" }
-  | { verdict: "not-identifiable"; reason: "too-small" | "not-a-face"; detail: string }
+  | {
+      verdict: "not-identifiable";
+      reason: "too-small" | "not-a-face";
+      detail: string;
+    }
 );
 
 export interface EnrolRequest {
@@ -84,7 +93,10 @@ export interface EnrolRequest {
 
 export type Enrolment =
   | { status: "enrolled"; photo: ReferencePhoto; annotation: Annotation }
-  | { status: "choose"; faces: { regionId: string; box: Box; pixels: number }[] };
+  | {
+      status: "choose";
+      faces: { regionId: string; box: Box; pixels: number }[];
+    };
 
 export class IdentifyError extends Error {
   code:
@@ -137,13 +149,13 @@ A refused photograph leaves no object under the prefix and no row. The same phot
 
 ### The constants and their provenance
 
-| Constant | Value | Provenance | Room |
-| --- | --- | --- | --- |
-| `MATCH_THRESHOLD` | 0.50 | ADR-0003 D3; re-measured 6 Sep 2026 on `fixtures/faces/face-prints.json`, 1600 px: same-person worst 0.7263, stranger best 0.2979 over 33 pairs | 0.20 either way |
-| `MATCH_MARGIN` | 0.05 | ADR-0003 D3: chosen, not measured; the fixtures hold no look-alikes | unmeasured |
-| `MIN_FACE_PX` | 40 | ADR-0003 amendment; judged in the Decoded Image | none below 40 |
-| `NOT_A_FACE_THRESHOLD` | 0.60 | ADR-0003 amendment, 21 detections in `fixtures/karts/`; nearest non-face 0.6365, nearest real face 0.6542 | 0.0365 up, none down |
-| `PRINT_MODEL` | `edgeface/1` | `docs/specs/models.md`, the Catalogue | |
+| Constant               | Value        | Provenance                                                                                                                                      | Room                 |
+| ---------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `MATCH_THRESHOLD`      | 0.50         | ADR-0003 D3; re-measured 6 Sep 2026 on `fixtures/faces/face-prints.json`, 1600 px: same-person worst 0.7263, stranger best 0.2979 over 33 pairs | 0.20 either way      |
+| `MATCH_MARGIN`         | 0.05         | ADR-0003 D3: chosen, not measured; the fixtures hold no look-alikes                                                                             | unmeasured           |
+| `MIN_FACE_PX`          | 40           | ADR-0003 amendment; judged in the Decoded Image                                                                                                 | none below 40        |
+| `NOT_A_FACE_THRESHOLD` | 0.60         | ADR-0003 amendment, 21 detections in `fixtures/karts/`; nearest non-face 0.6365, nearest real face 0.6542                                       | 0.0365 up, none down |
+| `PRINT_MODEL`          | `edgeface/1` | `docs/specs/models.md`, the Catalogue                                                                                                           |                      |
 
 **Inherited, not yet verified against the shipped adapter.** Every print these numbers were measured on came from the prototype's ONNX path. #121 asks the new Enricher only for cosine ≥ 0.95 against them. A drift of 0.05 is invisible to the identity band and fatal to the Not-a-Face band. The re-calibration ticket regenerates both fixture print files through the new adapter, re-runs both sweeps, and edits ADR-0012's table. Until it lands, the spec says so here and the calibration test asserts the inherited numbers on the inherited prints.
 
@@ -171,25 +183,25 @@ Vitest, through `packages/identify/index.ts` only, `tests-through-entrypoints` e
 
 Fixture Annotations are built from `fixtures/faces/detected.json` (YuNet boxes and landmarks) and `fixtures/faces/face-prints.json` (prints, 7 people lettered A to G), and from `fixtures/karts/face-prints.json` for the helmet, parsed with the contracts schema inside the test so a drift fails here.
 
-| Check | Mutation that must turn it red |
-| --- | --- |
-| a stranger's face is `unknown` with `best` under 0.50 | drop the threshold test |
-| a Person's held-out print is `match` with the right `personId` | invert the comparison |
-| two People whose best differ by under 0.05 give `unknown` with both numbers | drop the margin test |
-| a Person with three prints matches on the best, not the mean | aggregate by mean |
-| a face with no `facePrint` is `uncompared: no-print`, and `matches` omits it | treat a missing print as a zero vector |
-| a print from `edgeface/2` is `uncompared: other-model` | drop the model gate |
-| a face under 40 px in the Decoded Image is `too-small`, one over is compared | judge in photograph pixels |
-| the helmet print is `not-identifiable: not-a-face`, naming the reference | drop the Not-a-Face check |
-| an enrolled helmet print is in `unusableReferencePhotos` and lends no name | compare against every enrolled print |
-| a Person of Brand A is never a Match for Brand B | list every Brand's People |
-| `matches` and `faces` are sorted by Region id number | sort by position in `regions` |
-| `enrol` without `consentAt` throws `consent_required`; store prefix and rows stay empty | skip the check |
-| `enrol` on a helmet photograph throws `not_a_face`; nothing written | write before validating |
-| `enrol` on a two-face photograph without `regionId` returns `choose`, largest first | pick the first |
-| `enrol` with `regionId` on a two-face photograph enrols that face | ignore `regionId` |
-| `enrol` writes under `people/<brand>/<personId>/` and the row names that key and the chosen print | write under `sources/` |
-| the calibration file recomputes the table above from the committed prints and fails on a single false Match | raise a stranger pair over 0.50 |
+| Check                                                                                                       | Mutation that must turn it red         |
+| ----------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| a stranger's face is `unknown` with `best` under 0.50                                                       | drop the threshold test                |
+| a Person's held-out print is `match` with the right `personId`                                              | invert the comparison                  |
+| two People whose best differ by under 0.05 give `unknown` with both numbers                                 | drop the margin test                   |
+| a Person with three prints matches on the best, not the mean                                                | aggregate by mean                      |
+| a face with no `facePrint` is `uncompared: no-print`, and `matches` omits it                                | treat a missing print as a zero vector |
+| a print from `edgeface/2` is `uncompared: other-model`                                                      | drop the model gate                    |
+| a face under 40 px in the Decoded Image is `too-small`, one over is compared                                | judge in photograph pixels             |
+| the helmet print is `not-identifiable: not-a-face`, naming the reference                                    | drop the Not-a-Face check              |
+| an enrolled helmet print is in `unusableReferencePhotos` and lends no name                                  | compare against every enrolled print   |
+| a Person of Brand A is never a Match for Brand B                                                            | list every Brand's People              |
+| `matches` and `faces` are sorted by Region id number                                                        | sort by position in `regions`          |
+| `enrol` without `consentAt` throws `consent_required`; store prefix and rows stay empty                     | skip the check                         |
+| `enrol` on a helmet photograph throws `not_a_face`; nothing written                                         | write before validating                |
+| `enrol` on a two-face photograph without `regionId` returns `choose`, largest first                         | pick the first                         |
+| `enrol` with `regionId` on a two-face photograph enrols that face                                           | ignore `regionId`                      |
+| `enrol` writes under `people/<brand>/<personId>/` and the row names that key and the chosen print           | write under `sources/`                 |
+| the calibration file recomputes the table above from the committed prints and fails on a single false Match | raise a stranger pair over 0.50        |
 
 Every check is proved able to fail by its mutation before it ships. Commit the green state first, then mutate, then `git restore`.
 

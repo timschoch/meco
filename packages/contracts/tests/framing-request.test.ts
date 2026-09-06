@@ -41,7 +41,7 @@ describe("FramingRequest defaults", () => {
   });
 
   it("offers the caller's ladder as a constant the gateway applies", () => {
-    expect(DEFAULT_PIN_TO).toEqual(["match", "face", "kart"]);
+    expect(DEFAULT_PIN_TO).toEqual(["match", "kart", "face"]);
     expect(PinTo.options).toEqual(["match", "face", "kart"]);
   });
 });

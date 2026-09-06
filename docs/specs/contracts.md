@@ -63,7 +63,7 @@ Boundary rule: if two outputs cut from the same bytes could disagree about it, i
 - `brand`: non-empty string.
 - `source`: `{ hash }`, same rule as the Annotation's hash.
 - `target`: `{ width, height }` positive integers in pixels, `format?: png | jpeg | webp`, `quality?: 1..100`.
-- `pinTo`: non-empty ordered list from `match | face | kart`, no duplicates. Default `["match", "face", "kart"]`. `match` and not `person`, because `person` is already a Region Kind meaning a detected human body, and the value means the opposite of that — a face meco can put a name to. Surfaced by the frame agent on [Module: frame #82](https://github.com/timschoch/meco/issues/82) and renamed before [contracts: FramingRequest and Match schemas with defaults #93](https://github.com/timschoch/meco/issues/93) built it.
+- `pinTo`: non-empty ordered list from `match | face | kart`, no duplicates. Default `["match", "kart", "face"]`, most specific first: `kart` yields only on a `vehicle` Region, so a photograph without one still reaches `face`. It was `["match", "face", "kart"]` until [#109](https://github.com/timschoch/meco/issues/109) measured the shipped YuNet finding a helmeted driver's face through a visor at 0.6488 and 0.8080, which turned a karting photograph into a visor close-up. `match` and not `person`, because `person` is already a Region Kind meaning a detected human body, and the value means the opposite of that — a face meco can put a name to. Surfaced by the frame agent on [Module: frame #82](https://github.com/timschoch/meco/issues/82) and renamed before [contracts: FramingRequest and Match schemas with defaults #93](https://github.com/timschoch/meco/issues/93) built it.
 - `persons?`: Person ids that may lead. Non-empty strings.
 - `anchor?`: one of `top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right`. Default `center`.
 - `subjectArea?`: a Box in Image Slot fractions.
@@ -108,7 +108,7 @@ export const Match;
 export type Point, Box, Size, RegionKind, ModelId, Landmarks, FacePrint, Region,
   Annotation, PinTo, CropAnchor, Redaction, Target, FramingRequest, Match;
 export const ANNOTATION_SCHEMA: 1;
-export const DEFAULT_PIN_TO: PinTo[];               // ["match", "face", "kart"]
+export const DEFAULT_PIN_TO: PinTo[];               // ["match", "kart", "face"]
 export const DEFAULT_ANCHOR: CropAnchor;            // "center"
 export type DecodedImage, AdapterRegion;
 export interface ModelAdapter;

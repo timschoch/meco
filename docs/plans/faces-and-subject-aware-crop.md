@@ -11,15 +11,15 @@ Status: **proposed, 4 Sep 2026**. Research: [`../research/subject-aware-cropping
 
 ## New vocabulary (add to `CONTEXT.md` under "Photos and cropping" when built)
 
-| Term | Meaning | Avoid |
-|---|---|---|
-| **Subject Box** | One rectangle in a Source Image, fractions 0..1, with a priority and a `keep` flag. Every producer (Crop Anchor, saliency, face, Person, object) yields Subject Boxes. The solver consumes them. | region, bbox, focal point |
-| **Person** | A named individual a Brand wants recognised. Owned by exactly one Brand. | identity, user, contact |
-| **Reference Photo** | A Source Image enrolled for one Person, containing that Person's face. Several per Person. | training image, sample, example |
-| **Face Print** | The 512-float EdgeFace embedding of one face. A Person has one Face Print per Reference Photo. Never a photo. | embedding, descriptor, template |
-| **Match** | A detected face whose best Face Print similarity clears the threshold and the runner-up margin. Open-set: "no Match" is a valid answer. | recognition hit |
-| **Face Blur** | A Crop option: every detected face that is not a Match is blurred. | anonymise, pixelate |
-| **Annotation** | The stored Subject Boxes for one Source Image, keyed by content hash, IPTC Image Region shaped. Machine regions and human override regions are separate entries. | metadata, tags |
+| Term                | Meaning                                                                                                                                                                                          | Avoid                           |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
+| **Subject Box**     | One rectangle in a Source Image, fractions 0..1, with a priority and a `keep` flag. Every producer (Crop Anchor, saliency, face, Person, object) yields Subject Boxes. The solver consumes them. | region, bbox, focal point       |
+| **Person**          | A named individual a Brand wants recognised. Owned by exactly one Brand.                                                                                                                         | identity, user, contact         |
+| **Reference Photo** | A Source Image enrolled for one Person, containing that Person's face. Several per Person.                                                                                                       | training image, sample, example |
+| **Face Print**      | The 512-float EdgeFace embedding of one face. A Person has one Face Print per Reference Photo. Never a photo.                                                                                    | embedding, descriptor, template |
+| **Match**           | A detected face whose best Face Print similarity clears the threshold and the runner-up margin. Open-set: "no Match" is a valid answer.                                                          | recognition hit                 |
+| **Face Blur**       | A Crop option: every detected face that is not a Match is blurred.                                                                                                                               | anonymise, pixelate             |
+| **Annotation**      | The stored Subject Boxes for one Source Image, keyed by content hash, IPTC Image Region shaped. Machine regions and human override regions are separate entries.                                 | metadata, tags                  |
 
 ## Architecture
 
@@ -43,25 +43,25 @@ Rules:
 
 ### meco-faces (internal)
 
-| Route | Body | Returns |
-|---|---|---|
-| `POST /detect` | image bytes (`image/*`) | `{ width, height, faces: [{ box:{x,y,w,h}, landmarks:{rEye,lEye,nose,rMouth,lMouth}, score }] }` — fractions of the image |
-| `POST /embed` | image bytes + `?faces=<json>` (boxes+landmarks from `/detect`) | `{ prints: [[512 floats]] }` — aligned with `sharp.affine()`, EdgeFace on ORT |
-| `GET /health` | | models loaded, ORT version |
+| Route          | Body                                                           | Returns                                                                                                                   |
+| -------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `POST /detect` | image bytes (`image/*`)                                        | `{ width, height, faces: [{ box:{x,y,w,h}, landmarks:{rEye,lEye,nose,rMouth,lMouth}, score }] }` — fractions of the image |
+| `POST /embed`  | image bytes + `?faces=<json>` (boxes+landmarks from `/detect`) | `{ prints: [[512 floats]] }` — aligned with `sharp.affine()`, EdgeFace on ORT                                             |
+| `GET /health`  |                                                                | models loaded, ORT version                                                                                                |
 
 Pipeline inside: sharp decode → raw RGB → YuNet (ORT, 640 long side) → decode + NMS → 5-point similarity warp to 112×112 via `sharp.affine()` → EdgeFace → L2-normalise.
 
 ### meco (public, `/v1/*`, existing auth)
 
-| Route | Purpose |
-|---|---|
-| `GET /v1/people?brand=` | list Persons of a Brand with photo count |
-| `POST /v1/people` | `{ brand, name }` → Person id |
-| `DELETE /v1/people/:id` | remove Person, all Reference Photos and Face Prints |
-| `POST /v1/people/:id/photos` | multipart or `{ source: url }`. Detects faces. One face: enrol. Several: return faces, caller picks with `faceIndex`. Stores photo + Face Print. |
-| `DELETE /v1/people/:id/photos/:photoId` | remove one Reference Photo and its Face Print |
-| `POST /v1/subjects` | `{ source }` → the Annotation for that Source Image (detect, match against the Brand's Persons if `brand` given). Cached by hash. Lets the UI show boxes before cropping. |
-| `POST /v1/crop` | extended, see below |
+| Route                                   | Purpose                                                                                                                                                                   |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/people?brand=`                 | list Persons of a Brand with photo count                                                                                                                                  |
+| `POST /v1/people`                       | `{ brand, name }` → Person id                                                                                                                                             |
+| `DELETE /v1/people/:id`                 | remove Person, all Reference Photos and Face Prints                                                                                                                       |
+| `POST /v1/people/:id/photos`            | multipart or `{ source: url }`. Detects faces. One face: enrol. Several: return faces, caller picks with `faceIndex`. Stores photo + Face Print.                          |
+| `DELETE /v1/people/:id/photos/:photoId` | remove one Reference Photo and its Face Print                                                                                                                             |
+| `POST /v1/subjects`                     | `{ source }` → the Annotation for that Source Image (detect, match against the Brand's Persons if `brand` given). Cached by hash. Lets the UI show boxes before cropping. |
+| `POST /v1/crop`                         | extended, see below                                                                                                                                                       |
 
 `cropBody` additions:
 

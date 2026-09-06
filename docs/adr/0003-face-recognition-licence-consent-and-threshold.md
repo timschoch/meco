@@ -12,7 +12,7 @@ Recognition arrived in three tickets. #13 gave a Brand People, Reference Photos 
 
 `edgeface_xs_gamma_06` is code under BSD-3 with **weights published under CC BY-NC-SA 4.0** on the Hugging Face model cards. Non-commercial. meco is a tool for producing marketing images, which is commercial by intention, so the two do not sit comfortably together.
 
-The plan took this decision on 4 September and recorded it in one line: *"The CC BY-NC-SA weight licence on the Hugging Face model cards is accepted as an MVP risk. Record as ADR-0003 before v3 ships."* This ADR records that decision. It does not re-open it, and nothing measured since has changed the picture.
+The plan took this decision on 4 September and recorded it in one line: _"The CC BY-NC-SA weight licence on the Hugging Face model cards is accepted as an MVP risk. Record as ADR-0003 before v3 ships."_ This ADR records that decision. It does not re-open it, and nothing measured since has changed the picture.
 
 What makes it an acceptable risk rather than a blind one:
 
@@ -41,7 +41,7 @@ A face is a **Match** only when both hold:
 
 Anything else is unknown. Open-set: "nobody" is a valid answer and, on any photograph containing a stranger, the common one.
 
-The runner-up is the best *other Person*, never the second-best Face Print. Otherwise a Person with four Reference Photos would be their own runner-up and could never clear the margin — the more meco knew about someone, the less it could recognise them.
+The runner-up is the best _other Person_, never the second-best Face Print. Otherwise a Person with four Reference Photos would be their own runner-up and could never clear the margin — the more meco knew about someone, the less it could recognise them.
 
 ### Where the numbers come from, and what they are worth
 
@@ -49,31 +49,31 @@ The runner-up is the best *other Person*, never the second-best Face Print. Othe
 
 `pnpm test:match` (`scripts/match-calibration.ts`) sweeps the threshold over the fixture Face Prints in `fixtures/faces/face-prints.json`, and is in the verification gate. Measured 5 September 2026 on nine faces of seven people, **at the 1600 px bound `src/faces.ts` applies to a Source Image** — the resolution the threshold is used at, which issue #53 established and which the row below records so no reader has to ask:
 
-| | |
-|---|---|
-| same person, worst of 3 pairs | **0.7263** |
-| different people, best of 33 pairs | **0.2979** |
-| gap | **0.4284** |
-| thresholds with zero false and zero missed Matches, over 66 trials | **0.30 – 0.80** |
-| shipped threshold | **0.50** — the middle of that band, and the point furthest from both mistakes |
-| clearance above the best stranger | 0.2021 |
-| clearance below the worst same-person pair | 0.2263 |
-| resolution the fixtures were measured at | **1600 px long edge**, `LONG_EDGE` in `src/faces.ts` |
+|                                                                    |                                                                               |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| same person, worst of 3 pairs                                      | **0.7263**                                                                    |
+| different people, best of 33 pairs                                 | **0.2979**                                                                    |
+| gap                                                                | **0.4284**                                                                    |
+| thresholds with zero false and zero missed Matches, over 66 trials | **0.30 – 0.80**                                                               |
+| shipped threshold                                                  | **0.50** — the middle of that band, and the point furthest from both mistakes |
+| clearance above the best stranger                                  | 0.2021                                                                        |
+| clearance below the worst same-person pair                         | 0.2263                                                                        |
+| resolution the fixtures were measured at                           | **1600 px long edge**, `LONG_EDGE` in `src/faces.ts`                          |
 
 #### Re-measured at the production bound, and nothing moved
 
 Issue #53 asked the question #42 forced: these numbers were calibrated on fixtures committed at 1400 px while `src/faces.ts` bounds a Source Image to 1600 px. #42 had just shown that was not a formality — the Not-a-Face band did not shift at the bound, it **inverted**. So the fixtures were re-derived and the sweep re-run:
 
-| | 1400 px | **1600 px** | moved by |
-|---|---|---|---|
-| same person, pair 1 | 0.8689 | 0.8681 | −0.0008 |
-| same person, pair 2 | 0.8182 | 0.8228 | +0.0046 |
-| same person, worst pair | 0.7304 | **0.7263** | −0.0041 |
-| different people, best of 33 | 0.2855 | **0.2979** | +0.0124 |
-| gap | 0.4450 | **0.4284** | −0.0166 |
-| clean threshold band | 0.30 – 0.80 | **0.30 – 0.80** | unchanged |
-| margin sweep | flat, 0 to 0.4 | flat, 0 to 0.4 | unchanged |
-| Not-a-Face band | −0.0177 | **−0.0177** | unchanged |
+|                              | 1400 px        | **1600 px**     | moved by  |
+| ---------------------------- | -------------- | --------------- | --------- |
+| same person, pair 1          | 0.8689         | 0.8681          | −0.0008   |
+| same person, pair 2          | 0.8182         | 0.8228          | +0.0046   |
+| same person, worst pair      | 0.7304         | **0.7263**      | −0.0041   |
+| different people, best of 33 | 0.2855         | **0.2979**      | +0.0124   |
+| gap                          | 0.4450         | **0.4284**      | −0.0166   |
+| clean threshold band         | 0.30 – 0.80    | **0.30 – 0.80** | unchanged |
+| margin sweep                 | flat, 0 to 0.4 | flat, 0 to 0.4  | unchanged |
+| Not-a-Face band              | −0.0177        | **−0.0177**     | unchanged |
 
 The last row is in the table because #53 asked for it, and it needs a caveat to
 be read correctly: that band is set by the **kart** fixtures, which #42 had
@@ -112,7 +112,7 @@ Two conditions, both in `src/people.ts`, asked at enrolment and again at match t
 1. **`MIN_FACE_PX`, now applied when matching and not only when enrolling.** Its reasoning always covered both — below 40 px EdgeFace is handed an upsampled blur and returns a print of the interpolation.
 2. **`NOT_A_FACE_THRESHOLD = 0.60` against the committed Not-a-Face Prints** in `src/not-a-face-prints.ts`. A Face Print at or above 0.60 to one of them carries no identity.
 
-`matchFaces` applies the same two conditions to the **enrolled prints** as well as to the detection, and both halves are needed. A helmet detection against a real Person is already safe — the research measured helmet against face at 0.433 at worst over 108 pairs. The dangerous direction is the other one: `paddock-mixed`'s driver is a real face and scores **0.5091** against the committed helmet print, over the 0.50 threshold. No check on the detection can catch that, because the detection *is* a face. Only dropping the Reference Photo can, which is also what protects every Brand that enrolled before this rule existed.
+`matchFaces` applies the same two conditions to the **enrolled prints** as well as to the detection, and both halves are needed. A helmet detection against a real Person is already safe — the research measured helmet against face at 0.433 at worst over 108 pairs. The dangerous direction is the other one: `paddock-mixed`'s driver is a real face and scores **0.5091** against the committed helmet print, over the 0.50 threshold. No check on the detection can catch that, because the detection _is_ a face. Only dropping the Reference Photo can, which is also what protects every Brand that enrolled before this rule existed.
 
 ### Where 0.60 comes from
 
@@ -120,16 +120,16 @@ A **Not-a-Face Print** is a committed Face Print of something that is not an ide
 
 `pnpm test:match` measures it over 21 hand-classified detections, ground truth in `fixtures/karts/expected.json`. Counting only detections that clear `MIN_FACE_PX`:
 
-| | |
-|---|---|
-| 11 real faces of 57 px or more, closest any gets | 0.0971 |
-| **real face, closest any gets** | **0.6542** — `paddock-mixed#8`, a small child looking down, 40 px |
-| **nearest non-face** | **0.6365** — `paddock-mixed#7`, a man seen from behind, 52 px |
-| `on-track-visor-open`, held out of the reference set | 0.6935 |
-| shipped threshold | **0.60** |
-| clearance below the nearest non-face | **0.0365** |
-| overlap with the closest real face | **0.0177** — the threshold refuses it |
-| **band** | **−0.0177. There is none.** |
+|                                                      |                                                                   |
+| ---------------------------------------------------- | ----------------------------------------------------------------- |
+| 11 real faces of 57 px or more, closest any gets     | 0.0971                                                            |
+| **real face, closest any gets**                      | **0.6542** — `paddock-mixed#8`, a small child looking down, 40 px |
+| **nearest non-face**                                 | **0.6365** — `paddock-mixed#7`, a man seen from behind, 52 px     |
+| `on-track-visor-open`, held out of the reference set | 0.6935                                                            |
+| shipped threshold                                    | **0.60**                                                          |
+| clearance below the nearest non-face                 | **0.0365**                                                        |
+| overlap with the closest real face                   | **0.0177** — the threshold refuses it                             |
+| **band**                                             | **−0.0177. There is none.**                                       |
 
 Both rejections are out of sample. The reference is never compared with itself.
 
@@ -146,12 +146,12 @@ value of `NOT_A_FACE_THRESHOLD` accepts it and still refuses that non-face.** Th
 old table's "clearance above the closest real face, 0.0399" was measuring a face
 that production-sized input does not put in that position.
 
-**0.60 still ships, and the reason is narrower than before.** It is *safe*, not
-*centred*: it refuses every non-face with 0.0365 to spare, which is the mistake
+**0.60 still ships, and the reason is narrower than before.** It is _safe_, not
+_centred_: it refuses every non-face with 0.0365 to spare, which is the mistake
 this ADR says must never happen. The price is that it also refuses one real face.
 That is the cautious mistake, it is named in the recall ledger below, and
 `scripts/match-calibration.ts` now asserts the exact set rather than asserting
-there is none — so refusing a *different* face fails the run.
+there is none — so refusing a _different_ face fails the run.
 
 **What this does not mean.** Nothing about production behaviour changed here.
 `src/not-a-face-prints.ts` is byte-identical: the reference photograph is
@@ -180,12 +180,12 @@ constraint above). Deciding between them is not this ADR's to make today, but it
 should be made before the set grows, not after.
 
 **Corrected 5 Sep 2026.** This table previously closed the band from below with
-*0.639*, the worst helmet-to-helmet pair over the 36 in the research, and gave a
+_0.639_, the worst helmet-to-helmet pair over the 36 in the research, and gave a
 clearance of 0.039. That is the wrong quantity. 0.639 is a distance between two
 helmets **neither of which is the reference** — it belongs to `on-track-visor-open`
 against a photograph not committed here — and the rule scores a candidate against
 the reference, not against another candidate. The lower edge is the nearest
-non-face *to the reference*, which this table already held: **0.6935**, for a
+non-face _to the reference_, which this table already held: **0.6935**, for a
 clearance of **0.0935**.
 
 The deduction that motivated the old row can now be dropped, because the thing it
@@ -206,9 +206,9 @@ already committed here**; the other seven are CC BY-SA and are barred by
 - **0.60 can rise by 0.0365** before it stops refusing the nearest non-face.
 - **0.60 cannot fall at all** without refusing more real faces, and it is already refusing one at 0.6542.
 
-So there is no interval to sit in the middle of, and the binding constraint is *real faces* — the opposite of what the old *0.639* row implied. The tight side is the side where the mistake is a face going unnamed rather than a stranger being named. That is the cheaper mistake to be close to, which is the only reason this operating point is defensible at all.
+So there is no interval to sit in the middle of, and the binding constraint is _real faces_ — the opposite of what the old _0.639_ row implied. The tight side is the side where the mistake is a face going unnamed rather than a stranger being named. That is the cheaper mistake to be close to, which is the only reason this operating point is defensible at all.
 
-That asymmetry is accepted because the two mistakes are not the same size: a face wrongly refused is blurred and unnamed, which is cautious; a non-face wrongly accepted is a stranger's name on a published photograph with their face left sharp, which is the bug reported. `src/crop.ts` already states the principle — *"who may be shown is not [a composition choice]"*.
+That asymmetry is accepted because the two mistakes are not the same size: a face wrongly refused is blurred and unnamed, which is cautious; a non-face wrongly accepted is a stranger's name on a published photograph with their face left sharp, which is the bug reported. `src/crop.ts` already states the principle — _"who may be shown is not [a composition choice]"_.
 
 The tightness is real and it is a property of small faces. Above 57 px the two populations are **0.5394** apart, as clean as Decision 3's — 11 faces, the closest at 0.0971. Everything difficult about this threshold lives at 40–57 px, where a small face and a helmet genuinely converge. That is the fact `MIN_FACE_PX` was written for, and it is why the floor now runs when matching as well as when enrolling.
 
@@ -220,13 +220,13 @@ Every figure above is quoted to four decimals and **the input does not carry fou
 
 Measured, on the same photographs at two different encodes:
 
-| | |
-|---|---|
+|                                                                               |            |
+| ----------------------------------------------------------------------------- | ---------- |
 | `on-track-rear-helmet.jpg` committed, against a print of the Commons original | **0.9689** |
-| `on-track-visor-open.jpg` committed, against a print of the Commons original | 0.9973 |
-| **the reference-to-`visor-open` pair, both committed** | **0.6935** |
-| the same pair, reference committed against the Commons original | 0.7092 |
-| the same pair, both from Commons originals | 0.6901 |
+| `on-track-visor-open.jpg` committed, against a print of the Commons original  | 0.9973     |
+| **the reference-to-`visor-open` pair, both committed**                        | **0.6935** |
+| the same pair, reference committed against the Commons original               | 0.7092     |
+| the same pair, both from Commons originals                                    | 0.6901     |
 
 **One pair moves 0.019 on encoding alone** — about half the 0.0399 clearance above the closest real face. So `NOT_A_FACE_THRESHOLD` is a **rounded** constant, not a tuned one, and the fourth decimal of any number here is noise. The committed encode happens to give the most conservative reading of the three, which is the right accident to have, but it is an accident.
 
@@ -237,12 +237,12 @@ Two rules follow, and they are the point of this section:
 
 **Four other signals were measured and rejected**, all on the committed fixtures, and they are recorded because each is the obvious next suggestion:
 
-| Signal | Helmet | Real faces | Verdict |
-|---|---|---|---|
-| Landmark geometry — eyes above nose above mouth, symmetry, proportion | nose asymmetry 0.356, mouth drop 1.064 | 18 real faces span 0.001–0.442 and 0.828–1.527 | **Dead.** The helmet is *interior* to the real faces on both axes — two are more asymmetric and seven have a deeper mouth drop — so a cut in either direction reaches a real face first. `pnpm test:match` recomputes this from the committed landmarks |
-| Detection score | 0.649, 0.808 | 0.661 – 0.947 | Dead, and the ticket said so |
-| Raw embedding magnitude, the usual quality proxy | 0.27, 0.30 | 0.27 – 0.34 | Dead |
-| Flip consistency of the print | 0.9987, the highest of all 21 | 0.9858 – 0.9973 | Dead, and backwards |
+| Signal                                                                | Helmet                                 | Real faces                                     | Verdict                                                                                                                                                                                                                                                 |
+| --------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Landmark geometry — eyes above nose above mouth, symmetry, proportion | nose asymmetry 0.356, mouth drop 1.064 | 18 real faces span 0.001–0.442 and 0.828–1.527 | **Dead.** The helmet is _interior_ to the real faces on both axes — two are more asymmetric and seven have a deeper mouth drop — so a cut in either direction reaches a real face first. `pnpm test:match` recomputes this from the committed landmarks |
+| Detection score                                                       | 0.649, 0.808                           | 0.661 – 0.947                                  | Dead, and the ticket said so                                                                                                                                                                                                                            |
+| Raw embedding magnitude, the usual quality proxy                      | 0.27, 0.30                             | 0.27 – 0.34                                    | Dead                                                                                                                                                                                                                                                    |
+| Flip consistency of the print                                         | 0.9987, the highest of all 21          | 0.9858 – 0.9973                                | Dead, and backwards                                                                                                                                                                                                                                     |
 
 The first of these is what issue #34 asked for. It does not work, and the measurement is in the doc comment on `NOT_A_FACE_THRESHOLD`.
 
@@ -250,12 +250,12 @@ The first of these is what issue #34 asked for. It does not work, and the measur
 
 The issue asked that the rule "accept all 6 real faces and the 9 paddock faces". It accepts the 6. Of the nine detections in `paddock-mixed.jpg`, at the size production sends, **six can still carry a name**:
 
-| | |
-|---|---|
-| `#0` 66 px, `#2` 49 px, `#3` 42 px, `#4` 55 px, `#5` 42 px, `#6` 43 px | matchable |
-| `#8` 40 px — a real face, a small child looking down | **refused by the print at 0.6542.** The one recall loss, and `scripts/match-calibration.ts` asserts it by name |
-| `#7` — a man seen from behind | classified not a face in `fixtures/karts/expected.json`, and refused by the print |
-| `#1` — a real face | has no Face Print at all: the ArcFace warp cannot cut a 112 px square from its landmarks, so `/embed` refuses it. Unchanged by this ADR, and pre-existing |
+|                                                                        |                                                                                                                                                           |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `#0` 66 px, `#2` 49 px, `#3` 42 px, `#4` 55 px, `#5` 42 px, `#6` 43 px | matchable                                                                                                                                                 |
+| `#8` 40 px — a real face, a small child looking down                   | **refused by the print at 0.6542.** The one recall loss, and `scripts/match-calibration.ts` asserts it by name                                            |
+| `#7` — a man seen from behind                                          | classified not a face in `fixtures/karts/expected.json`, and refused by the print                                                                         |
+| `#1` — a real face                                                     | has no Face Print at all: the ArcFace warp cannot cut a 112 px square from its landmarks, so `/embed` refuses it. Unchanged by this ADR, and pre-existing |
 
 **These numbers are better than the ones this section carried until issue #42, and for an uncomfortable reason.** The old ledger recorded four real faces refused on size at 36 px and only three matchable. Those 36 px measurements came from fixtures committed below the production bound; at 1600 px the same four faces are 42–49 px, clear `MIN_FACE_PX`, and are matched. The recall regression this section was written to own was half an artefact of the fixture size, and the half that is real is now one face rather than four.
 
@@ -265,14 +265,14 @@ Every refused detection is still detected, still a Subject Box and still blurred
 
 Two subjects in the fixtures are the same kind of thing — **a driver in a helmet with the visor up, face visible** — and the rule treats them oppositely:
 
-| | Against the reference | Size | Outcome |
-|---|---|---|---|
-| `paddock-mixed.jpg#4`, driver, visor up, facing the camera | **0.5091** | 55 px | **accepted** — may be enrolled and named |
-| `on-track-visor-open.jpg#0`, driver, visor up | **0.6935** | 100 px | **refused** — may never be a Person |
+|                                                            | Against the reference | Size   | Outcome                                  |
+| ---------------------------------------------------------- | --------------------- | ------ | ---------------------------------------- |
+| `paddock-mixed.jpg#4`, driver, visor up, facing the camera | **0.5091**            | 55 px  | **accepted** — may be enrolled and named |
+| `on-track-visor-open.jpg#0`, driver, visor up              | **0.6935**            | 100 px | **refused** — may never be a Person      |
 
 0.18 of cosine apart, opposite answers, and the larger, sharper face is the one refused. A reader who meets these two without warning will read it as a bug. It is not, and the ADR should say so here rather than leave it to be discovered.
 
-**Both outcomes are intended, and the difference is how much helmet is in the frame.** `paddock-mixed`'s driver is photographed from the front at conversational distance: the open visor fills most of the box and the shell is mostly outside it. `on-track-visor-open`'s driver is photographed on track: the box is dominated by shell, chin bar and visor surround, with the face a small part of it. The reference print is *the back of a helmet* — shell and nothing else — so the second box is genuinely closer to it. The rule is measuring what it claims to measure.
+**Both outcomes are intended, and the difference is how much helmet is in the frame.** `paddock-mixed`'s driver is photographed from the front at conversational distance: the open visor fills most of the box and the shell is mostly outside it. `on-track-visor-open`'s driver is photographed on track: the box is dominated by shell, chin bar and visor surround, with the face a small part of it. The reference print is _the back of a helmet_ — shell and nothing else — so the second box is genuinely closer to it. The rule is measuring what it claims to measure.
 
 **The cost is real and belongs in Decision 3's ledger.** A Swiss Hutless driver photographed on track with the visor up **cannot be enrolled as a Person**, and cannot be named in another photograph. Only paddock and podium photographs, where the helmet is off or small in frame, can enrol anybody. That is a narrower promise than "we can recognise your driver", and it is the promise the shipped code makes.
 
