@@ -102,20 +102,26 @@ describe("the Sweep on /internal/sweep", () => {
   );
 
   it(
-    "does not exist without a cron secret: 404, with the header and without it",
+    "does not exist without a cron secret: 404 for an unset one and an empty one, header or not",
     async () => {
       const one = await stack();
       const { records, swept } = countingSweep(one);
-      const app = one.app({ records });
+      // Unset and empty are the same deployment: one that configured no cron.
+      const unconfigured = [
+        one.app({ records }),
+        one.app({ records, cronSecret: "" }),
+      ];
 
       const answers = await Promise.all(
-        [cron, {}].map(async (headers) => {
-          const res = await app.request("/internal/sweep", {
-            method: "POST",
-            headers,
-          });
-          return { status: res.status, body: await res.json() };
-        })
+        unconfigured.flatMap((app) =>
+          [cron, {}].map(async (headers) => {
+            const res = await app.request("/internal/sweep", {
+              method: "POST",
+              headers,
+            });
+            return { status: res.status, body: await res.json() };
+          })
+        )
       );
 
       for (const answer of answers) {

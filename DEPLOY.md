@@ -230,18 +230,12 @@ Error: No cron jobs found for timschochs-projects/meco. Define cron jobs in
 your vercel.json file.
 ```
 
-That the route itself is reachable behind the catch-all rewrite is measured on
-the branch preview, against the production deployment that does not carry it
-(2026-09-06, deployment `meco-8w17ja0hj`):
-
-| Deployment                   | `POST /internal/sweep`, no header         |
-| ---------------------------- | ----------------------------------------- |
-| production, before the route | `404 {"error":{"code":"not_found",…}}`    |
-| the preview carrying it      | `401 {"error":{"code":"unauthorized",…}}` |
-
-`401` rather than `404` is the whole proof: the routes are registered only when
-`CRON_SECRET` is set, so the answer says the request reached the container, the
-variable was injected, and the header check ran.
+A deployment that carries the route answers `POST /internal/sweep` with no
+header as `401 unauthorized`, never `404`: the routes are registered only when
+`CRON_SECRET` is set, so `401` says the request reached the container, the
+variable was injected, and the header check ran. That is the reachability check
+to run after a deploy; `docs/specs/gateway.md`, "The Sweep", carries what it
+measured on 2026-09-06.
 
 There is **no keep-warm cron**. One daily cron is the whole schedule; a cron
 every few minutes spends the free plan's compute (#88, 2026-09-06).
