@@ -98,6 +98,42 @@ describe("the relax rung", () => {
 });
 
 /**
+ * The halfway step, which only a face on each side of the composition can ask
+ * for. The cover window reaches x 174 to 974 at the Golden Line, 127 to 927
+ * halfway to the middle, and 80 to 880 at the middle; the two faces beside the
+ * leader sit at 132 to 172 and at 892 to 924, so halfway is the only one of the
+ * three that holds them both.
+ *
+ * Without the step the ladder slides straight to the middle, loses the face on
+ * the right and answers by sacrificing it.
+ */
+describe("the relax rung, halfway", () => {
+  const source = { width: 1600, height: 800 };
+  const faces: Box[] = [
+    { x: 0.25, y: 0.3, width: 0.1, height: 0.2 },
+    { x: 0.0825, y: 0.35, width: 0.025, height: 0.08 },
+    { x: 0.5575, y: 0.35, width: 0.02, height: 0.08 },
+  ];
+  const framing = () =>
+    frameCrop({
+      annotation: facesAnnotation(source, faces),
+      request: requestFor(SQUARE, FACE_ONLY),
+    });
+
+  it("stops halfway when the middle would lose a face", () => {
+    expect(framing().fallback).toBe("relax");
+    expect(framing().droppedRegionIds).toEqual([]);
+    expect(framing().window.x).toBe(127);
+  });
+
+  it("holds every face there", () => {
+    for (const box of faces) {
+      expect(holds(framing().window, box, source)).toBe(true);
+    }
+  });
+});
+
+/**
  * Three faces no window of this shape can hold at once. The far one is the
  * cheapest, so it is the one sacrificed, and the two that remain are held.
  */
