@@ -5,7 +5,7 @@
 // `@meco/records/pglite`, so the gateway's bundle never pulls PGlite's
 // WebAssembly in behind an export it does not call.
 export { type Brand, type Brands } from "./lib/brands";
-export { type Caller, type Callers } from "./lib/callers";
+export { type Caller, type Callers, type NewCaller } from "./lib/callers";
 export {
   type Call,
   type CallError,

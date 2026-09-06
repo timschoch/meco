@@ -392,8 +392,12 @@ The SHA-256 of the canonical JSON of one request, Brand included. The same reque
 _Avoid_: idempotency key, fingerprint, cache key, dedupe key
 
 **Caller**:
-A bearer key as records knows it: a name, the hash of the key, and the Brands it holds. The gateway looks one up per request; every module downstream receives the Brand and never the Caller.
+A bearer key as records knows it: a name, the hash of the key, and the Brands it holds. The gateway looks one up per request; every module downstream receives the Brand and never the Caller. One key is one Caller: the key itself is never stored, and a Caller is found by hashing the key offered and matching that hash. Brands are granted to a Caller and never taken away by a grant.
 _Avoid_: user, account, client, API key, tenant
+
+**Seed**:
+The one write that happens before any Caller can call: the three Brands from a checked-in list, and the bootstrap Caller from the owner-set `MECO_BOOTSTRAP_KEY`. It is the only writer of Brands in v1, because Brands are not created over the API. It converges rather than reports: Brands are upserted, the Caller is created when its key belongs to none, and granted every seeded Brand when it already exists, so the state after any run is the state after the first.
+_Avoid_: fixture, bootstrap data, migration (a Migration moves the schema, the Seed moves rows), init, provisioning
 
 **Erasure**:
 Deleting a Person so that nothing of them remains: the Person, every Reference Photo row, every Face Print, the bytes under `people/<brand>/<personId>/`, and every File whose Reference Count reached zero with its Annotation and its own bytes, in one transaction around the rows, proved by listing the prefix afterwards and finding nothing. What ADR-0003 promises and a test has to be able to fail.
@@ -420,7 +424,7 @@ One committed SQL file that moves the schema forward, named by its tag and appli
 _Avoid_: schema change, DDL, patch, upgrade, sync
 
 **Records Reach**:
-What the database looks like from inside the deployment: configured, reachable, the server version, how many Migrations are pending, whether it is migrated, how long one round trip took, and why that round trip failed when it did. Reported in `GET /health` beside Store Health; a database that cannot be reached is reported here rather than by failing the endpoint. Reachable is a measurement and never a reading of an environment variable: the probe writes a File and its Annotation under a fixed hash and reads the Annotation back.
+What the database looks like from inside the deployment: configured, reachable, the server version, how many Migrations are pending, whether it is migrated, how long one round trip took, and why that round trip failed when it did. Reported in `GET /health` beside Store Health; a database that cannot be reached is reported here rather than by failing the endpoint. Reachable is a measurement and never a reading of an environment variable: the probe writes a File and its Annotation under a fixed hash and reads the Annotation back. It writes once — `GET /health` is unauthenticated, so the first call on a schema writes the probe and every call after it reads.
 _Avoid_: db status, connection, ping, healthcheck
 
 ## identify

@@ -6,6 +6,11 @@
  * It writes rather than only reads on purpose. A probe that reads proves the
  * connection; a probe that round-trips proves the schema the container booted
  * against is the schema it can use.
+ *
+ * It writes **once**. `/health` is unauthenticated, so a probe that inserted on
+ * every call would be a write anybody on the internet could ask the primary
+ * database for. The first call on a fresh schema writes the probe File and its
+ * Annotation; every call after that reads them.
  */
 import type { Annotation } from "@meco/contracts";
 import { createHash } from "node:crypto";
@@ -63,7 +68,10 @@ const PROBE_BYTES = Buffer.from(
   "base64"
 );
 
-const PROBE_HASH = createHash("sha256").update(PROBE_BYTES).digest("hex");
+/** The one hash `/health` files anything under. Package-private; the suite reads it. */
+export const PROBE_HASH = createHash("sha256")
+  .update(PROBE_BYTES)
+  .digest("hex");
 
 /**
  * The Annotation of a 1×1 PNG, and true of those bytes: no Model has run over
@@ -124,19 +132,25 @@ export async function reachRecords(records: Records): Promise<RecordsReach> {
 
   const started = performance.now();
   try {
-    const readBack = await withTimeout(roundTrip(records));
-    // Structural, never textual: Postgres reorders the keys of a jsonb
-    // document, so the bytes that come back are not the bytes that went in and
-    // only the parsed value can be compared.
-    const identical = isDeepStrictEqual(readBack, PROBE_ANNOTATION);
+    const probe = await withTimeout(roundTrip(records));
+    // The call that wrote compares what came back against this build's
+    // constant — structurally, never textually, because Postgres reorders the
+    // keys of a jsonb document. The calls that only read have already reached
+    // the database and parsed an Annotation out of it, which is the whole of
+    // what a read can claim; holding a row this build did not write against
+    // this build's constant would turn `/health` red the day the constant
+    // changed.
+    const reachable = probe.wrote
+      ? isDeepStrictEqual(probe.annotation, PROBE_ANNOTATION)
+      : true;
     return {
       configured: true,
-      reachable: identical,
+      reachable,
       serverVersion,
       pending,
       migrated,
       roundTripMs: elapsed(started),
-      reason: identical
+      reason: reachable
         ? null
         : "the annotation just written reads back different",
     };
@@ -153,11 +167,30 @@ export async function reachRecords(records: Records): Promise<RecordsReach> {
   }
 }
 
-/** Writes the probe File and its Annotation, and reads the Annotation back. */
-async function roundTrip(records: Records): Promise<Annotation | null> {
+/**
+ * What one probe found, and whether it had to write it first. A read that found
+ * nothing is not one of these: it becomes a write, so the `false` arm always
+ * carries an Annotation and the two arms are asked different questions.
+ */
+type Probe =
+  | { readonly wrote: true; readonly annotation: Annotation | null }
+  | { readonly wrote: false; readonly annotation: Annotation };
+
+/**
+ * Reads the probe Annotation, and writes it first only when it is not there.
+ * The read comes first so that the ordinary `/health` call — every call after
+ * the first on a given schema — is a read and nothing else.
+ */
+async function roundTrip(records: Records): Promise<Probe> {
+  const stored = await records.annotations.get(PROBE_ANNOTATION.hash);
+  if (stored !== null) return { annotation: stored, wrote: false };
+
   await records.files.ensure(PROBE_FILE);
   await records.annotations.put(PROBE_ANNOTATION);
-  return records.annotations.get(PROBE_ANNOTATION.hash);
+  return {
+    annotation: await records.annotations.get(PROBE_ANNOTATION.hash),
+    wrote: true,
+  };
 }
 
 /** Every table this database holds, as the backend names them, sorted. */
