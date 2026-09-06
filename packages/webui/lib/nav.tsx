@@ -5,7 +5,7 @@
  * Every one of them is an `<a>`. There is no form and no script, so a link is
  * the whole of the interaction and the query string is the whole of the state.
  */
-import { type Filters, linkTo } from "./query";
+import { type Links, linkTo } from "./query";
 
 /** The two lists, and which of them is being read. */
 export function Pages(props: { basePath: string; here: "gallery" | "calls" }) {
@@ -28,28 +28,24 @@ export function Pages(props: { basePath: string; here: "gallery" | "calls" }) {
 
 /** One field of the query, as "all" and one link per value it may take. */
 export function Filter<Field extends string>(props: {
-  path: string;
-  query: Filters<Field>;
-  fields: readonly Field[];
+  links: Links<Field>;
   heading: string;
   field: Field;
   options: readonly { value: string; label: string }[];
 }) {
-  const selected = props.query[props.field];
+  const selected = props.links.query[props.field];
   return (
     <section>
       <h2>{props.heading}</h2>
       <a
-        href={linkTo(props.path, props.query, props.fields, {
-          field: props.field,
-        })}
+        href={linkTo(props.links, { field: props.field })}
         aria-current={selected === undefined ? "true" : "false"}
       >
         all
       </a>
       {props.options.map((option) => (
         <a
-          href={linkTo(props.path, props.query, props.fields, {
+          href={linkTo(props.links, {
             field: props.field,
             value: option.value,
           })}
@@ -64,19 +60,12 @@ export function Filter<Field extends string>(props: {
 
 /** The one page behind this one, or nothing when this is the last. */
 export function Older<Field extends string>(props: {
-  path: string;
-  query: Filters<Field>;
-  fields: readonly Field[];
+  links: Links<Field>;
   cursor: string | null;
 }) {
   if (props.cursor === null) return null;
   return (
-    <a
-      class="older"
-      href={linkTo(props.path, props.query, props.fields, {
-        cursor: props.cursor,
-      })}
-    >
+    <a class="older" href={linkTo(props.links, { cursor: props.cursor })}>
       older →
     </a>
   );

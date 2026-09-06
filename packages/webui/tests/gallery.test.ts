@@ -1,43 +1,15 @@
-import { records, type Caller, type Records } from "@meco/records";
-import { pgliteDatabase } from "@meco/records/pglite";
+import { type Records } from "@meco/records";
 import { memoryStore } from "@meco/store";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { webui } from "../index";
-
-/**
- * The whole suite runs on PGlite and the in-memory store, so no check here
- * reaches Neon or Blob. Booting PGlite costs more than Vitest's default five
- * seconds under the load of a full `pnpm check`, hence the timeouts.
- */
-const TIMEOUT = 30_000;
-
-const opened: Records[] = [];
-
-afterEach(async () => {
-  await Promise.all(opened.splice(0).map((one) => one.close()));
-});
-
-/** A migrated database and the one Caller every Call below is written by. */
-async function openRecords(): Promise<{ one: Records; caller: Caller }> {
-  const one = records({ database: pgliteDatabase(), store: memoryStore() });
-  opened.push(one);
-  await one.migrate();
-  const caller = await one.callers.create({
-    name: "test",
-    key: "the-key",
-    brands: [],
-  });
-  return { one, caller };
-}
-
-/** The same Caller, holding these Brands. What the gateway's lookup returns. */
-const holding = (caller: Caller, ...brands: string[]): Caller => ({
-  ...caller,
-  brands,
-});
-
-/** A Caller stub in the shape the gateway's own lookup has. */
-const always = (caller: Caller | null) => async () => caller;
+import {
+  TIMEOUT,
+  always,
+  holding,
+  hrefs,
+  openRecords,
+  sources,
+} from "./fixtures";
 
 /**
  * One Output of a Brand, with the Call it came from. Written through records'
@@ -70,18 +42,6 @@ async function writeOutput(
   });
   return call.id;
 }
-
-/** Every `href` the page holds, in the order they appear. */
-const hrefs = (html: string): string[] =>
-  [...html.matchAll(/href="([^"]*)"/g)].map((match) =>
-    (match[1] ?? "").replaceAll("&amp;", "&")
-  );
-
-/** Every `<img src>` the page holds, in the order they appear. */
-const sources = (html: string): string[] =>
-  [...html.matchAll(/<img[^>]*\ssrc="([^"]*)"/g)].map(
-    (match) => match[1] ?? ""
-  );
 
 describe("webui without a Caller", () => {
   it(

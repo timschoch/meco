@@ -44,7 +44,7 @@ const STYLE = `
   table { border-collapse: collapse; width: 100%; font-size: .8125rem; }
   th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #e6e7ea; }
   th { color: #6b7280; font-weight: 500; }
-  td .number, th.number, td.number { text-align: right; font-variant-numeric: tabular-nums; }
+  th.number, td.number { text-align: right; font-variant-numeric: tabular-nums; }
   td code { color: #9a2c2c; }
   .empty, .note { color: #6b7280; }
   .older { display: inline-block; margin-top: 1.5rem; }

@@ -1,43 +1,8 @@
-import { type Caller, type Records, records } from "@meco/records";
-import { pgliteDatabase } from "@meco/records/pglite";
+import { type Records } from "@meco/records";
 import { memoryStore } from "@meco/store";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { webui } from "../index";
-
-/**
- * The Calls list, on PGlite and the in-memory store like the rest of the suite.
- * Booting PGlite costs more than Vitest's default five seconds under the load
- * of a full `pnpm check`, hence the timeouts.
- */
-const TIMEOUT = 30_000;
-
-const opened: Records[] = [];
-
-afterEach(async () => {
-  await Promise.all(opened.splice(0).map((one) => one.close()));
-});
-
-/** A migrated database and the one Caller every Call below is written by. */
-async function openRecords(): Promise<{ one: Records; caller: Caller }> {
-  const one = records({ database: pgliteDatabase(), store: memoryStore() });
-  opened.push(one);
-  await one.migrate();
-  const caller = await one.callers.create({
-    name: "test",
-    key: "the-key",
-    brands: [],
-  });
-  return { one, caller };
-}
-
-/** The same Caller, holding these Brands. What the gateway's lookup returns. */
-const holding = (caller: Caller, ...brands: string[]): Caller => ({
-  ...caller,
-  brands,
-});
-
-/** A Caller stub in the shape the gateway's own lookup has. */
-const always = (caller: Caller | null) => async () => caller;
+import { TIMEOUT, always, holding, hrefs, openRecords } from "./fixtures";
 
 /**
  * A second apart, so the order of two Calls is a fact and not the toss-up a
@@ -83,12 +48,6 @@ async function writeCall(
   });
   return call.id;
 }
-
-/** Every `href` the page holds, in the order they appear. */
-const hrefs = (html: string): string[] =>
-  [...html.matchAll(/href="([^"]*)"/g)].map((match) =>
-    (match[1] ?? "").replaceAll("&amp;", "&")
-  );
 
 /** The Call ids the page lists, in the order it lists them. */
 const listed = (basePath: string, html: string): string[] =>
@@ -280,6 +239,74 @@ describe("the Calls list", () => {
       }
 
       expect(seen).toEqual([...written].reverse());
+    },
+    TIMEOUT
+  );
+
+  it(
+    "loses no Call when one is written between a page and its cursor",
+    async () => {
+      const { one, caller } = await openRecords();
+      await one.brands.ensure({ id: "laica", name: "laica" });
+      await one.brands.ensure({ id: "hopefamily", name: "Hope Family" });
+      // Alternating Brands at a page size of two, so each page takes one row
+      // of each Brand: both are partly consumed, which is the only case that
+      // makes the merge ask a second time where a Brand stopped.
+      const before: string[] = [];
+      for (let n = 0; n < 6; n += 1) {
+        before.push(
+          await writeCall(one, caller.id, {
+            brand: n % 2 === 0 ? "laica" : "hopefamily",
+            startedAt: at(n),
+          })
+        );
+      }
+
+      // That second query is not in the same transaction as the first. This
+      // lands a Call in exactly that gap, once — the race the module cannot
+      // close from this side of the seam, because records hands out one cursor
+      // per page and not one per row.
+      let asked = 0;
+      const interrupted: Records = {
+        ...one,
+        calls: {
+          ...one.calls,
+          list: async (query) => {
+            asked += 1;
+            // Three: the two first-page queries, then the first re-query.
+            if (asked === 3) {
+              await writeCall(one, caller.id, {
+                brand: "hopefamily",
+                startedAt: at(9),
+              });
+            }
+            return one.calls.list(query);
+          },
+        },
+      };
+
+      const app = webui({
+        records: interrupted,
+        store: memoryStore(),
+        caller: always(holding(caller, "laica", "hopefamily")),
+        basePath: "",
+        pageSize: 2,
+      });
+
+      const seen: string[] = [];
+      let path = "/calls";
+      for (let page = 0; page < 10; page += 1) {
+        const html = await (await app.request(path)).text();
+        seen.push(...listed("", html));
+        const older = hrefs(html).find((href) => href.includes("cursor="));
+        if (older === undefined) break;
+        path = older;
+      }
+
+      // Every Call that existed when the walk began is still reachable. A row
+      // may be shown twice — that is what the second query costs, and it is
+      // the failure the module's own comment promises. Losing one is not.
+      for (const id of before) expect(seen).toContain(id);
     },
     TIMEOUT
   );

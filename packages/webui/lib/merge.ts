@@ -88,6 +88,13 @@ const encode = (marks: Marks): string =>
  * Refused rather than ignored, for the reason records refuses its own: read as
  * an empty mark set, a cursor that is not one would silently answer with the
  * first page again.
+ *
+ * Only the envelope is checked here. What a mark holds is one of records'
+ * opaque cursors and there is nothing on this side that can judge one, so a
+ * hand-made cursor carrying a well-formed envelope and a junk mark reaches
+ * records, which refuses it with a plain `Error` the route cannot tell from a
+ * database that did not answer — and renders `503` where `400` is the truth. A
+ * named error or a predicate from records closes it; raised on #173.
  */
 function decode(cursor: string): Marks {
   let parsed: unknown;

@@ -97,7 +97,7 @@ export function webui(options: WebuiOptions): Hono {
    * The Caller, or the challenge that asks for one. Every route starts here:
    * a request without a Caller is answered before its query is even read.
    */
-  async function seen(c: Context): Promise<Caller | Response> {
+  async function callerOf(c: Context): Promise<Caller | Response> {
     const caller = await options.caller(c.req.raw);
     return caller === null ? unauthorized(c) : caller;
   }
@@ -108,9 +108,9 @@ export function webui(options: WebuiOptions): Hono {
    *
    * `async` because `c.html` of a tree holding an async component answers with
    * a promise, and a caller testing `instanceof Response` would walk straight
-   * past one.
+   * past one — which is the Brand wall not holding.
    */
-  const wall = async (
+  const brandsToList = async (
     c: Context,
     caller: Caller,
     brand: string | undefined
@@ -124,13 +124,13 @@ export function webui(options: WebuiOptions): Hono {
    * Only the Brands the Caller holds reach the filter links, so a page never
    * names a Brand its own refusal would then hide.
    */
-  const brandsOf = async (brands: readonly string[]) =>
+  const brandsNamed = async (brands: readonly string[]) =>
     (await options.records.brands.list()).filter((brand) =>
       brands.includes(brand.id)
     );
 
   app.get("/", async (c) => {
-    const caller = await seen(c);
+    const caller = await callerOf(c);
     if (caller instanceof Response) return caller;
 
     let query;
@@ -143,14 +143,14 @@ export function webui(options: WebuiOptions): Hono {
       throw error;
     }
 
-    const brands = await wall(c, caller, query.brand);
+    const brands = await brandsToList(c, caller, query.brand);
     if (brands instanceof Response) return brands;
 
     // Only what records is asked for is inside the guard. A fault in the page
     // itself is a fault and must not be reported as a database that did not
     // answer.
     let page;
-    let named;
+    let filterBrands;
     try {
       page = await galleryPage(
         options.records,
@@ -164,7 +164,7 @@ export function webui(options: WebuiOptions): Hono {
         pageSize,
         query.cursor
       );
-      named = await brandsOf(brands);
+      filterBrands = await brandsNamed(brands);
     } catch (error) {
       if (error instanceof NotACursor) {
         return badRequest(c, "Not a page", error.message);
@@ -177,7 +177,7 @@ export function webui(options: WebuiOptions): Hono {
         basePath={basePath}
         query={query}
         outputs={page.rows}
-        brands={named}
+        brands={filterBrands}
         store={options.store}
         cursor={page.cursor}
       />
@@ -185,7 +185,7 @@ export function webui(options: WebuiOptions): Hono {
   });
 
   app.get("/calls", async (c) => {
-    const caller = await seen(c);
+    const caller = await callerOf(c);
     if (caller instanceof Response) return caller;
 
     let query;
@@ -198,11 +198,11 @@ export function webui(options: WebuiOptions): Hono {
       throw error;
     }
 
-    const brands = await wall(c, caller, query.brand);
+    const brands = await brandsToList(c, caller, query.brand);
     if (brands instanceof Response) return brands;
 
     let page;
-    let named;
+    let filterBrands;
     try {
       page = await callsPage(
         options.records,
@@ -211,7 +211,7 @@ export function webui(options: WebuiOptions): Hono {
         pageSize,
         query.cursor
       );
-      named = await brandsOf(brands);
+      filterBrands = await brandsNamed(brands);
     } catch (error) {
       if (error instanceof NotACursor) {
         return badRequest(c, "Not a page", error.message);
@@ -224,7 +224,7 @@ export function webui(options: WebuiOptions): Hono {
         basePath={basePath}
         query={query}
         calls={page.rows}
-        brands={named}
+        brands={filterBrands}
         cursor={page.cursor}
       />
     );
