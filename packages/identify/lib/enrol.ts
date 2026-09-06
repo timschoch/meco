@@ -16,7 +16,12 @@ import { createHash } from "node:crypto";
 import type { Annotation, Region } from "@meco/contracts";
 import { peoplePrefix } from "@meco/records";
 import { IdentifyError } from "./errors";
-import { decodedShorterSide, idNumber, identifiableFace } from "./face";
+import {
+  type IdentifiableFace,
+  decodedShorterSide,
+  idNumber,
+  identifiableFace,
+} from "./face";
 import type { EnrolRequest, Enrolment, IdentifyDeps } from "./types";
 
 /** The Content Hash of the bytes, computed the one way the store computes it. */
@@ -48,7 +53,7 @@ const facesOf = (annotation: Annotation): readonly Region[] =>
  * was then not asked (issue #34).
  */
 const notIdentifiableError = (
-  face: Exclude<ReturnType<typeof identifiableFace>, { identifiable: true }>,
+  face: Exclude<IdentifiableFace, { readonly identifiable: true }>,
   regionId: string
 ): IdentifyError => {
   switch (face.reason) {
@@ -80,7 +85,11 @@ const notIdentifiableError = (
  *
  * `choose` is an outcome and not an error (decision on #87, Q11): a photograph
  * with several faces is a normal photograph, and the caller's next move is to
- * send the same bytes back with a `regionId`.
+ * send the same bytes back with a `regionId`. The two other answers to "which
+ * face" — none at all, and a `regionId` naming no face here — are refusals and
+ * are thrown, so this function answers on both channels on purpose: the return
+ * type carries what the caller can act on, and the throw carries what it got
+ * wrong.
  */
 type Choice =
   | { readonly chosen: Region }
@@ -175,31 +184,57 @@ export const enrolRule = async (
 
   // 5. Written, in the order records requires: the bytes, then the File that
   // names their hash, then the Annotation of that File, then the row.
+  //
+  // The bytes have to go first — records refuses a File whose bytes it has not
+  // been given a key for — which is the one window where a photograph exists
+  // in the store with nothing pointing at it. A row is what an Erasure walks,
+  // so bytes that never got one would be unreachable by every later delete;
+  // the catch below closes the window by removing them again.
   const put = await store.put(
     peoplePrefix(brand, personId),
     bytes,
     contentType
   );
-  await records.files.ensure({
-    hash: put.hash,
-    mime: contentType,
-    width: annotation.width,
-    height: annotation.height,
-    bytes: bytes.byteLength,
-    storeKey: put.key,
-  });
-  await records.annotations.put(annotation);
-  const photo = await records.people.enrol({
-    brand,
-    personId,
-    hash: put.hash,
-    // The Reference Photo's own key, under `people/`. The `files` row may name
-    // a `sources/` key for the same bytes; records owns that rule.
-    storeKey: put.key,
-    regionId: chosen.id,
-    facePrint: face.print,
-    consentAt: consentAt.toISOString(),
-  });
+  try {
+    if (put.hash !== hash) {
+      throw new Error(
+        `@meco/identify: the store filed these bytes under ${put.hash} and the Annotation was made for ${hash}. Both are meant to be the SHA-256 of the same bytes.`
+      );
+    }
+    await records.files.ensure({
+      hash,
+      mime: contentType,
+      width: annotation.width,
+      height: annotation.height,
+      bytes: bytes.byteLength,
+      storeKey: put.key,
+    });
+    await records.annotations.put(annotation);
+    const photo = await records.people.enrol({
+      brand,
+      personId,
+      hash,
+      // The Reference Photo's own key, under `people/`. The `files` row may
+      // name a `sources/` key for the same bytes; records owns that rule.
+      storeKey: put.key,
+      regionId: chosen.id,
+      facePrint: face.print,
+      consentAt: consentAt.toISOString(),
+    });
 
-  return { status: "enrolled", photo, annotation };
+    return { status: "enrolled", photo, annotation };
+  } catch (error) {
+    // Only bytes this call wrote. `deduped` says the object was already there,
+    // and an existing object under a Person's prefix belongs to a row this
+    // call did not make: deleting it would erase somebody else's enrolment.
+    if (!put.deduped) {
+      await store.delete(put.key).catch((cleanup: unknown) => {
+        throw new Error(
+          `@meco/identify: an enrolment failed and its bytes could not be removed from ${put.key}, which leaves a Face Print no Erasure can reach. The enrolment failed with: ${String(error)}`,
+          { cause: cleanup }
+        );
+      });
+    }
+    throw error;
+  }
 };

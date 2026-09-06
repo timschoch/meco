@@ -3,11 +3,16 @@
  * database and the private store from a real photograph, named again in a
  * second photograph of the same person, then erased.
  *
- * Everything here is real except the Brand, which is a throwaway id: `records`
- * over `meco-records-eu`, the private Blob store in `fra1`, and the deployed
- * Enricher reached through the Preview's probe door (`GATEWAY_PROBE=1`,
- * `POST /probe/annotate` — #118). Nothing is stubbed, so what this file proves
- * is what a Brand would get.
+ * Nothing here is stubbed: `records` over `meco-records-eu`, the private Blob
+ * store in `fra1`, a seeded Brand, and the deployed Enricher reached through
+ * the Preview's probe door (`GATEWAY_PROBE=1`, `POST /probe/annotate` — #118).
+ * What this file proves is what a Brand would get.
+ *
+ * The photograph is a fixture one, which `docs/specs/identify.md` and ADR-0003
+ * Decision 2 say enrolment must not treat as a precedent. It is here because
+ * meco has no consenting live subject yet; the Person is created and erased
+ * inside one run, and replacing the photograph with a consenting subject's is
+ * the only change this file then needs.
  *
  * Out of `pnpm check` by its file name (`*.live.ts`, `vitest.live.config.ts`),
  * because it costs credentials, money and a round trip to Frankfurt.

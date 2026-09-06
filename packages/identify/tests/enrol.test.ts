@@ -17,12 +17,14 @@ import { Annotation } from "@meco/contracts";
 import {
   type Database,
   type PersonWithPrints,
+  type Records,
   peoplePrefix,
 } from "@meco/records";
 import { pgliteDatabase } from "@meco/records/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type Annotator,
+  type Enrolment,
   type Identify,
   IdentifyError,
   MIN_FACE_PX,
@@ -196,6 +198,33 @@ const refused = async (options: {
   return error;
 };
 
+/**
+ * Runs an enrolment that must be done, and hands back the Reference Photo it
+ * filed. The mirror of {@link refused}: the same request shape, and the status
+ * narrowed once here rather than in every check.
+ */
+const enrolled = async (options: {
+  readonly photo: Photograph;
+  readonly brand: string;
+  readonly personId: string;
+  readonly consentAt: Date;
+  readonly regionId?: string;
+}): Promise<Extract<Enrolment, { status: "enrolled" }>> => {
+  const { photo, brand, personId, consentAt } = options;
+  const outcome = await identifier(photo).enrol({
+    brand,
+    personId,
+    bytes: photo.bytes,
+    contentType: "image/jpeg",
+    consentAt,
+    ...(options.regionId === undefined ? {} : { regionId: options.regionId }),
+  });
+  if (outcome.status !== "enrolled") {
+    throw new Error(`expected enrolled, got ${outcome.status}`);
+  }
+  return outcome;
+};
+
 describe("enrol, before the Annotator", () => {
   it("refuses a missing consent date and never calls the Annotator", async () => {
     const { brand, personId } = await someone();
@@ -309,16 +338,14 @@ describe("enrol, choosing the face", () => {
   it("enrols the face the regionId names, not the largest", async () => {
     const { brand, personId } = await someone();
     const photo = photograph(soyuz.annotation, "named-region");
-    const outcome = await identifier(photo).enrol({
+    const outcome = await enrolled({
+      photo,
       brand,
       personId,
-      bytes: photo.bytes,
-      contentType: "image/jpeg",
       consentAt,
       regionId: G_IN_CREW.regionId,
     });
 
-    if (outcome.status !== "enrolled") throw new Error("expected enrolled");
     expect(outcome.photo.regionId).toBe(G_IN_CREW.regionId);
     expect(outcome.photo.facePrint.vector).toEqual(
       printOf("soyuz-crew.jpg", "right")
@@ -328,14 +355,7 @@ describe("enrol, choosing the face", () => {
   it("enrols the only face when the photograph has one", async () => {
     const { brand, personId } = await someone();
     const photo = photograph(portrait.annotation, "one-face");
-    const outcome = await identifier(photo).enrol({
-      brand,
-      personId,
-      bytes: photo.bytes,
-      contentType: "image/jpeg",
-      consentAt,
-    });
-    if (outcome.status !== "enrolled") throw new Error("expected enrolled");
+    const outcome = await enrolled({ photo, brand, personId, consentAt });
     expect(outcome.photo.regionId).toBe("face-1");
   });
 });
@@ -423,14 +443,7 @@ describe("enrol, what a done enrolment wrote", () => {
   it("writes the bytes, the File, the Annotation and the row", async () => {
     const { brand, personId } = await someone();
     const photo = photograph(portrait.annotation, "written");
-    const outcome = await identifier(photo).enrol({
-      brand,
-      personId,
-      bytes: photo.bytes,
-      contentType: "image/jpeg",
-      consentAt,
-    });
-    if (outcome.status !== "enrolled") throw new Error("expected enrolled");
+    const outcome = await enrolled({ photo, brand, personId, consentAt });
 
     const prefix = peoplePrefix(brand, personId);
     const objects = await stored(brand, personId);
@@ -473,13 +486,7 @@ describe("enrol, what a done enrolment wrote", () => {
   it("files the bytes under people/, never under sources/", async () => {
     const { brand, personId } = await someone();
     const photo = photograph(portrait.annotation, "under-people");
-    await identifier(photo).enrol({
-      brand,
-      personId,
-      bytes: photo.bytes,
-      contentType: "image/jpeg",
-      consentAt,
-    });
+    await enrolled({ photo, brand, personId, consentAt });
     const { photos } = await rowsOf(brand, personId);
     expect(
       photos[0]?.storeKey.startsWith(`${peoplePrefix(brand, personId)}/`)
@@ -487,17 +494,45 @@ describe("enrol, what a done enrolment wrote", () => {
     expect(await open.store.list("sources")).toEqual([]);
   });
 
+  it("removes the bytes again when the row cannot be written", async () => {
+    const { brand, personId } = await someone();
+    const photo = photograph(portrait.annotation, "row-refused");
+    // The real `Records`, with one method made to fail. Not a fake `Records`
+    // (ADR-0012, Decision 5): every other method is the PGlite adapter under
+    // its own conformance suite, and the only way to see what a half-written
+    // enrolment leaves behind is to half-write one.
+    const refusing: Records = {
+      ...open.records,
+      people: {
+        ...open.records.people,
+        enrol: () => Promise.reject(new Error("the row was refused")),
+      },
+    };
+
+    await expect(
+      identify({
+        records: refusing,
+        store: open.store,
+        annotate: photo.annotate,
+      }).enrol({
+        brand,
+        personId,
+        bytes: photo.bytes,
+        contentType: "image/jpeg",
+        consentAt,
+      })
+    ).rejects.toThrow("the row was refused");
+
+    // The bytes are the part no later delete could reach: an Erasure walks the
+    // rows, and this photograph never got one. The `files` row and the
+    // Annotation that did land are the Sweep's, which reads rows.
+    expect(await stored(brand, personId)).toEqual([]);
+  });
+
   it("enrols, then names that Person in another photograph of them", async () => {
     const { brand, personId } = await someone();
     const photo = photograph(portrait.annotation, "enrol-then-match");
-    const enrolled = await identifier(photo).enrol({
-      brand,
-      personId,
-      bytes: photo.bytes,
-      contentType: "image/jpeg",
-      consentAt,
-    });
-    if (enrolled.status !== "enrolled") throw new Error("expected enrolled");
+    await enrolled({ photo, brand, personId, consentAt });
 
     const { matches, faces } = await identifier(photo).match({
       annotation: soyuz.annotation,

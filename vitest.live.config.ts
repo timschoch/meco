@@ -1,8 +1,10 @@
 /**
  * The live suites: real backends, real credentials, out of `pnpm check`.
- * `pnpm test:store:live` and `pnpm test:records:live`, which are separate
- * scripts because the store's polls to Blob's 60 s deletion deadline cost about
- * ten minutes and records' whole run costs under two.
+ * `pnpm test:store:live`, `pnpm test:records:live` and
+ * `pnpm test:identify:live`, separate scripts because the store's polls to
+ * Blob's 60 s deletion deadline cost about ten minutes, records' whole run
+ * costs under two, and identify's needs `MODELS_PROBE_URL` pointed at a
+ * Preview deployment as well as the credentials below.
  *
  * They are named `*.live.ts`, not `*.live.test.ts`, so that Vitest's default
  * test glob cannot collect them. Keeping a live suite out of CI is then a
