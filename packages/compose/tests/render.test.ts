@@ -79,6 +79,20 @@ describe("render", () => {
     expect(openSpy).not.toHaveBeenCalled();
   });
 
+  it("renders a story given only the two Fields its schema requires", async () => {
+    // #244: the optional `subline` and `footnote` left out. The same call the
+    // gateway answered 500 for, because `plan` threw inside the layout walk.
+    const { bytes, mime } = await render(
+      await story({
+        fields: { headline: "Kart 24", kicker: "Startaufstellung" },
+      })
+    );
+
+    expect(mime).toBe("image/jpeg");
+    const decoded = await raster(bytes);
+    expect([decoded.width, decoded.height]).toEqual([1080, 1920]);
+  });
+
   it("is deterministic: two renders of the same call are byte-identical", async () => {
     const first = await render(await story({ format: "png" }));
     const second = await render(await story({ format: "png" }));

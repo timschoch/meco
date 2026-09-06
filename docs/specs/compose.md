@@ -130,7 +130,8 @@ Tests cross the entry points only, enforced by dependency-cruiser. Prior art: co
 - every text run inside its own box on the inline axis. That axis only: a run's reported height is the font's line box, not the CSS one, so a Template that tightens `lineHeight` puts every run over its box by design;
 - the Plan is identical with no image bytes, with a flat 9x16 placeholder and with a fixture photo;
 - `subjectArea`, when declared, is a valid Box;
-- no more Occlusion Zones than the `MAX_OCCLUSION_ZONES` a FramingRequest holds, so a Template that cannot be framed fails here and not at the gateway.
+- no more Occlusion Zones than the `MAX_OCCLUSION_ZONES` a FramingRequest holds, so a Template that cannot be framed fails here and not at the gateway;
+- a Plan with only the Fields the schema requires, read off the zod object, so a caller who sends exactly what it is told to send gets a Plan. What it caught: a Template writing `{fields.footnote ?? ""}` for an omitted Field, which takumi lays out as no node while `fromJsx` keeps one, so the two walks fell out of step and `plan` threw ([#244](https://github.com/timschoch/meco/issues/244)). `layout` now prunes what takumi will not measure — a text node whose text is blank — before both the measure and the walk.
 
 Exact assertions. The Plan's own numbers carry no tolerance: `tests/plan.test.ts` names the text block in whole Image Slot pixels, 92, 1437, 896 by 391 for the example Fields. The two containment rules allow half a pixel, because takumi lays out in floats and a run that exactly fills its line comes back a fraction over; anything a reader would see is whole pixels.
 

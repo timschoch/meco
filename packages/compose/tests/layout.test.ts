@@ -34,6 +34,7 @@ const RULES = [
   "declares a valid Subject Area or none",
   "keeps the Subject Area clear of every Occlusion Zone",
   "declares no more Occlusion Zones than a FramingRequest holds",
+  "plans with only its required Fields",
 ];
 
 const checks = layoutConformance(fixtures);
