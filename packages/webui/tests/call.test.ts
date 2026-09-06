@@ -627,6 +627,60 @@ describe("the Overlay", () => {
   );
 
   it(
+    "says hidden and not the Person's name on a face that was both matched and redacted",
+    async () => {
+      const { one, caller } = await openRecords();
+      const hash = await writeSource(one, "laica", "source");
+      await one.annotations.put(
+        annotationOf(hash, [
+          face("face-1", { x: 0.1, y: 0.1, width: 0.1, height: 0.1 }),
+        ])
+      );
+      const person = await one.people.create({
+        brand: "laica",
+        name: "Nora Bianchi",
+      });
+      const call = await one.calls.record({
+        callerId: caller.id,
+        brand: "laica",
+        kind: "crop",
+        sourceHash: hash,
+        status: "ok",
+        matches: {
+          matches: [
+            {
+              regionId: "face-1",
+              personId: person.id,
+              brand: "laica",
+              similarity: 0.71,
+            },
+          ],
+          faces: [],
+          unusableReferencePhotos: [],
+        },
+        redactions: [{ regionId: "face-1", reason: "unknown-face" }],
+      });
+
+      const app = webui({
+        records: one,
+        store: memoryStore(),
+        caller: always(holding(caller, "laica")),
+      });
+
+      const drawn = overlayOf(
+        await (await app.request(`/calls/${call.id}`)).text()
+      );
+
+      // Hiding a face and then writing its name over the box would undo the
+      // hiding. redact hides only an Unknown Face today, so this cannot happen
+      // yet; the order is fixed here so that it never can.
+      expect(drawn).toContain("hidden");
+      expect(drawn).not.toContain("Nora Bianchi");
+    },
+    TIMEOUT
+  );
+
+  it(
     "draws the Regions with no Crop Window for a Call that framed none",
     async () => {
       const { one, caller } = await openRecords();

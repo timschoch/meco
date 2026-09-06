@@ -22,7 +22,8 @@ type Region = Annotation["regions"][number];
 /** One Region as the Overlay draws it: its box in source fractions, and a word. */
 export interface OverlayRegion {
   readonly id: string;
-  readonly kind: string;
+  /** contracts' own closed set, so a new kind reaches the Overlay's CSS typed. */
+  readonly kind: Region["kind"];
   /** The Person's name on a Match, `hidden` when redacted, else the Region id. */
   readonly label: string;
   readonly hidden: boolean;
@@ -154,12 +155,20 @@ export function redactionsOf(value: unknown): readonly RedactionRow[] | null {
   return rows;
 }
 
-/** What one Region is called on the Overlay. Name, then `hidden`, then its id. */
+/**
+ * What one Region is called on the Overlay.
+ *
+ * `hidden` before the name. A face redact hid is a face whose name the page
+ * must not publish beside it — that is what hiding it was for. redact only
+ * ever hides an Unknown Face today, so the two cannot both be true; the order
+ * is here because the day they can, the safe answer must already be the one
+ * that is written down.
+ */
 const labelOf = (
   region: Region,
   name: string | undefined,
   hidden: boolean
-): string => name ?? (hidden ? "hidden" : region.id);
+): string => (hidden ? "hidden" : (name ?? region.id));
 
 /**
  * How long a Source Thumbnail's Signed URL lives. Long enough for the browser
@@ -192,52 +201,101 @@ async function replayedOutput(
   return records.outputs.byRequest(call.brand, hash);
 }
 
-export async function callView(
+/**
+ * The Call this Caller may read, or `null` for both reasons it may not: no such
+ * Call, and a Call of a Brand the Caller does not hold. The Brand Wall of both
+ * routes, in one place, so the two cannot drift into two different answers.
+ */
+async function heldCall(
+  records: Records,
+  caller: Caller,
+  id: string
+): Promise<Call | null> {
+  const call = await records.calls.get(id);
+  if (call === null || !caller.brands.includes(call.brand)) return null;
+  return call;
+}
+
+/** Every row one Call View is built from. Every await in this module's page path. */
+export interface CallRead {
+  readonly call: Call;
+  readonly file: FileRecord | null;
+  readonly annotation: Annotation | null;
+  readonly outputs: readonly Output[];
+  readonly moreOutputs: boolean;
+  readonly replayed: Output | null;
+  readonly names: ReadonlyMap<string, string>;
+}
+
+/**
+ * Everything the Call View asks records for, and nothing else.
+ *
+ * Kept apart from {@link viewOf} because the route reports a throw in here as a
+ * `503`: a fault in the page's own arithmetic is a fault, and must not be
+ * reported to a person as a database that did not answer.
+ */
+export async function readCall(
   records: Records,
   caller: Caller,
   id: string,
   pageSize: number
-): Promise<CallView | null> {
-  const call = await records.calls.get(id);
-  if (call === null || !caller.brands.includes(call.brand)) return null;
+): Promise<CallRead | null> {
+  const call = await heldCall(records, caller, id);
+  if (call === null) return null;
 
-  const [file, annotation] = await Promise.all([
+  const [file, annotation, page, replayed] = await Promise.all([
     call.sourceHash === null ? null : records.files.get(call.sourceHash),
     call.sourceHash === null ? null : records.annotations.get(call.sourceHash),
+    // The same cap as a Gallery page, for the same reason: the Call View shows
+    // whole Renders at their Public URLs and one page must not become 30 MB of
+    // them. A Call makes one Output today, so the cap is slack the page reports
+    // rather than a limit anything reaches.
+    records.outputs.list({ callId: id, limit: pageSize }),
+    replayedOutput(records, call),
   ]);
 
-  // The same cap as a Gallery page, for the same reason: the Call View shows
-  // whole Renders at their Public URLs and one page must not become 30 MB of
-  // them. A Call makes one Output today, so the cap is slack the page reports
-  // rather than a limit anything reaches.
-  const page = await records.outputs.list({ callId: id, limit: pageSize });
-  const replayed = await replayedOutput(records, call);
+  const wanted = new Set(matchedPersons(call.matches).values());
+  const found = await Promise.all(
+    [...wanted].map((personId) => records.people.get(call.brand, personId))
+  );
+
+  return {
+    call,
+    file,
+    annotation,
+    outputs: page.rows,
+    moreOutputs: page.cursor !== null,
+    replayed,
+    names: new Map(
+      found.filter((one) => one !== null).map((one) => [one.id, one.name])
+    ),
+  };
+}
+
+/** The page, out of the rows. Pure: no await, no records, nothing to fail on. */
+export function viewOf(read: CallRead): CallView {
+  const { call, file, annotation } = read;
 
   const persons = matchedPersons(call.matches);
-  const found = await Promise.all(
-    [...new Set(persons.values())].map((personId) =>
-      records.people.get(call.brand, personId)
-    )
-  );
-  const names = new Map(
-    found.filter((one) => one !== null).map((one) => [one.id, one.name])
-  );
-
   const hidden = new Set(
     (redactionsOf(call.redactions) ?? []).map((one) => one.regionId)
   );
   const window = pixelWindowOf(call.framing);
-  const regions = (annotation?.regions ?? []).map((region) => ({
-    id: region.id,
-    kind: region.kind,
-    label: labelOf(
-      region,
-      names.get(persons.get(region.id) ?? ""),
-      hidden.has(region.id)
-    ),
-    hidden: hidden.has(region.id),
-    box: region.box,
-  }));
+
+  const regions = (annotation?.regions ?? []).map((region) => {
+    const personId = persons.get(region.id);
+    return {
+      id: region.id,
+      kind: region.kind,
+      label: labelOf(
+        region,
+        personId === undefined ? undefined : read.names.get(personId),
+        hidden.has(region.id)
+      ),
+      hidden: hidden.has(region.id),
+      box: region.box,
+    };
+  });
 
   return {
     call,
@@ -251,10 +309,10 @@ export async function callView(
           },
     faces: faceVerdictsOf(call.matches),
     redactions: redactionsOf(call.redactions),
-    names,
-    outputs: page.rows,
-    moreOutputs: page.cursor !== null,
-    replayed,
+    names: read.names,
+    outputs: read.outputs,
+    moreOutputs: read.moreOutputs,
+    replayed: read.replayed,
   };
 }
 
@@ -276,9 +334,8 @@ export async function sourceUrl(
   caller: Caller,
   id: string
 ): Promise<string | null> {
-  const call = await records.calls.get(id);
-  if (call === null || !caller.brands.includes(call.brand)) return null;
-  if (call.sourceHash === null) return null;
+  const call = await heldCall(records, caller, id);
+  if (call === null || call.sourceHash === null) return null;
 
   const held = await records.sources.heldBy(call.brand, call.sourceHash);
   if (!held) return null;

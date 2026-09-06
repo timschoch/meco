@@ -116,7 +116,6 @@ function Verbatim(props: { value: unknown; absent: string }) {
 }
 
 function Outputs(props: {
-  basePath: string;
   outputs: readonly Output[];
   more: boolean;
   store: Pick<Store, "publicUrl">;
@@ -209,35 +208,23 @@ function Redactions(props: {
 }
 
 /**
- * A Replay made no Output of its own: the row stays on the Call that first
- * made it, which is what "one Output and two Calls" means. So the page points
- * at that Call rather than pretending this one produced something.
+ * A Replay made no Output of its own: the row stays on the Call that first made
+ * it, which is what "one Output and two Calls" means. So the page points at
+ * that Call rather than pretending this one produced something.
+ *
+ * A link and not the picture. The Call it links loads that Render at full size
+ * already, and a Render measures 0.7 to 2.5 MB PNG (compose goldens,
+ * `packages/compose/tests/goldens`, seven files, 6 Sep 2026).
  */
-function Replayed(props: {
-  basePath: string;
-  output: Output;
-  store: Pick<Store, "publicUrl">;
-}) {
+function Replayed(props: { basePath: string; output: Output }) {
   return (
-    <div class="note">
-      <p>
-        This Call replayed an earlier Output, so no module ran.{" "}
-        <a href={`${props.basePath}/calls/${props.output.callId}`}>
-          The Call that made it
-        </a>
-        .
-      </p>
-      <p>
-        <code>{props.output.storeKey}</code>
-      </p>
-      <img
-        class="source"
-        src={props.store.publicUrl(props.output.storeKey)}
-        alt={`${props.output.kind} for ${props.output.brand}`}
-        loading="lazy"
-        decoding="async"
-      />
-    </div>
+    <p class="note">
+      This Call replayed an earlier Output, so no module ran.{" "}
+      <a href={`${props.basePath}/calls/${props.output.callId}`}>
+        The Call that made it
+      </a>{" "}
+      holds <code>{props.output.storeKey}</code>.
+    </p>
   );
 }
 
@@ -292,11 +279,7 @@ export function CallView(props: CallProps) {
       <h2>Steps</h2>
       <Steps steps={call.steps} />
       {props.view.replayed === null ? null : (
-        <Replayed
-          basePath={props.basePath}
-          output={props.view.replayed}
-          store={props.store}
-        />
+        <Replayed basePath={props.basePath} output={props.view.replayed} />
       )}
 
       <h2>Cost</h2>
@@ -304,7 +287,6 @@ export function CallView(props: CallProps) {
 
       <h2>Outputs</h2>
       <Outputs
-        basePath={props.basePath}
         outputs={props.view.outputs}
         more={props.view.moreOutputs}
         store={props.store}

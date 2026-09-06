@@ -10,7 +10,7 @@ import type { Caller, Records } from "@meco/records";
 import type { Store } from "@meco/store";
 import { type Context, Hono } from "hono";
 import { CallView } from "./call";
-import { callView, sourceUrl } from "./call-page";
+import { readCall, sourceUrl, viewOf } from "./call-page";
 import { Calls } from "./calls";
 import { callsPage } from "./calls-page";
 import { Gallery } from "./gallery";
@@ -276,9 +276,12 @@ export function webui(options: WebuiOptions): Hono {
     const caller = await seen(c);
     if (caller instanceof Response) return caller;
 
-    let view;
+    // Only what records is asked for is inside the guard. A fault in the page
+    // itself is a fault and must not be reported as a database that did not
+    // answer.
+    let read;
     try {
-      view = await callView(
+      read = await readCall(
         options.records,
         caller,
         c.req.param("id"),
@@ -287,10 +290,10 @@ export function webui(options: WebuiOptions): Hono {
     } catch {
       return noAnswer(c);
     }
-    if (view === null) return notFound(c);
+    if (read === null) return notFound(c);
 
     return c.html(
-      <CallView basePath={basePath} view={view} store={options.store} />
+      <CallView basePath={basePath} view={viewOf(read)} store={options.store} />
     );
   });
 
