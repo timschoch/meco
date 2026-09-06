@@ -64,8 +64,6 @@ export function frameCrop(input: FrameInput): Framing {
         request.anchor ?? DEFAULT_ANCHOR
       );
 
-  const droppedRegionIds: string[] = [];
-
   return {
     window: cropWindow,
     windowFraction: toFraction(cropWindow, source),
@@ -79,20 +77,18 @@ export function frameCrop(input: FrameInput): Framing {
     leadRegionId: composed?.leadRegionId,
     subject: composed?.subject,
     keptRegionIds: composed?.keptRegionIds ?? [],
-    droppedRegionIds,
+    droppedRegionIds: [],
     satisfied: true,
     // Only when the request named an area, and measured on the window actually
     // cut rather than the one first asked for: the Source Image can clamp the
-    // aim off the area today, and a rung of the ladder can rescue the Subject
-    // and miss the area doing it on #108. A Subject that rung sacrificed is a
-    // miss too, which is the `droppedRegionIds` clause — nothing fills it until
-    // #108 builds the drop rung, and it is written here so #108 cannot forget.
+    // aim off the area, and that is a miss the window it first asked for would
+    // not have shown. #108 adds the other half — a Subject its drop rung
+    // sacrificed is a miss too — with the rung that can turn the check red.
     ...(declaredArea === undefined
       ? {}
       : {
           subjectAreaSatisfied:
             composed !== undefined &&
-            droppedRegionIds.length === 0 &&
             fillsSubjectArea(
               declaredArea,
               composed.subject,
