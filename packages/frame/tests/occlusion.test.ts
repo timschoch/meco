@@ -5,10 +5,16 @@ import {
   type FramingRequest,
   type Size,
 } from "@meco/contracts";
-import { MAX_OCCLUSION_ZONES, PHI_LINES, frameCrop } from "../index";
+import {
+  MAX_OCCLUSION_ZONES,
+  PHI_LINES,
+  frameCrop,
+  type FrameInput,
+} from "../index";
 import {
   FACE_FIXTURES,
   TARGETS,
+  emptyAnnotation,
   oneFaceAnnotation,
   requestFor,
   vehicleAnnotation,
@@ -130,6 +136,63 @@ describe("an empty occlusion list", () => {
       const { framing } = measure(fixture, target, { occlusion: [] });
 
       expect("occlusionClear" in framing).toBe(false);
+    });
+  }
+
+  // The sweep above is the `face` rung. `occlusionClear` is the one field an
+  // empty list could add, and it must be absent whichever rung answered — the
+  // two that compose no Subject at all included, where a vacuous `true` would
+  // be the easy mistake.
+  const EVERY_RUNG: { name: string; input: FrameInput }[] = [
+    {
+      name: "the kart rung",
+      input: {
+        annotation: vehicleAnnotation({ width: 1200, height: 800 }),
+        request: requestFor(
+          { width: 1080, height: 1080 },
+          { ...KART_ONLY, occlusion: [] }
+        ),
+      },
+    },
+    {
+      name: "the centre, with nothing composed",
+      input: {
+        annotation: emptyAnnotation({ width: 1200, height: 800 }),
+        request: requestFor({ width: 1080, height: 1080 }, { occlusion: [] }),
+      },
+    },
+    {
+      name: "the Crop Anchor, with nothing composed",
+      input: {
+        annotation: emptyAnnotation({ width: 1200, height: 800 }),
+        request: requestFor(
+          { width: 1080, height: 1080 },
+          { anchor: "top-left", occlusion: [] }
+        ),
+      },
+    },
+    {
+      name: "a declared Subject Area",
+      input: {
+        annotation: oneFaceAnnotation(
+          { width: 2000, height: 2000 },
+          { x: 0.4, y: 0.3, width: 0.1, height: 0.2 }
+        ),
+        request: requestFor(
+          { width: 1080, height: 1080 },
+          {
+            ...FACE_ONLY,
+            subjectArea: { x: 0.3, y: 0.3, width: 0.4, height: 0.4 },
+            occlusion: [],
+          }
+        ),
+      },
+    },
+  ];
+
+  for (const { name, input } of EVERY_RUNG) {
+    it(`adds no field on ${name}`, () => {
+      expect("occlusionClear" in frameCrop(input)).toBe(false);
     });
   }
 });
@@ -444,6 +507,22 @@ describe("which rectangle the Free Area sweep picks", () => {
     ).toBe(403);
   });
 
+  it("prefers the largest rectangle over the one on the frame centre", () => {
+    // Two opposite corners blocked leave four candidates: two of 0.6 x 0.6 in
+    // the other corners, and two strips of 0.2 dead on the frame centre. Area
+    // is read first, so the top-left 0.36 wins and its Golden Line answers
+    // 0.382 x 0.6 = 0.2292: y = round(500 - 0.2292 x 563) = 371. A rule that
+    // read the centre first would take a strip and answer 285.
+    const corners: Box[] = [
+      { x: 0, y: 0, width: 0.4, height: 0.4 },
+      { x: 0.6, y: 0.6, width: 0.4, height: 0.4 },
+    ];
+
+    expect(
+      windowFor({ x: 0.45, y: 0.45, width: 0.1, height: 0.1 }, WIDE, corners).y
+    ).toBe(371);
+  });
+
   it("prefers the rectangle nearest the frame centre over the lowest x", () => {
     // Two bands leave three strips of exactly 0.3 x 1. The middle one sits on
     // the frame centre at distance 0, the outer two at 0.35. Its Golden Line is
@@ -457,6 +536,51 @@ describe("which rectangle the Free Area sweep picks", () => {
     expect(
       windowFor({ x: 0.45, y: 0.45, width: 0.1, height: 0.1 }, TALL, bands).x
     ).toBe(238);
+  });
+});
+
+/**
+ * A Subject that already fits what the overlay leaves. The Free Area narrows
+ * where the Subject may land; it does not move a Subject that was never in the
+ * way. This is the case the two readings of `docs/specs/frame.md` step 3 pull
+ * apart — aiming at the centre of the Free Area against clamping the aim into
+ * it — and the spec's own words are the clamp.
+ */
+describe("a Subject Area the band narrows but does not reach", () => {
+  const SOURCE: Size = { width: 2000, height: 3000 };
+  const SQUARE: Size = { width: 1080, height: 1080 };
+  const FACE: Box = { x: 0.45, y: 0.45, width: 0.1, height: 0.1 };
+  /** Narrow enough that the picture cannot fill it: 200 px of face across
+   * 0.05 of the frame asks for a 4000 px window and the picture holds 2000. */
+  const NARROW: Box = { x: 0.05, y: 0.3, width: 0.05, height: 0.6 };
+
+  const framing = (occlusion: Box[]) =>
+    frameCrop({
+      annotation: oneFaceAnnotation(SOURCE, FACE),
+      request: requestFor(SQUARE, {
+        ...FACE_ONLY,
+        subjectArea: NARROW,
+        occlusion,
+      }),
+    });
+
+  it("leaves the window exactly where the area alone put it", () => {
+    // The band cuts the area from 0.3-0.9 down to 0.3-0.76, so its centre moves
+    // from 0.60 to 0.53 — but the Subject is 0.15 of the window against 0.46 of
+    // Free Area, so it fits at 0.60 and nothing has to move. Aiming at the
+    // Free Area's centre instead would answer y 440.
+    expect(framing([BAND]).window).toEqual(framing([]).window);
+    expect(framing([BAND]).window).toEqual({
+      x: 0,
+      y: 300,
+      width: 2000,
+      height: 2000,
+    });
+  });
+
+  it("still says the picture fell short of the area", () => {
+    expect(framing([BAND]).subjectAreaShortfall).toBeCloseTo(2, 3);
+    expect(framing([BAND]).occlusionClear).toBe(true);
   });
 });
 

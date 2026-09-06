@@ -128,18 +128,23 @@ export function frameCrop(input: FrameInput): Framing {
   // lands there. The size is already settled above and no line here touches it:
   // no zoom clears an overlay (ADR-0006, "Why occlusion aims but does not
   // size").
+  //
+  // A Golden Line names a proportion, so it is measured off the Free Area
+  // instead of off the frame. A declared Subject Area names a place, so it
+  // keeps the place it named and only the clamp may move it — an overlay that
+  // leaves the Subject where the caller put it moves nothing.
+  //
+  // `composed` is undefined exactly when `composition` is; the test is repeated
+  // only so `composed.subject` narrows.
   const placement =
     composition === undefined || composed === undefined || free === undefined
       ? composition
       : {
           at: composition.at,
           aim: clampIntoFreeArea(
-            // A declared area names a place, a Golden Line a proportion. The
-            // first moves to the centre of what is left of it; the second is
-            // measured off the Free Area instead of off the frame.
             declaredArea === undefined
               ? aimWithin(free, composition.aim)
-              : centreOf(free),
+              : composition.aim,
             composition.at,
             composed.subject,
             free,

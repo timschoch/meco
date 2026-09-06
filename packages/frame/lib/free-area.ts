@@ -54,7 +54,9 @@ const beats = (candidate: Box, best: Box): boolean => {
 
   if (Math.abs(candidate.y - best.y) > TIE) return candidate.y < best.y;
 
-  return candidate.x < best.x - TIE;
+  if (Math.abs(candidate.x - best.x) > TIE) return candidate.x < best.x;
+
+  return false;
 };
 
 /** Every distinct cut on one axis: the frame's two edges and each zone's. */
@@ -117,6 +119,12 @@ const largestFreeRectangle = (zones: readonly Box[]): Box | undefined => {
  * zones leave nothing of wins outright — somebody said where the Subject goes,
  * and frame does not overrule that on its own. The miss shows up where every
  * other one does, in `occlusionClear` measured on the window actually cut.
+ *
+ * Zones that cover the frame between them leave the whole frame, which reads
+ * backwards and is the only answer there is: there is nowhere to aim, so
+ * nothing is gained by aiming somewhere arbitrary, and the composition the
+ * picture asked for is a better window than a corner. The miss is reported
+ * either way.
  *
  * Called only when a Template declared a zone. With none there is no Free Area
  * and no clamp, so an empty list is the absence of this whole path rather than
