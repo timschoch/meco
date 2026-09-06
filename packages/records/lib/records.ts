@@ -18,6 +18,7 @@ import { type People, peopleOver } from "./people";
 import { requestHash } from "./request-hash";
 import { annotations, files } from "./schema";
 import { type Sources, sourcesOver } from "./sources";
+import { DEFAULT_RETENTION_DAYS, type SweepReport, sweeping } from "./sweep";
 
 export interface RecordsOptions {
   readonly database: Database;
@@ -28,6 +29,14 @@ export interface RecordsOptions {
    * would change every call site that had already opened a Records.
    */
   readonly store: Store;
+  /**
+   * The Retention Window in days: how long a File with no Source Hold and no
+   * Reference Photo may stay before the Sweep removes it. Defaults to
+   * {@link DEFAULT_RETENTION_DAYS}; the gateway reads `RECORDS_RETENTION_DAYS`
+   * into it, because how long a stranger's face is kept is a data-protection
+   * decision the owner makes and not a number in a build.
+   */
+  readonly retentionDays?: number;
 }
 
 /** One photograph as records knows it. Store Keys and hashes, never bytes. */
@@ -75,6 +84,13 @@ export interface Records {
    * request twice is a Replay and not a second inference.
    */
   requestHash(brand: string, kind: CallKind, request: unknown): string;
+  /**
+   * Removes every File with no Source Hold and no Reference Photo that is
+   * older than the Retention Window, with its Annotation and its bytes, and
+   * reports what went. `now` is the instant the window is measured from; the
+   * gateway passes its own clock.
+   */
+  sweep(now?: Date): Promise<SweepReport>;
   /** Releases the database. Idempotent. */
   close(): Promise<void>;
 }
@@ -184,6 +200,12 @@ export function records(options: RecordsOptions): Records {
     outputs: outputsOver(driver, options.store),
 
     requestHash,
+
+    sweep: sweeping(
+      driver,
+      options.store,
+      options.retentionDays ?? DEFAULT_RETENTION_DAYS
+    ),
 
     async close() {
       await driver.close();

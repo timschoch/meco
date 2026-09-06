@@ -38,6 +38,7 @@ export {
   peoplePrefix,
 } from "./lib/people";
 export { type Sources } from "./lib/sources";
+export { DEFAULT_RETENTION_DAYS, type SweepReport } from "./lib/sweep";
 export {
   type FileRecord,
   type NewFile,

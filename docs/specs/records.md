@@ -109,8 +109,17 @@ export interface Records {
     ): Promise<{ deleted: boolean; bytesDeleted: boolean }>;
   };
   requestHash(brand: string, kind: CallKind, request: unknown): string;
-  sweep(now?: Date): Promise<SweepReport>;
+  sweep(now?: Date): Promise<SweepReport>; // `now` is what the window is measured from
   close(): Promise<void>;
+}
+
+export const DEFAULT_RETENTION_DAYS = 30;
+
+export interface SweepReport {
+  sweptAt: string; // ISO 8601, the instant handed in
+  retentionDays: number; // the window as configured, not as defaulted
+  files: string[]; // the Content Hashes whose File and Annotation went
+  keys: string[]; // the Store Keys whose bytes went, in order
 }
 
 // packages/records/health.ts
@@ -182,7 +191,10 @@ One row per request that entered the gateway, `kind` one of `annotate | crop | r
 
 - `files.ensure` is idempotent on `hash`: the same photograph uploaded by two Brands is one row.
 - `sources.hold(brand, hash)` is written when a Brand uploads or names a Source Image. `sources.heldBy(brand, hash)` is the lookup the gateway makes before minting a Signed URL for a source (decision on #86). One index hit; never a scan of `calls`, because a Call is also something a Brand may want deleted.
-- The Reference Count of a File is its rows in `sources` plus `reference_photos`. `sweep(now)` deletes every File with a count of zero whose `first_seen_at` is older than the Retention Window, with its Annotation (cascade) and `store.delete` of its bytes, and reports what it removed. Default 30 days, `retentionDays` on `RecordsOptions`, read from `RECORDS_RETENTION_DAYS` by the gateway. Never touches an Output.
+- `sources.release(brand, hash)` is the other end of a hold, and is idempotent for the reason `unenrol` and `erase` are: a caller retries after a timeout. It never touches the File — once the last hold is gone the photograph is the Sweep's, after the window. The immediate File cascade was sanctioned for erasing a Person and for nothing else (#76, Q11).
+- The Reference Count of a File is its rows in `sources` plus `reference_photos`. `sweep(now)` deletes every File with a count of zero whose `first_seen_at` is older than the Retention Window, with its Annotation (cascade) and `store.delete` of its bytes, and reports what it removed. Default 30 days, `retentionDays` on `RecordsOptions`, read from `RECORDS_RETENTION_DAYS` by the gateway.
+- **Never touches an Output**, and in two different senses. An Output is no reference to a File — `calls.source_hash` carries no foreign key on purpose, so an old Call can never block the Sweep — and the File of an Output's source goes like any other. But `store.delete` is unconditional (ADR-0010), so the Sweep counts the rows naming a Store Key before it deletes those bytes, and an `outputs` row naming that key keeps them. The Namespaces make the two key spaces disjoint today (`sources/` is private, `crops/` and `renders/` are public, and a key ends in the hash of its own bytes), so this guard holds an invariant rather than a reachable state; it is what makes "the Sweep never removes an Output's bytes" a claim a mutation can falsify rather than a restatement of the schema (#164).
+- The Sweep has **no timer inside a container**, which sleeps. A Vercel cron posts to the gateway's `POST /internal/sweep` behind `CRON_SECRET` at `0 4 * * *`, and the route answers the Sweep Report (decision on #164, superseding the boot timer on #86; the route is #187). `sweep()` takes `now` so a check can move the clock without touching `first_seen_at`, which the database sets and no seam method may.
 - A stranger's Face Print lives inside the cached Annotation for exactly as long as some Brand holds the photograph. That is the answer to the retention question contracts left on #76.
 
 ### People, Reference Photos and Erasure
@@ -226,54 +238,61 @@ The probe is **write-once**. `GET /health` is unauthenticated, so a probe that i
 
 `recordsConformance(open, fixtures)` returns named Checks that both adapters run; a package's Vitest file maps them with `for (const c of checks) it(c.name, c.run)`. `open` returns a fresh, migrated `Records` per check.
 
-| Check                                                                                                                  | Mutation that must turn it red                              |
-| ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `migrate` on an empty database creates every table; a second `migrate` applies nothing                                 | skip the migrations table lookup and re-run every file      |
-| two `migrate` calls at once apply once                                                                                 | drop the advisory lock                                      |
-| `annotations.put` then `get` is structurally equal and parses with the contracts schema                                | store `JSON.stringify` in a text column and compare as text |
-| `annotations.get` of an unknown hash is `null`, not a throw                                                            | throw on a miss                                             |
-| `files.ensure` twice on one hash is one row                                                                            | insert without `on conflict`                                |
-| `brands.ensure` twice on one id is one row under the last name                                                         | insert without `on conflict`                                |
-| `brands.get` of an id no Brand has is `null`, not a throw                                                              | throw on a miss                                             |
-| `callers.byKey` finds by hash and the table holds no plaintext key                                                     | store the key                                               |
-| `callers.byKey` of a key that created nothing is `null`, not a throw                                                   | throw on a miss                                             |
-| `callers.byKey` returns the Brands that Caller holds and no others                                                     | answer with every Brand row                                 |
-| `callers.create` refuses a second Caller on one key, quoting neither the key nor its hash                              | let drizzle's wrapped error out                             |
-| `callers.grant` adds, never removes, and granting twice changes nothing                                                | replace the array instead of appending                      |
-| the Seed twice leaves one row per Brand and one Caller                                                                 | insert the Brand instead of ensuring it                     |
-| the Seed converges: a Caller short of a Brand holds it after the next run                                              | drop the grant and report the gap                           |
-| the Seed refuses to run without a bootstrap key                                                                        | fall back to a constant key                                 |
-| a second `/health` probe writes nothing                                                                                | write the probe on every call                               |
-| `sources.heldBy` is false for a Brand that never held the hash, true after `hold`, false after `release`               | answer from `files` alone                                   |
-| `outputs.delete` on a key two Brands share deletes one row and no bytes; the second delete removes the bytes           | call `store.delete` unconditionally                         |
-| `outputs.byRequest` finds the Output of an equal request with keys in another order                                    | hash the request as given                                   |
-| `outputs.list` is newest first, honours `placement` and `kind`, and a cursor never repeats or skips a row              | paginate by offset                                          |
-| `calls.record` keeps a failed Call with its `error`                                                                    | refuse to insert when `status` is `failed`                  |
-| `calls.record` fills nothing in: an `annotate` Call has no Framing, no Matches and no Steps                            | default the empty columns to a shape records invented       |
-| `calls.record` refuses a `kind` or a `status` outside the closed set                                                   | accept any string                                           |
-| `calls.list` is newest first, honours `status`, and its cursor never repeats or skips                                  | paginate by offset                                          |
-| `requestHash` covers the Brand, the kind and array order                                                               | leave the Brand out of the hash                             |
-| `outputs.list` carries its Call's `source_hash`, `status` and `started_at`                                             | answer them off the Output's own row                        |
-| `outputs.delete` of an Output that is not there is not an error and takes no bytes                                     | throw on an Output that is not there                        |
-| `people.create` mints a UUID, and `people.get` finds the Person only for its own Brand                                 | look a Person up by id alone                                |
-| `people.enrol` without a File for the hash is refused                                                                  | write the File on the way in                                |
-| `people.enrol` keeps the Region and the print, and leaves `consent_at` absent when none was given                      | default `consent_at` to now                                 |
-| `people.list` gives every Person of the Brand with every print, one with none included, and no other Brand's           | inner join; answer for every Brand                          |
-| `people.erase` leaves no row, no Face Print and `store.list` of the prefix empty                                       | delete the Person and leave the Reference Photo rows        |
-| `people.erase` on a Person with two enrolments of one file deletes the key once, and only after both rows are gone     | delete the key on the first row                             |
-| an Erasure never deletes a File another Brand holds as a Source Image, nor its bytes                                   | drop the `sources` half of the Reference Count              |
-| an Erasure never deletes a File another Brand has a Reference Photo of                                                 | drop the `reference_photos` half of the Reference Count     |
-| `people.unenrol` deletes the last Reference Photo's bytes, keeps the Person, and leaves the File to the Sweep          | cascade the File as an Erasure does                         |
-| `people.unenrol` and `people.erase` of something that is not there are not errors                                      | throw on a Person that is not there                         |
-| `sweep` removes a File with no Source Hold older than the window, with its Annotation and bytes, and leaves a held one | ignore `sources`                                            |
-| `sweep` never removes an Output's bytes                                                                                | count `outputs` as zero references                          |
-| `reachRecords` reports `pending: 0` after `migrate` and a positive number before                                       | report zero always                                          |
+| Check                                                                                                                                                  | Mutation that must turn it red                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `migrate` on an empty database creates every table; a second `migrate` applies nothing                                                                 | skip the migrations table lookup and re-run every file           |
+| two `migrate` calls at once apply once                                                                                                                 | drop the advisory lock                                           |
+| `annotations.put` then `get` is structurally equal and parses with the contracts schema                                                                | store `JSON.stringify` in a text column and compare as text      |
+| `annotations.get` of an unknown hash is `null`, not a throw                                                                                            | throw on a miss                                                  |
+| `files.ensure` twice on one hash is one row                                                                                                            | insert without `on conflict`                                     |
+| `brands.ensure` twice on one id is one row under the last name                                                                                         | insert without `on conflict`                                     |
+| `brands.get` of an id no Brand has is `null`, not a throw                                                                                              | throw on a miss                                                  |
+| `callers.byKey` finds by hash and the table holds no plaintext key                                                                                     | store the key                                                    |
+| `callers.byKey` of a key that created nothing is `null`, not a throw                                                                                   | throw on a miss                                                  |
+| `callers.byKey` returns the Brands that Caller holds and no others                                                                                     | answer with every Brand row                                      |
+| `callers.create` refuses a second Caller on one key, quoting neither the key nor its hash                                                              | let drizzle's wrapped error out                                  |
+| `callers.grant` adds, never removes, and granting twice changes nothing                                                                                | replace the array instead of appending                           |
+| the Seed twice leaves one row per Brand and one Caller                                                                                                 | insert the Brand instead of ensuring it                          |
+| the Seed converges: a Caller short of a Brand holds it after the next run                                                                              | drop the grant and report the gap                                |
+| the Seed refuses to run without a bootstrap key                                                                                                        | fall back to a constant key                                      |
+| a second `/health` probe writes nothing                                                                                                                | write the probe on every call                                    |
+| `sources.heldBy` is false for a Brand that never held the hash, true after `hold`, false after `release`, and answers from neither `files` nor `calls` | answer from `files` alone                                        |
+| `sources.release` of a hold that is not there is not an error                                                                                          | throw on a hold that is not there                                |
+| `outputs.delete` on a key two Brands share deletes one row and no bytes; the second delete removes the bytes                                           | call `store.delete` unconditionally                              |
+| `outputs.byRequest` finds the Output of an equal request with keys in another order                                                                    | hash the request as given                                        |
+| `outputs.list` is newest first, honours `placement` and `kind`, and a cursor never repeats or skips a row                                              | paginate by offset                                               |
+| `calls.record` keeps a failed Call with its `error`                                                                                                    | refuse to insert when `status` is `failed`                       |
+| `calls.record` fills nothing in: an `annotate` Call has no Framing, no Matches and no Steps                                                            | default the empty columns to a shape records invented            |
+| `calls.record` refuses a `kind` or a `status` outside the closed set                                                                                   | accept any string                                                |
+| `calls.list` is newest first, honours `status`, and its cursor never repeats or skips                                                                  | paginate by offset                                               |
+| `requestHash` covers the Brand, the kind and array order                                                                                               | leave the Brand out of the hash                                  |
+| `outputs.list` carries its Call's `source_hash`, `status` and `started_at`                                                                             | answer them off the Output's own row                             |
+| `outputs.delete` of an Output that is not there is not an error and takes no bytes                                                                     | throw on an Output that is not there                             |
+| `people.create` mints a UUID, and `people.get` finds the Person only for its own Brand                                                                 | look a Person up by id alone                                     |
+| `people.enrol` without a File for the hash is refused                                                                                                  | write the File on the way in                                     |
+| `people.enrol` keeps the Region and the print, and leaves `consent_at` absent when none was given                                                      | default `consent_at` to now                                      |
+| `people.list` gives every Person of the Brand with every print, one with none included, and no other Brand's                                           | inner join; answer for every Brand                               |
+| `people.erase` leaves no row, no Face Print and `store.list` of the prefix empty                                                                       | delete the Person and leave the Reference Photo rows             |
+| `people.erase` on a Person with two enrolments of one file deletes the key once, and only after both rows are gone                                     | delete the key on the first row                                  |
+| an Erasure never deletes a File another Brand holds as a Source Image, nor its bytes                                                                   | drop the `sources` half of the Reference Count                   |
+| an Erasure never deletes a File another Brand has a Reference Photo of                                                                                 | drop the `reference_photos` half of the Reference Count          |
+| `people.unenrol` deletes the last Reference Photo's bytes, keeps the Person, and leaves the File to the Sweep                                          | cascade the File as an Erasure does                              |
+| `people.unenrol` and `people.erase` of something that is not there are not errors                                                                      | throw on a Person that is not there                              |
+| `sweep` removes a File with no Source Hold older than the window, with its Annotation and bytes, and leaves a held one                                 | ignore `sources`                                                 |
+| `sweep` leaves a File under a Reference Photo, and one younger than the window                                                                         | ignore `reference_photos`; compare `first_seen_at` the other way |
+| `sweep` never removes an Output's bytes                                                                                                                | count `outputs` as zero references                               |
+| the Retention Window is 30 days by default and is read from configuration                                                                              | compile the window in                                            |
+| `reachRecords` reports `pending: 0` after `migrate` and a positive number before                                                                       | report zero always                                               |
+
+`fixtures.withStore(store, retentionDays?)` takes the window as well as the store, because a window the checks could not change is a window they could not tell from a constant. Two things the Sweep's checks do that the others do not: they move the clock by handing `sweep` a `now` rather than by writing `first_seen_at`, which the database owns; and they assert on their own hashes and keys rather than on the whole report, because the live host runs every data check against one database and a Sweep there sees every other check's Files.
 
 pglite runs the suite inside `pnpm check`, in the gate; measured start 966 ms on this laptop, so one pglite per suite file, one schema per check. The live suite `pnpm test:records:live` runs the identical checks against Neon and is named `*.live.ts` so Vitest's default glob cannot collect it, as store does. With `NEON_API_KEY` present it creates a throwaway branch of `meco-records-eu` and deletes it in `finally`; without, it runs on the main branch under a **run-scoped database** it drops.
 
 A database and not the run-scoped schema this spec first named: `drizzle-kit` writes every foreign key as `references "public"."files"(…)`, so tables created in a schema of one's own point their keys at `public` — at the deployment's rows. Measured 6 Sep 2026 against `meco-records-eu`: the whole People half of the list failed that way while passing on pglite, whose `public` was the run's own. A database has a `public` of its own, so the same SQL means what it says.
 
-The suite prints which path ran, which host it reached and what it cost. It reaches the host through `.env.local` parsed by `vitest.live.config.ts` rather than `process.loadEnvFile`, which never overrides a variable already exported in the shell — a stale export would otherwise silently point a suite that creates and drops databases at another one. Budget two minutes; measured 32 s for 24 checks from Zürich, 6 Sep 2026.
+Two checks in that run are not in the conformance list, because what they prove is a call reaching a real store rather than a rule about rows: `erasure.live.ts` lists a Person's prefix before and after, and `sweep.live.ts` sweeps an unheld File and reads `store.head` of its Source Key back as `null` while a held one stands. Both drop their run-scoped database in `afterAll` and never in the check's own `finally` — `drop database … with (force)` terminates the connections it finds, and a pool still open comes back as an unhandled `57P01` that fails a run whose checks all passed.
+
+The suite prints which path ran, which host it reached and what it cost. It reaches the host through `.env.local` parsed by `vitest.live.config.ts` rather than `process.loadEnvFile`, which never overrides a variable already exported in the shell — a stale export would otherwise silently point a suite that creates and drops databases at another one. Budget two minutes; measured 37 s for 31 checks from Zürich, 6 Sep 2026.
 
 Prior art: `packages/store/tests` for the two-adapter shape and the live config, `vitest.live.config.ts` for forwarding variables by name.
 

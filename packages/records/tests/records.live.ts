@@ -25,10 +25,14 @@ const scratch = scratchDatabases();
 /** Every pool this run opened, so none outlives it — a drop needs them gone. */
 const opened: { close(): Promise<void> }[] = [];
 
-const over = (dsn: string, store: Store): Records => {
+const over = (dsn: string, store: Store, retentionDays?: number): Records => {
   const database = neonDatabase(dsn);
   opened.push(database);
-  return records({ database, store });
+  return records({
+    database,
+    store,
+    ...(retentionDays === undefined ? {} : { retentionDays }),
+  });
 };
 
 /** The one migrated database every data check shares, so the run stays in budget. */
@@ -41,7 +45,10 @@ beforeAll(async () => {
 
 const open = async (): Promise<Records> => over(shared, memoryStore());
 
-const withStore = async (store: Store): Promise<Records> => over(shared, store);
+const withStore = async (
+  store: Store,
+  retentionDays?: number
+): Promise<Records> => over(shared, store, retentionDays);
 
 const empty = async () => {
   // Its own database, never the shared one: the migration checks need one that

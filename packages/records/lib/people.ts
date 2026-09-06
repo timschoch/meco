@@ -23,9 +23,10 @@
  */
 import { FacePrint } from "@meco/contracts";
 import type { Listing, Store } from "@meco/store";
-import { and, eq, inArray, notExists, sql } from "drizzle-orm";
-import type { DatabaseDriver, Drizzle } from "./database";
-import { files, people, referencePhotos, sources } from "./schema";
+import { and, eq, inArray } from "drizzle-orm";
+import type { DatabaseDriver, Tx } from "./database";
+import { unreferencedFileClauses } from "./references";
+import { files, people, referencePhotos } from "./schema";
 
 /** A named individual one Brand enrolled. Personal data throughout. */
 export interface Person {
@@ -126,9 +127,6 @@ export interface People {
 export const peoplePrefix = (brand: string, personId: string): string =>
   `people/${brand}/${personId}`;
 
-/** A drizzle handle inside a transaction, as `orm.transaction` hands it over. */
-type Tx = Parameters<Parameters<Drizzle["transaction"]>[0]>[0];
-
 type PersonRow = Omit<Person, "createdAt"> & { readonly createdAt: Date };
 
 const asPerson = (row: PersonRow): Person => ({
@@ -166,10 +164,10 @@ const asReferencePhoto = (row: PhotoRow): ReferencePhoto => ({
 
 /**
  * The Files among these hashes that nothing names any more, with the Store Key
- * their bytes sit at. Both `not exists` clauses are the Reference Count: a
- * Source Hold from any Brand, or a Reference Photo of any Person, keeps the
+ * their bytes sit at. {@link unreferencedFileClauses} is the Reference Count:
+ * a Source Hold from any Brand, or a Reference Photo of any Person, keeps the
  * File — which is what stops an Erasure from deleting a source another Brand
- * still holds.
+ * still holds. The Sweep asks it of every File over the Retention Window.
  */
 async function orphanedFiles(
   tx: Tx,
@@ -180,21 +178,7 @@ async function orphanedFiles(
     .select({ hash: files.hash, storeKey: files.storeKey })
     .from(files)
     .where(
-      and(
-        inArray(files.hash, [...hashes]),
-        notExists(
-          tx
-            .select({ held: sql`1` })
-            .from(sources)
-            .where(eq(sources.hash, files.hash))
-        ),
-        notExists(
-          tx
-            .select({ enrolled: sql`1` })
-            .from(referencePhotos)
-            .where(eq(referencePhotos.hash, files.hash))
-        )
-      )
+      and(inArray(files.hash, [...hashes]), ...unreferencedFileClauses(tx))
     );
 }
 
