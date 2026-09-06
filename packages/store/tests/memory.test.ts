@@ -43,6 +43,9 @@ const CHECK_NAMES = [
   "signedUrl refuses a public key",
   `signedUrl refuses longer than ${MAX_SIGNED_URL_SECONDS} seconds, and refuses a lifetime that is no lifetime`,
   "signedUrl names the private key it was minted for and carries what makes it expire",
+  "uploadUrl names the key put would have written the same bytes to",
+  "uploadUrl refuses a public prefix",
+  "uploadUrl refuses a hash that is no Content Hash, and a size that is no size",
 ];
 
 // The way an adapter author consumes the checks: one `it` per returned Check.

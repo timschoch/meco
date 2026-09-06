@@ -19,7 +19,9 @@ import {
   assertKey,
   byKey,
   storeKey,
+  storeKeyFor,
   subtreePrefix,
+  uploadBound,
 } from "./keys";
 import {
   MAX_SIGNED_URL_SECONDS,
@@ -49,6 +51,18 @@ export interface PutResult extends StoredObject {
   readonly hash: string;
   /** True when these bytes were already there, so nothing was written. */
   readonly deduped: boolean;
+}
+
+/** Where a client may put one object, and until when. */
+export interface UploadTarget {
+  /** The Store Key the bytes will be at: the one `put` would have computed. */
+  readonly key: string;
+  /** The URL to `PUT` the bytes to. Nothing else may be sent to it. */
+  readonly url: string;
+  /** When the URL stops working, ISO 8601. */
+  readonly expiresAt: string;
+  /** The largest body the URL will take. The backend refuses a bigger one. */
+  readonly maxBytes: number;
 }
 
 /**
@@ -117,6 +131,30 @@ export interface Store {
     key: string,
     options?: { readonly expiresInSeconds?: number }
   ): Promise<string>;
+  /**
+   * A URL that takes one private object **in**, until it expires: what a
+   * client with a file the deployment's own door will not carry puts to, so
+   * the bytes reach the store without crossing a request body.
+   *
+   * The key is the store's, computed from the Content Hash the client has
+   * already taken of its own file, so an upload lands where `put` would have
+   * put it and a caller cannot choose a name. The hash is the client's claim
+   * and nothing more — whoever files the object afterwards reads the bytes
+   * back and hashes them itself.
+   *
+   * Scoped to `put`, to that one key, to that one content type and to
+   * `maxBytes`. Throws for a public key: the public store's objects are the
+   * deployment's own output and nobody uploads one.
+   */
+  uploadUrl(
+    prefix: string,
+    hash: string,
+    contentType: string,
+    options?: {
+      readonly expiresInSeconds?: number;
+      readonly maxBytes?: number;
+    }
+  ): Promise<UploadTarget>;
 }
 
 export interface BlobStoreConfig {
@@ -295,6 +333,51 @@ export function blobStore(config: BlobStoreConfig = {}): Store {
         validUntil,
       });
       return signedUrl;
+    },
+
+    async uploadUrl(prefix, hash, contentType, options) {
+      const key = storeKeyFor(prefix, hash, contentType);
+      assertPrivateKey(key);
+      const validUntil = validUntilFor(options?.expiresInSeconds);
+      const maxBytes = uploadBound(options?.maxBytes);
+
+      // The same narrowing the read side does, in the other direction: one
+      // key, one operation, one content type, one size. A delegation wide
+      // enough to write a second object, or to write something that is not
+      // the type the caller declared, would outlive its reason.
+      const scope = {
+        pathname: key,
+        allowedContentTypes: [contentType],
+        maximumSizeInBytes: maxBytes,
+        validUntil,
+      };
+      const signed = await issueSignedToken({
+        ...reaching("private"),
+        ...scope,
+        operations: ["put"],
+      });
+      const { presignedUrl } = await presignUrl(signed, {
+        ...scope,
+        operation: "put",
+        access: "private",
+        // The key already ends in the hash of the bytes it names, so a suffix
+        // would break the one rule every Store Key keeps.
+        addRandomSuffix: false,
+        // And no overwrite, which is the whole guarantee. A caller names the
+        // hash its key is built from, so it can name the hash of a photograph
+        // somebody else filed. If that URL could write, it would replace
+        // those bytes under a key that still says they are the old ones — the
+        // Annotation cached for that hash would then describe a picture that
+        // is no longer there, for every Brand, forever. The backend refusing
+        // the second write is what makes a Store Key mean its own bytes.
+        allowOverwrite: false,
+      });
+      return {
+        key,
+        url: presignedUrl,
+        expiresAt: new Date(validUntil).toISOString(),
+        maxBytes,
+      };
     },
   };
 }

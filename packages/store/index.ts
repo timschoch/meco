@@ -5,6 +5,7 @@ export {
   NAMESPACES,
   type Namespace,
   isPrivate,
+  storeKeyFor,
 } from "./lib/keys";
 export {
   type BlobStoreConfig,
@@ -12,6 +13,7 @@ export {
   type PutResult,
   type Store,
   type StoredObject,
+  type UploadTarget,
   blobStore,
 } from "./lib/blob";
 export { memoryStore } from "./lib/memory";

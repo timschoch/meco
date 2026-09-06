@@ -78,6 +78,8 @@ Every Operation is one record: `name` (the MCP tool name), `method` and `path` (
 | `add_person`          | `POST /v1/people`              | –          | records `people.create`                                                                                                         |
 | `erase_person`        | `DELETE /v1/people/:id?brand=` | `erase`    | records `people.erase`; answers the empty listing as proof                                                                      |
 | `add_reference_photo` | `POST /v1/people/:id/photos`   | `enrol`    | identify `enrol`; a `choose` answer is a `200` with the faces, not an error                                                     |
+| `create_upload`       | `POST /v1/sources/uploads`     | –          | a Signed URL to `PUT` a photograph to, scoped to one `sources/` key; see "Bytes in"                                            |
+| `add_source`          | `POST /v1/sources`             | –          | files an uploaded photograph and answers its Content Hash, which the caller then names as `{ hash }`                            |
 
 Dropped from the prototype: `/v1/carousel` (out of compose v1), `/v1/gallery` (webui's), `/v1/channels` (a Placement names its Channel), `/v1/subjects` (renamed `annotate`).
 
@@ -92,6 +94,89 @@ Dropped from the prototype: `/v1/carousel` (out of compose v1), `/v1/gallery` (w
 - **`render`**: `template`, `placement`, `fields` (validated by compose, refused as `invalid_fields`), `brand`.
 - **`crop`**: `brand`, `width`, `height`.
 - **`brand`** is required on every Operation that touches a Brand's data; the Brand Wall runs on it before the handler.
+
+### Bytes in
+
+A caller with a file and no URL uploads it to the Private Store itself. The
+bytes never cross the gateway's door, because the door will not carry them.
+
+**Measured** (6 Sep 2026, #188) on preview deployment
+`dpl_BfArWcN91CXdFAteVeFMzxXduEwp`, by posting bodies of a known size to
+`POST /v1/annotate` with a valid key: a `400 invalid_request` proves the whole
+body reached the container and was read, a `413` is the platform's, ahead of
+it.
+
+| Request body                | Answer                                     |
+| --------------------------- | ------------------------------------------ |
+| 4 493 537 B                 | `400 invalid_request` — the gateway's      |
+| 4 493 538 B                 | `413 FUNCTION_PAYLOAD_TOO_LARGE` — the platform's |
+| 5 424 279 B (`artemis-2-crew-full.jpg`) | `413 FUNCTION_PAYLOAD_TOO_LARGE`         |
+| 6 MB                        | `413 FUNCTION_PAYLOAD_TOO_LARGE`           |
+
+The cap counts the **whole request**, not the body: the same 4 493 537-byte
+body with one extra 1 000-byte header is refused too. So it is a total-request
+budget of 4.5 MB, and the largest body a client may send depends on the
+headers it sends with it — there is no number a client could build against.
+The GA `services` public rewrite therefore carries the same cap the function
+that fronted the prototype's container had (#30), and ADR-0014's Decision 4 is
+closed against a container rather than a function.
+
+Two Operations, in the table like any other and therefore on both Doors,
+because neither carries a photograph:
+
+1. `create_upload` takes `{ brand, hash, mime, bytes }` — the caller's own
+   SHA-256 of its file, what the file is, and how big — and answers
+   `{ key, url, expiresAt, maxBytes }`. `url` is `store.uploadUrl`'s: a Signed
+   URL scoped to `put`, to that one `sources/<hash>.<ext>` key, to that one
+   content type and to that one size. Over `MAX_OBJECT_BYTES` is `413
+   too_large` before the store is asked.
+2. The caller `PUT`s the file to `url`.
+3. `add_source` takes `{ brand, key }` and answers `{ hash, key, bytes, mime }`.
+   It reads the object and hashes it **itself**, reads the mime, width and
+   height off the bytes with sharp's `metadata()` exactly as the models host's
+   decoder does (`autoOrient` size included), and asks the store where those
+   bytes belong. A key that is not the one `storeKeyFor` gives them is `400
+   invalid_request`. Then `files.ensure`, then `sources.hold(brand, hash)`.
+   Bytes no decoder can read, or an image in a format no Annotation has a mime
+   for, are `415 unsupported_mime`.
+
+**Every refusal takes the object with it.** Bytes nothing filed are bytes
+records will never name, and the Sweep only removes what records knows about,
+so an upload nothing accepted would sit in the Private Store for good.
+
+**The Signed URL cannot overwrite**, and that is the guarantee the rest rests
+on. A caller names the hash its key is built from, so it can name the hash of
+a photograph another Brand filed. If that URL could write, it would replace
+those bytes under a key still saying they are the old ones, and the Annotation
+cached for that hash would describe a picture that is no longer there — for
+every Brand, forever. The backend refusing the second write is also what makes
+the delete above safe: whatever is at a key this caller minted, this caller
+put there.
+
+What this does **not** prove is that the caller sent the bytes rather than
+guessing where they were. A Brand that knows the SHA-256 of a photograph
+already in the store can call `add_source` on its key and be given a Source
+Hold without uploading anything. Guessing a hash it has never held is a
+256-bit search, so in practice knowing the hash is having had the bytes — the
+same ground the `{ url }` path stands on, where supplying the bytes is what
+earns the hold. Ledgered on #188 rather than defended against.
+
+The caller's hash picks the key; the gateway's hash is what the File is
+written under. `files.ensure` keeps the first row written, so a File whose
+hash was not its bytes would poison the Annotation cache for every Brand,
+forever — which is why the gateway never takes the caller's word for it, and
+why `add_source` reads the same numbers off the same decoder the Annotation
+will be read off.
+
+A key outside the `sources/` Namespace is `400 invalid_request`: a Reference
+Photo is `add_reference_photo`'s to file, under a Person, and an Erasure has
+to be able to take it with them.
+
+Considered and rejected: **bytes in the request body**, the shape this ticket
+would have shipped had the door carried 6 MB. The measurement above is the
+whole reason it did not. A hybrid — a body under the cap, an upload over it —
+was rejected as well: the cap is not a number a client can compute, so the
+rule "which of the two do I use" would have no answer.
 
 ### The pipeline
 
@@ -133,7 +218,8 @@ The decode happens once, after frame, because frame needs no pixel and a Replay 
 | `unauthorized`         | 401        | no key, or `callers.byKey` null; `WWW-Authenticate: Basic realm="meco"` only under `/ui`                                                                                                                                                                                                                                                                                    |
 | `brand_not_held`       | 403        | the Brand Wall                                                                                                                                                                                                                                                                                                                                                              |
 | `not_found`            | 404        | unknown route, Person, Call, or a `hash` Source Reference without a Source Hold                                                                                                                                                                                                                                                                                             |
-| `too_large`            | 413        | a Source over `MAX_OBJECT_BYTES`, by header or by stream                                                                                                                                                                                                                                                                                                                    |
+| `too_large`            | 413        | a Source over `MAX_OBJECT_BYTES`, by header or by stream, or an upload declaring more                                                                                                                                                                                                                                                                                       |
+| `unsupported_mime`     | 415        | an uploaded Source no decoder can read, or in a format no Annotation has a mime for. models raises the same code                                                                                                                                                                                                                                                            |
 | `source_unfetchable`   | 422        | the URL did not answer 2xx in time                                                                                                                                                                                                                                                                                                                                          |
 | `resolution_mismatch`  | 500        | the gateway's own invariant                                                                                                                                                                                                                                                                                                                                                 |
 | `models_unavailable`   | 503        | models `unreachable`, `timeout`, `model_unavailable`                                                                                                                                                                                                                                                                                                                        |
@@ -198,6 +284,9 @@ Every test is `createApp(deps).request(...)`: the HTTP Door and, as JSON-RPC bod
 | a 17-zone Template is refused `400 invalid_request` by the FramingRequest schema before frame                                                       | skip the schema                      |
 | a Source over `MAX_OBJECT_BYTES` by `Content-Length` is `413` without reading the body; over by stream is `413`                                     | drop either check                    |
 | a `hash` Source Reference without a Source Hold is `404`, identical to an unknown hash                                                              | answer 403                           |
+| `create_upload` answers the key `put` would give those bytes, files nothing, and is `413` over `MAX_OBJECT_BYTES`                                   | mint the key from anything else      |
+| `add_source` hashes the object itself: bytes that do not hash to their key are `400` and deleted, and no File is written                            | trust the caller's hash              |
+| `add_source` is `415` for bytes no decoder reads and for an image whose format no Annotation names, and `400` for a key outside `sources/`          | file whatever sharp opened           |
 | a cached, complete Annotation reaches no `models.annotate`; an incomplete one does and is replaced                                                  | skip `isComplete`                    |
 | `annotate`'s response carries no `facePrint`                                                                                                        | forget to strip                      |
 | a Decoded Image of the wrong size is `500 resolution_mismatch` and a failed Call                                                                    | drop the assert                      |
@@ -215,7 +304,6 @@ Every check is proved able to fail by its mutation before it ships. Commit the g
 
 - Quota, rate limits, pricing. The Caller on the context and `cost: null` on the Call are the seams.
 - Accounts. `callers.brands` moves later (#77); the door does not change.
-- Bytes in a request body (`POST /v1/sources`) and a Blob client upload: a ticket behind the 6 MB measurement of the public door.
 - A JSON Gallery (`GET /v1/outputs`), an API route for a Source's Signed URL (webui's redirect is the only reader, ADR-0013), carousels, a caller's own Templates, per-consumer models, a token between the containers.
 - Creating Brands or Callers over the API: the seed is the only writer.
 
