@@ -145,6 +145,25 @@ export function assertWithinLimit(bytes: Uint8Array): void {
   }
 }
 
+/**
+ * How big an upload a Signed URL will take. Refused rather than clamped, for
+ * the reason `validUntilFor` gives about a lifetime: a caller that asked for
+ * more than the store holds and silently got less would find out mid-upload.
+ */
+export function uploadBound(maxBytes: number = MAX_OBJECT_BYTES): number {
+  if (!Number.isInteger(maxBytes) || maxBytes < 1) {
+    throw new Error(
+      `@meco/store: maxBytes ${maxBytes} is no size. A whole number of bytes from 1 to ${MAX_OBJECT_BYTES}.`
+    );
+  }
+  if (maxBytes > MAX_OBJECT_BYTES) {
+    throw new Error(
+      `@meco/store: maxBytes ${maxBytes} is over MAX_OBJECT_BYTES (${MAX_OBJECT_BYTES}).`
+    );
+  }
+  return maxBytes;
+}
+
 /** The Content Hash: 64 lowercase hex characters, never truncated. */
 export function contentHash(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
@@ -160,9 +179,32 @@ export function storeKey(
   bytes: Uint8Array,
   contentType: string
 ): { readonly key: string; readonly hash: string } {
-  assertKey(prefix, "prefix");
-  const extension = extensionFor(contentType);
   assertWithinLimit(bytes);
   const hash = contentHash(bytes);
-  return { key: `${prefix}/${hash}.${extension}`, hash };
+  return { key: storeKeyFor(prefix, hash, contentType), hash };
+}
+
+/**
+ * The same Store Key from the hash alone, for the one caller that has the hash
+ * before it has the bytes: an upload the client sends straight to the backend.
+ * The arithmetic is {@link storeKey}'s, so a key minted ahead of the bytes and
+ * a key computed from them cannot disagree.
+ */
+export function storeKeyFor(
+  prefix: string,
+  hash: string,
+  contentType: string
+): string {
+  assertKey(prefix, "prefix");
+  assertContentHash(hash);
+  return `${prefix}/${hash}.${extensionFor(contentType)}`;
+}
+
+/** 64 lowercase hex characters, or a refusal: a key is only ever a real hash. */
+export function assertContentHash(hash: string): void {
+  if (!/^[0-9a-f]{64}$/.test(hash)) {
+    throw new Error(
+      `@meco/store: "${hash}" is no Content Hash. 64 lowercase hex characters.`
+    );
+  }
 }

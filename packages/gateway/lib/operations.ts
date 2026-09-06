@@ -28,6 +28,12 @@ import {
 } from "./people";
 import { RenderInput, renderImage } from "./render";
 import { SourceReference, resolveSource } from "./source";
+import {
+  AddSourceInput,
+  CreateUploadInput,
+  addSource,
+  createUpload,
+} from "./sources";
 import { recorded } from "./trace";
 
 /** The adapters a handler may reach. A module never sees the Caller. */
@@ -149,6 +155,24 @@ export const OPERATIONS: readonly Operation[] = [
         identification: result.identification,
       };
     },
+  }),
+  define({
+    name: "create_upload",
+    description:
+      "Get a URL to upload a photograph to, for a file you hold and cannot give a URL for. Take its SHA-256 first; PUT the file to the `url` this answers, then call `add_source` with the `key`.",
+    method: "POST",
+    path: "/sources/uploads",
+    input: CreateUploadInput,
+    handler: createUpload,
+  }),
+  define({
+    name: "add_source",
+    description:
+      "File a photograph you have uploaded and answer its Content Hash, which you then name as `source: { hash }` on any other Operation.",
+    method: "POST",
+    path: "/sources",
+    input: AddSourceInput,
+    handler: addSource,
   }),
   define({
     name: "list_templates",

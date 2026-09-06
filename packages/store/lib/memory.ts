@@ -8,7 +8,14 @@
  * adapters rather than the same rule written twice.
  */
 import type { Listing, Store } from "./blob";
-import { assertKey, byKey, storeKey, subtreePrefix } from "./keys";
+import {
+  assertKey,
+  byKey,
+  storeKey,
+  storeKeyFor,
+  subtreePrefix,
+  uploadBound,
+} from "./keys";
 import { assertPrivateKey, assertPublicKey, validUntilFor } from "./urls";
 
 /**
@@ -114,6 +121,22 @@ export function memoryStore(): Store {
       // The expiry is in the URL rather than beside it, as Blob's is: what
       // makes a Signed URL stop working travels with it.
       return `${BASE.private}/${key}?validUntil=${validUntilFor(options?.expiresInSeconds)}`;
+    },
+
+    async uploadUrl(prefix, hash, contentType, options) {
+      const key = storeKeyFor(prefix, hash, contentType);
+      assertPrivateKey(key);
+      const validUntil = validUntilFor(options?.expiresInSeconds);
+      const maxBytes = uploadBound(options?.maxBytes);
+      // Nothing listens on `.invalid`, and that is the promise this adapter
+      // makes: it proves the key, the scope and every refusal around them,
+      // and leaves whether a backend honours a signature to the live run.
+      return {
+        key,
+        url: `${BASE.private}/${key}?validUntil=${validUntil}&maxBytes=${maxBytes}`,
+        expiresAt: new Date(validUntil).toISOString(),
+        maxBytes,
+      };
     },
   };
 }

@@ -16,6 +16,55 @@ import sharp from "sharp";
 import type { Annotation, DecodedImage } from "@meco/contracts";
 import { GatewayError } from "./errors";
 
+/** What sharp calls a format, to what contracts calls its mime. */
+const MIME: Record<string, Annotation["mime"]> = {
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+};
+
+/** What the bytes are, as the decoder reads them and not as a header claimed. */
+export interface ImageFacts {
+  readonly mime: Annotation["mime"];
+  /** The photograph's own size, after EXIF orientation. */
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * The facts a File is written from, for bytes that arrived without an
+ * Annotation to read them off: `POST /v1/sources` files the photograph before
+ * any model has seen it.
+ *
+ * Deliberately the same three lines models' own decoder runs — `metadata()`,
+ * the same MIME map, `autoOrient` for the size. `files.ensure` is idempotent
+ * on the Content Hash and the first row written is the one that stands, so a
+ * `/v1/sources` upload followed by an `/v1/annotate` of the same bytes must
+ * not leave the File saying one size and the Annotation another. Reading them
+ * the same way is what makes the two agree.
+ */
+export async function imageFacts(bytes: Uint8Array): Promise<ImageFacts> {
+  const meta = await sharp(bytes)
+    .metadata()
+    .catch((cause: unknown) => {
+      throw new GatewayError(
+        "unsupported_mime",
+        "the body is not an image the gateway can read",
+        undefined,
+        { cause }
+      );
+    });
+
+  const mime = MIME[meta.format];
+  if (mime === undefined) {
+    throw new GatewayError(
+      "unsupported_mime",
+      `the body reads as ${meta.format}, which is outside the set an Annotation names`
+    );
+  }
+  return { mime, width: meta.autoOrient.width, height: meta.autoOrient.height };
+}
+
 /**
  * EXIF-rotated raw RGB at the photograph's own size, alpha dropped: the shape
  * every module downstream of the models host agrees on.

@@ -473,5 +473,79 @@ export function storeConformance(
         ok(url.search !== "", `the Signed URL for "${key}" carries no query`);
       },
     },
+    {
+      name: "uploadUrl names the key put would have written the same bytes to",
+      async run() {
+        // The whole point of minting a key from the hash alone: an upload the
+        // client sends straight to the backend has to land exactly where the
+        // deployment's own write would have put it, or the Content Hash stops
+        // being the address and every dedupe below is a coincidence.
+        // Nothing is written: the first check above already fixes what key
+        // `put` gives these bytes, so asserting the same key here is what
+        // makes the two agree, and a mint that wrote an object would be a
+        // mint with a side effect.
+        const bytes = payload("upload url");
+
+        const target = await store.uploadUrl(
+          prefix,
+          sha256(bytes),
+          CONTENT_TYPE
+        );
+
+        strictEqual(target.key, `${prefix}/${sha256(bytes)}.png`);
+        const url = new URL(target.url);
+        strictEqual(url.protocol, "https:");
+        ok(
+          url.search !== "",
+          `the upload URL for "${target.key}" carries no query`
+        );
+        ok(
+          Date.parse(target.expiresAt) > Date.now(),
+          `the upload URL for "${target.key}" expires at ${target.expiresAt}, which is not ahead`
+        );
+        strictEqual(target.maxBytes, MAX_OBJECT_BYTES);
+      },
+    },
+    {
+      name: "uploadUrl refuses a public prefix",
+      async run() {
+        // Nobody uploads a Render: the Public Store holds what the deployment
+        // made, and a URL that took bytes in there would take them from anyone.
+        for (const where of ["renders", "crops", "health-public"]) {
+          await rejects(
+            () => store.uploadUrl(where, "a".repeat(64), CONTENT_TYPE),
+            new RegExp(where)
+          );
+        }
+      },
+    },
+    {
+      name: "uploadUrl refuses a hash that is no Content Hash, and a size that is no size",
+      async run() {
+        const where = "people/laica/p_1";
+
+        for (const hash of ["", "abc", "A".repeat(64), "g".repeat(64)]) {
+          await rejects(() => store.uploadUrl(where, hash, CONTENT_TYPE));
+        }
+        const hash = "a".repeat(64);
+        await rejects(
+          () =>
+            store.uploadUrl(where, hash, CONTENT_TYPE, {
+              maxBytes: MAX_OBJECT_BYTES + 1,
+            }),
+          new RegExp(String(MAX_OBJECT_BYTES))
+        );
+        await rejects(
+          () => store.uploadUrl(where, hash, CONTENT_TYPE, { maxBytes: 0 }),
+          /0/
+        );
+        await rejects(
+          () =>
+            store.uploadUrl(where, hash, CONTENT_TYPE, { maxBytes: 1024.5 }),
+          /1024\.5/
+        );
+        await rejects(() => store.uploadUrl(where, hash, "image/gif"), /gif/);
+      },
+    },
   ];
 }

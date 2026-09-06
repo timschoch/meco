@@ -12,6 +12,7 @@ export {
   type PutResult,
   type Store,
   type StoredObject,
+  type UploadTarget,
   blobStore,
 } from "./lib/blob";
 export { memoryStore } from "./lib/memory";
