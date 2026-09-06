@@ -200,24 +200,25 @@ export function frameCrop(input: FrameInput): Framing {
           // shortfall.
           subjectAreaShortfall: area?.shortfall ?? 1,
         }),
-    // Only when a Template declared a zone, and measured on the window actually
-    // cut: the Source Image can clamp the aim back onto a zone, and that is the
-    // miss worth reporting. Never a refusal — frame answers every geometry it
-    // is given, and a zone nothing could clear still gets a window.
+    // Only when a Template declared a zone and a rung composed something to
+    // keep off it. Measured on the window actually cut: the Source Image can
+    // clamp the aim back onto a zone, and that is the miss worth reporting.
+    // Never a refusal — frame answers every geometry it is given, and a zone
+    // nothing could clear still gets a window.
     //
-    // Vacuously true when nothing was composed. The anchor and the centre
-    // compose no Subject, so no Subject landed on a zone.
-    ...(request.occlusion.length === 0
+    // Absent, not vacuously true, when the anchor or the centre answered. The
+    // flag says something about a Subject, and those two rungs compose none —
+    // the same reason `subject` and `leadRegionId` are absent there, and the
+    // same lie #136 took out: a `true` every rung holds without meaning it.
+    ...(request.occlusion.length === 0 || composed === undefined
       ? {}
       : {
-          occlusionClear:
-            composed === undefined ||
-            clearOfZones(
-              composed.subject,
-              request.occlusion,
-              cropWindow,
-              source
-            ),
+          occlusionClear: clearOfZones(
+            composed.subject,
+            request.occlusion,
+            cropWindow,
+            source
+          ),
         }),
   };
 }

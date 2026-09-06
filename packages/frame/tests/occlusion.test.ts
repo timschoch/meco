@@ -336,6 +336,45 @@ describe("the aim clamped into the Free Area", () => {
 });
 
 /**
+ * The two rungs that compose no Subject. `occlusionClear` says something about
+ * a Subject, so with none there is nothing for it to say and the field is
+ * absent — not a vacuous `true`, which is the lie #136 took out of `subject`:
+ * a value every rung of the ladder holds without meaning it.
+ *
+ * The window is still placed, and the zones still went unread. Nothing here is
+ * a refusal.
+ */
+describe("Occlusion Zones with nothing composed", () => {
+  const SOURCE: Size = { width: 1200, height: 800 };
+  const SQUARE: Size = { width: 1080, height: 1080 };
+
+  const framing = (extra: Record<string, unknown>) =>
+    frameCrop({
+      annotation: emptyAnnotation(SOURCE),
+      request: requestFor(SQUARE, { occlusion: [BAND], ...extra }),
+    });
+
+  for (const [rung, extra] of [
+    ["the centre", {}],
+    ["the Crop Anchor", { anchor: "top-left" }],
+  ] as const) {
+    it(`reports no occlusionClear on ${rung}`, () => {
+      const framed = framing(extra);
+
+      expect(framed.subject).toBeUndefined();
+      expect("occlusionClear" in framed).toBe(false);
+      // The band changed nothing, because there was nothing to keep off it.
+      expect(framed.window).toEqual(
+        frameCrop({
+          annotation: emptyAnnotation(SOURCE),
+          request: requestFor(SQUARE, { occlusion: [], ...extra }),
+        }).window
+      );
+    });
+  }
+});
+
+/**
  * `occlusionClear` is a measurement, never a verdict on the request. frame
  * answers every geometry it is given, so a zone nothing can clear still gets a
  * window and the miss is what is reported.

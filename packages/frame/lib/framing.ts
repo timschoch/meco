@@ -95,7 +95,12 @@ export interface Framing {
    * shortfall of 1.
    */
   subjectAreaShortfall?: number;
-  /** Only when `occlusion` was non-empty. */
+  /**
+   * Whether the Leading Subject stayed off every Occlusion Zone, measured on
+   * the window actually cut. Only when `occlusion` was non-empty **and** a rung
+   * composed a Subject: the anchor and the centre compose none, and a flag that
+   * every rung holds without meaning it says nothing.
+   */
   occlusionClear?: boolean;
 }
 
