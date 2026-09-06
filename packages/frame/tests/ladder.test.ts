@@ -315,6 +315,9 @@ describe("the window, whichever rung ran", () => {
         expect(
           Math.abs(window.width - window.height * aspect)
         ).toBeLessThanOrEqual(1);
+        expect(
+          Math.abs(window.height - window.width / aspect)
+        ).toBeLessThanOrEqual(1);
         expect(satisfied).toBe(fallback === undefined);
       });
     }
@@ -345,25 +348,46 @@ describe("the recordings reach every rung", () => {
   });
 });
 
-describe("kept and dropped partition the Regions the rung composed on", () => {
-  const ANNOTATIONS = [...FACE_FIXTURES, ...KART_FIXTURES].map((f) => ({
-    name: f.name,
-    annotation: Annotation.parse(f.raw),
-  }));
+/**
+ * What each rung composes on, written out rather than read back off the
+ * Framing: the kart recordings carry theirs in `samples.ts`, and a face rung
+ * keeps every face, the largest leading and the rest by Region id.
+ *
+ * This is the other half of the partition. Uniqueness alone would pass a
+ * Framing that quietly lost a Region from both lists.
+ */
+const COMPOSED_ON = [
+  ...FACE_FIXTURES.map((fixture) => {
+    const annotation = Annotation.parse(fixture.raw);
+    const faces = annotation.regions
+      .filter((region) => region.kind === "face")
+      .map((region) => region.id);
 
-  for (const { name, annotation } of ANNOTATIONS) {
+    return {
+      name: fixture.name,
+      annotation,
+      keptRegionIds: [
+        fixture.leadRegionId,
+        ...faces.filter((id) => id !== fixture.leadRegionId),
+      ],
+    };
+  }),
+  ...KART_FIXTURES.map((fixture) => ({
+    name: fixture.name,
+    annotation: Annotation.parse(fixture.raw),
+    keptRegionIds: fixture.keptRegionIds,
+  })),
+];
+
+describe("kept and dropped partition the Regions the rung composed on", () => {
+  for (const { name, annotation, keptRegionIds } of COMPOSED_ON) {
     for (const { name: shape, target } of TARGETS) {
       it(`loses nobody and doubles nobody: ${name} at ${shape}`, () => {
-        const { keptRegionIds, droppedRegionIds } = frameCrop({
-          annotation,
-          request: requestFor(target),
-        });
-        const both = [...keptRegionIds, ...droppedRegionIds];
+        const framing = frameCrop({ annotation, request: requestFor(target) });
+        const both = [...framing.keptRegionIds, ...framing.droppedRegionIds];
 
         expect(new Set(both).size).toBe(both.length);
-        expect(
-          both.every((id) => annotation.regions.some((r) => r.id === id))
-        ).toBe(true);
+        expect(both).toEqual(keptRegionIds);
       });
     }
   }
@@ -380,9 +404,24 @@ describe("a lone face at every source and shape", () => {
           ]),
           request: requestFor(target, FACE_ONLY),
         });
+        const aspect = target.width / target.height;
 
+        for (const value of Object.values(window)) {
+          expect(Number.isInteger(value)).toBe(true);
+        }
+        expect(window.x).toBeGreaterThanOrEqual(0);
+        expect(window.y).toBeGreaterThanOrEqual(0);
         expect(window.x + window.width).toBeLessThanOrEqual(source.width);
         expect(window.y + window.height).toBeLessThanOrEqual(source.height);
+        // Both residuals, not the kinder of the two, as `properties.test.ts`
+        // reads them: rounding lands on one axis, and asking only that axis
+        // would pass a window rounded the wrong way.
+        expect(
+          Math.abs(window.width - window.height * aspect)
+        ).toBeLessThanOrEqual(1);
+        expect(
+          Math.abs(window.height - window.width / aspect)
+        ).toBeLessThanOrEqual(1);
         expect(satisfied).toBe(fallback === undefined);
       });
     }

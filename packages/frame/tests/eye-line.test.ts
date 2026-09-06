@@ -117,6 +117,12 @@ const KEEPS_THE_WINDOW = new Set(["none", "drop"]);
  * passing the placement check by never having anywhere to slide.
  */
 describe("the eyes on the upper Golden Line", () => {
+  // Without this, a fixture renamed or a shape added would read `undefined` out
+  // of the table and take the Eye Line's branch by accident.
+  it("names a rung for every one of the twelve", () => {
+    expect(Object.keys(RUNG).sort()).toEqual(CASES.map((c) => c.name).sort());
+  });
+
   for (const { name, fixture, target } of CASES) {
     const rung = RUNG[name] as FallbackRung | "none";
 

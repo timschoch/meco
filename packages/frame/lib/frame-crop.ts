@@ -9,7 +9,7 @@ import {
 } from "./free-area";
 import { MAX_OCCLUSION_ZONES, type FrameInput, type Framing } from "./framing";
 import { goldenAim } from "./golden-lines";
-import { climbLadder, type KeptRegion } from "./ladder";
+import { climbLadder, type KeptRegion, type LadderOutcome } from "./ladder";
 import { composeSubject } from "./subject";
 import { fillsSubjectArea, solveSubjectArea } from "./subject-area";
 import {
@@ -186,16 +186,16 @@ export function frameCrop(input: FrameInput): Framing {
   // hold. The anchor and the centre compose no Subject, so there is nothing a
   // rung could fail to hold and nothing to rescue: the window they placed is
   // the answer and it is satisfied. `lib/ladder.ts` holds the rungs.
-  const climbed =
+  const climbed: LadderOutcome =
     composed === undefined || placement === undefined
       ? {
           window: firstWindow,
-          keptRegionIds: [] as string[],
-          droppedRegionIds: [] as string[],
+          keptRegionIds: [],
+          droppedRegionIds: [],
           satisfied: true,
         }
       : climbLadder({
-          first: firstWindow,
+          firstWindow,
           at: placement.at,
           aim: placement.aim,
           subject: composed.subject,
@@ -224,9 +224,7 @@ export function frameCrop(input: FrameInput): Framing {
     keptRegionIds: climbed.keptRegionIds,
     droppedRegionIds: climbed.droppedRegionIds,
     satisfied: climbed.satisfied,
-    ...("fallback" in climbed && climbed.fallback !== undefined
-      ? { fallback: climbed.fallback }
-      : {}),
+    ...(climbed.fallback === undefined ? {} : { fallback: climbed.fallback }),
     // Only when the request named an area, and measured on the window actually
     // cut rather than the one first asked for: the Source Image can clamp the
     // aim off the area, and a rung of the ladder can move the window off it

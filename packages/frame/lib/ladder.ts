@@ -1,6 +1,6 @@
 import type { Box, Point, Size } from "@meco/contracts";
-import { centreOf } from "./boxes";
-import { SLACK_PX, type CropWindow, type FallbackRung } from "./framing";
+import { centreOf, containsWithSlack } from "./boxes";
+import { type CropWindow, type FallbackRung } from "./framing";
 import { placeAtAim } from "./window";
 
 /** The middle of the frame: where `relax` slides the aim to, and where `clip` puts the Subject. */
@@ -22,7 +22,7 @@ export interface KeptRegion {
 /** What the ladder needs from the composition it is rescuing. */
 export interface LadderInput {
   /** The window the composition first asked for. */
-  first: CropWindow;
+  firstWindow: CropWindow;
   /** The point the window was placed on, in source fractions: the Subject's centre, or the eyes. */
   at: Point;
   /** Where that point was aimed, as a fraction of the window. */
@@ -50,48 +50,36 @@ export interface LadderOutcome {
 }
 
 /**
- * Whether a Region's box lies inside the window, with the half pixel of slack
- * every containment in frame allows. Compared in Source Image pixels, since
- * that is the one place the window and the box are the same kind of number.
+ * Whether a Region's box lies inside the window. Compared in Source Image
+ * pixels, since that is the one place the window and the box are the same kind
+ * of number, and `lib/boxes.ts` owns the half pixel of slack.
  */
 const holds = (window: CropWindow, box: Box, source: Size): boolean =>
-  box.x * source.width >= window.x - SLACK_PX &&
-  box.y * source.height >= window.y - SLACK_PX &&
-  (box.x + box.width) * source.width <= window.x + window.width + SLACK_PX &&
-  (box.y + box.height) * source.height <= window.y + window.height + SLACK_PX;
+  containsWithSlack(window, {
+    x: box.x * source.width,
+    y: box.y * source.height,
+    width: box.width * source.width,
+    height: box.height * source.height,
+  });
 
 /**
- * The fallback ladder. Tried in order, the first rung that holds every Subject
- * still kept wins, and the rung is always named: a Crop that silently gave up
- * on a Subject is worse than one that says it did.
+ * The fallback ladder. What each rung gives up and in what order:
+ * `docs/specs/frame.md`, "The fallback ladder".
  *
- * | Rung       | Gives up                                          |
- * | ---------- | ------------------------------------------------- |
- * | —          | nothing; the composition first asked for          |
- * | `zoom-out` | the size: back to the cover window                 |
- * | `relax`    | the aim: halfway to the middle of the frame, then all the way |
- * | `drop`     | a Subject: the cheapest, then the next, by tier    |
- * | `clip`     | containment: the Subject centred, and the clipping accepted |
- *
- * **The repairs are cumulative and the sacrifices are counted first.** The
- * outer loop is how many Subjects have been given up and the inner loop is how
- * far the window has moved, so no Subject is sacrificed while any window still
- * holds them all, and a sacrifice buys back the tightest window that holds
- * whoever is left — which is what keeps a group photograph framed on the face
- * the Eye Line composed it around rather than centred on nobody. Each rung is
- * strictly more able than the one above it, so all four are reachable.
- *
- * The Leading Subject is never sacrificed, so the inner set never empties and
- * `clip` is what answers a Subject no window of that shape can hold.
+ * The loop is the spec's "cumulative, and the sacrifices counted first" made
+ * literal: the outer loop counts how many Subjects have been given up and the
+ * inner one how far the window has moved, so nothing is sacrificed while any
+ * window still holds them all, and a sacrifice buys back the tightest window
+ * that holds whoever is left.
  */
 export function climbLadder(input: LadderInput): LadderOutcome {
-  const { first, at, aim, subject, cover, kept, source } = input;
+  const { firstWindow, at, aim, subject, cover, kept, source } = input;
   const ids = kept.map((region) => region.id);
 
-  // The four windows, cheapest repair first. `first` is what was asked for, so
-  // it is the only one that can leave the Framing satisfied.
+  // The four windows, cheapest repair first. The first is what was asked for,
+  // so it is the only one that can leave the Framing satisfied.
   const rungs: { rung?: FallbackRung; window: CropWindow }[] = [
-    { window: first },
+    { window: firstWindow },
     { rung: "zoom-out", window: placeAtAim(at, cover, source, aim) },
     {
       rung: "relax",
