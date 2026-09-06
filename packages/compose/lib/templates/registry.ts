@@ -3,6 +3,7 @@ import { LOOKS } from "../looks/registry";
 import hopefamilyPost from "./hopefamily-post";
 import hopefamilyStory from "./hopefamily-story";
 import { registerTemplates } from "./register";
+import laicaPost from "./laica-post";
 import swisshutlessStory from "./swisshutless-story";
 
 /**
@@ -13,6 +14,6 @@ import swisshutlessStory from "./swisshutless-story";
  * the same rule holds for whatever that loader brings.
  */
 export const TEMPLATES: ReadonlyMap<string, Template> = registerTemplates(
-  [swisshutlessStory, hopefamilyStory, hopefamilyPost],
+  [swisshutlessStory, hopefamilyStory, hopefamilyPost, laicaPost],
   LOOKS
 );

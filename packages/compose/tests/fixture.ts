@@ -10,11 +10,22 @@ const REPO_FIXTURES = new URL("../../../fixtures/", import.meta.url);
 export const KART_FIXTURE = "karts/on-track-dark-visor.jpg";
 
 /**
- * The portrait the Hope Family goldens start from: 1280x1600, one face, filling
- * much of the frame. A Template whose job is to keep type off a face is worth
- * looking at over a photograph that has one.
+ * The portrait the Hope Family goldens start from, and laica's upright Image
+ * Slot with it: 1280x1600, one face, filling much of the frame. A Template
+ * whose job is to keep type off a face is worth looking at over a photograph
+ * that has one.
  */
 export const FACE_FIXTURE = "faces/astronaut-portrait.jpg";
+
+/**
+ * A 1600x777 group shot, for an Image Slot too wide for the portrait.
+ *
+ * One fixture would have done — the goldens would still catch a lost wordmark —
+ * but a centred window is a naive crop, and on the wrong shape it takes the
+ * heads off. A Template's golden is also the picture a reader judges the design
+ * by, so each Image Slot gets the source whose shape it can hold.
+ */
+export const CREW_FIXTURE = "faces/soyuz-crew.jpg";
 
 /**
  * A repo fixture as the host would hand it to compose: raw RGB, no alpha, at

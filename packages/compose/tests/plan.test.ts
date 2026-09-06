@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { COMPOSE_ERROR_CODES, ComposeError, plan, type Plan } from "../index";
-import { exampleFields, planFor, STORY_CASE } from "./cases";
+import {
+  exampleFields,
+  LAICA_AT_POST,
+  LAICA_AT_WIDE,
+  planFor,
+  STORY_CASE,
+} from "./cases";
 
 const SLOT = { width: 1080, height: 1920 };
 
 /**
  * A zone back in whole Image Slot pixels, which is where its numbers came from
  * and the only scale a reader can check by hand against the Template.
+ *
+ * Scaled by the Plan's own `imageSlot`, not by the Placement: `laica-post`'s
+ * slot is a column, so the two are different numbers and only the slot's is the
+ * one the fractions were divided by.
  *
  * Rounded, because a fraction is a measured pixel count divided by the slot and
  * the divide leaves float noise: the example's block is 896.0000000000001 px
@@ -141,6 +151,73 @@ describe("plan for the Hope Family Templates", () => {
       expect(result.subjectArea).toEqual(subject);
     }
   );
+});
+
+/**
+ * `laica-post`'s Image Slot is a column, so its geometry, measured on takumi
+ * 2.13.6 with Outfit at the sizes the Template names:
+ *
+ * - `linkedin/wide` 1200x627: the picture takes 42 % of the width, 504x627, and
+ *   the type sits beside it, so nothing covers the picture.
+ * - `linkedin/post` 1200x1200: the picture is a plate 42 % of the height deep,
+ *   inset by the page's 88 px margin, so the slot is 1024x504 and starts at
+ *   (88, 88) rather than the canvas corner. The chip sits 48 px in from the
+ *   plate's own left and bottom edges. Three of the chip's four numbers are
+ *   that inset and the slot's height; the fourth, 234 px, is the width
+ *   "LOGBUCH" measures at Outfit 500 — the Look's second instance of one
+ *   variable file, and 2 px wider than the same label at 400.
+ */
+const SLOT_AT_WIDE = { width: 504, height: 627 };
+const SLOT_AT_POST = { width: 1024, height: 504 };
+const CHIP_INSET = 48;
+const CHIP = { width: 234, height: 62 };
+
+describe("plan for a Template whose Image Slot is a column", () => {
+  it("gives the column's own size at linkedin/wide, and no Occlusion Zone", async () => {
+    const result = await plan(planFor(LAICA_AT_WIDE));
+
+    // Not 1200x627. This is the number the gateway hands frame as `target`.
+    expect(result.imageSlot).toEqual(SLOT_AT_WIDE);
+    expect(result.occlusion).toEqual([]);
+    expect(result.subjectArea).toEqual({
+      x: 0.12,
+      y: 0.08,
+      width: 0.76,
+      height: 0.5,
+    });
+  });
+
+  it("gives the inset plate at linkedin/post, with the chip as one zone", async () => {
+    const result = await plan(planFor(LAICA_AT_POST));
+
+    expect(result.imageSlot).toEqual(SLOT_AT_POST);
+    expect(inPixels(result, SLOT_AT_POST)).toEqual([
+      {
+        x: CHIP_INSET,
+        y: SLOT_AT_POST.height - CHIP_INSET - CHIP.height,
+        ...CHIP,
+      },
+    ]);
+    expect(result.subjectArea).toEqual({
+      x: 0.34,
+      y: 0.08,
+      width: 0.42,
+      height: 0.84,
+    });
+  });
+
+  it("measures the zone against the Image Slot, not the canvas", async () => {
+    const [zone] = (await plan(planFor(LAICA_AT_POST))).occlusion;
+
+    // The two regressions the pixel assertion above cannot catch on its own,
+    // named as fractions because that is the form frame receives. Divide by the
+    // Placement's 1200 rather than the slot's 504 and the chip lands at y 0.328;
+    // forget to subtract the slot's own (88, 88) origin and it lands at 0.957.
+    // Both are still a valid Box and still one zone.
+    expect(zone?.y).toBeCloseTo(394 / SLOT_AT_POST.height, 6);
+    expect(zone?.x).toBeCloseTo(CHIP_INSET / SLOT_AT_POST.width, 6);
+    expect(zone?.height).toBeCloseTo(CHIP.height / SLOT_AT_POST.height, 6);
+  });
 });
 
 describe("plan refusals", () => {

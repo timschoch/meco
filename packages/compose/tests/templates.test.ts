@@ -9,18 +9,23 @@ const listed = templates();
 const TEMPLATE_IDS = SHIPPED.map((t) => t.id);
 
 /**
- * The Swiss Hutless story, the Template every other test in this package is
- * written around. Thrown for by name rather than indexed, so a catalogue that
- * lost it fails here with what it does hold in the message.
+ * A Template by id. Thrown for by name rather than indexed, so a catalogue that
+ * lost one fails here with what it does hold in the message.
  */
-const story = listed.find((t) => t.id === "swisshutless-story");
-if (!story) {
-  throw new Error(
-    `swisshutless-story is not in the catalogue; it holds: ${listed
-      .map((t) => t.id)
-      .join(", ")}`
-  );
+function shipped(id: string) {
+  const found = listed.find((t) => t.id === id);
+  if (!found) {
+    throw new Error(
+      `${id} is not in the catalogue; it holds: ${listed
+        .map((t) => t.id)
+        .join(", ")}`
+    );
+  }
+  return found;
 }
+
+const story = shipped("swisshutless-story");
+const post = shipped("laica-post");
 
 /** Draft 2020-12, the target `z.toJSONSchema` emits. */
 const ajv = new Ajv2020({ strict: false });
@@ -32,6 +37,7 @@ describe("templates", () => {
     expect(listed.map((t) => t.id)).toEqual([
       "hopefamily-post",
       "hopefamily-story",
+      "laica-post",
       "swisshutless-story",
     ]);
     expect(story).toMatchObject({
@@ -39,6 +45,14 @@ describe("templates", () => {
       placements: ["instagram/story", "facebook/story"],
     });
     expect(story.description).toContain("Swiss Hutless");
+  });
+
+  it("lists laica-post with both the Placements it draws for", () => {
+    expect(post).toMatchObject({
+      brand: "laica",
+      placements: ["linkedin/post", "linkedin/wide"],
+    });
+    expect(post.description).toContain("laica");
   });
 
   it.each(TEMPLATE_IDS)(
@@ -57,6 +71,9 @@ describe("templates", () => {
     // `headline` is required, so the Fields `plan` refuses with
     // `invalid_fields` are refused here too.
     expect(ajv.compile(story.fields)({ kicker: "only a kicker" })).toBe(false);
+    // Same for laica's `title`, whose Template carries a default for every
+    // other Field and so would otherwise accept an empty object.
+    expect(ajv.compile(post.fields)({ kicker: "only a kicker" })).toBe(false);
   });
 
   it("lists both Hope Family Templates when asked for that Brand", () => {
@@ -74,12 +91,13 @@ describe("templates", () => {
     ]);
   });
 
-  it("lists nothing for a Brand with no Template yet", () => {
-    expect(templates("laica")).toEqual([]);
+  it("lists nothing for a Brand with no Template", () => {
+    expect(templates("no-such-brand")).toEqual([]);
   });
 
   it("lists a Brand's own Templates when asked for one", () => {
     expect(templates("swisshutless")).toEqual([story]);
+    expect(templates("laica")).toEqual([post]);
   });
 });
 
