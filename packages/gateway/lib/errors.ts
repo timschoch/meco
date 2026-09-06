@@ -14,6 +14,8 @@ export const GATEWAY_STATUS = {
   brand_not_held: 403,
   not_found: 404,
   too_large: 413,
+  /** Bytes the decoder cannot read as an image. models raises this too. */
+  unsupported_mime: 415,
   source_unfetchable: 422,
   resolution_mismatch: 500,
   /** An Operation in the table whose pipeline a later ticket lands. */
