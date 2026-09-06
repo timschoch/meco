@@ -5,12 +5,9 @@
  * fake agrees with itself.
  *
  * Everything it writes lands under one run-scoped prefix and is deleted in
- * `afterAll`, which runs whether the checks passed or not. Deletion goes
- * straight to the SDK rather than through the `Store` interface because
- * `delete` is #125's; when it lands, this becomes `store.delete`.
+ * `afterAll`, which runs whether the checks passed or not.
  */
 import { randomUUID } from "node:crypto";
-import { del } from "@vercel/blob";
 import { afterAll, describe, expect, it } from "vitest";
 import { blobStore } from "../index";
 import { reachStores } from "../health";
@@ -23,16 +20,54 @@ import { storeConformance } from "../conformance";
  */
 const PREFIX = `people/conformance/${randomUUID()}`;
 
+/**
+ * How long Blob may go on serving an object after it was deleted. Vercel
+ * documents up to 60 s of CDN propagation, so the deletion check polls to that
+ * and says so in its own name rather than asserting a promise the backend
+ * never made.
+ */
+const DELETE_DEADLINE_MS = 60_000;
+
+/**
+ * Two, so three written objects need two pages and the cursor loop is actually
+ * followed. Production uses Blob's own maximum of 1000; proving the loop at
+ * that size would mean writing 1001 objects, which costs more than the whole
+ * two-minute budget.
+ */
+const LIST_PAGE_SIZE = 2;
+
+/**
+ * Room for the deletion check to reach its deadline before Vitest calls it
+ * hung. Nothing else here comes near it: the round trip measures in hundreds
+ * of milliseconds.
+ */
+const CHECK_TIMEOUT_MS = DELETE_DEADLINE_MS + 15_000;
+
 /** Every key the checks wrote, so `afterAll` can name them all. */
 const written = new Set<string>();
 
+const store = blobStore({ listPageSize: LIST_PAGE_SIZE });
+
+const checks = storeConformance(store, {
+  prefix: PREFIX,
+  deleteDeadlineMs: DELETE_DEADLINE_MS,
+  wrote: (key) => written.add(key),
+});
+
 describe("storeConformance over the live blobStore", () => {
-  for (const check of storeConformance(blobStore(), {
-    prefix: PREFIX,
-    wrote: (key) => written.add(key),
-  })) {
-    it(check.name, check.run);
+  for (const check of checks) {
+    it(check.name, check.run, CHECK_TIMEOUT_MS);
   }
+});
+
+describe("what the live run's fixtures change about the checks", () => {
+  it("names the deadline it polls to, which the in-memory run has none of", () => {
+    const names = checks.map((check) => check.name);
+
+    expect(names).toContain(
+      "after delete, get is null and list no longer names the key, within 60 s"
+    );
+  });
 });
 
 describe("where the two probes write", () => {
@@ -48,15 +83,7 @@ describe("where the two probes write", () => {
 });
 
 afterAll(async () => {
-  if (written.size === 0) return;
-
-  // The Private Store's own token. `del` is store-scoped by its credential, and
-  // every key here is private by its Namespace.
-  const token = process.env["BLOB_PEOPLE_READ_WRITE_TOKEN"];
-  if (token === undefined) {
-    throw new Error(
-      `BLOB_PEOPLE_READ_WRITE_TOKEN is not set, so ${written.size} objects under ${PREFIX} cannot be cleaned up.`
-    );
-  }
-  await del([...written], { token });
-});
+  // `store.delete` is unconditional and silent about a key already gone, so the
+  // keys the deletion check removed cost nothing to name again here.
+  await Promise.all([...written].map((key) => store.delete(key)));
+}, CHECK_TIMEOUT_MS);

@@ -37,6 +37,17 @@ export interface StoreFixtures {
    * leaves this unset.
    */
   readonly wrote?: (key: string) => void;
+  /**
+   * How long this backend may go on serving an object after it was deleted.
+   *
+   * Left unset the deletion check reads once, which is the strict version and
+   * the only one that catches a regression in an immediately consistent
+   * adapter. Blob sets it: its reads go through a CDN, so a single immediate
+   * read there asserts a promise the backend never made — which is how
+   * [#22](https://github.com/timschoch/meco/issues/22) became flaky. The
+   * check's own name states whatever deadline it was given.
+   */
+  readonly deleteDeadlineMs?: number;
 }
 
 /** Every payload is a PNG by declaration; no adapter looks at the bytes. */
@@ -57,17 +68,55 @@ const payload = (label: string): Uint8Array =>
 const sha256 = (bytes: Uint8Array): string =>
   createHash("sha256").update(bytes).digest("hex");
 
+/** How often the deletion check looks again while it still has a deadline. */
+const POLL_INTERVAL_MS = 500;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/** The deadline as the check's name says it, so the two never drift apart. */
+const deadlineLabel = (ms: number): string => `${Math.round(ms / 1000)} s`;
+
 export function storeConformance(
   store: Store,
   fixtures: StoreFixtures
 ): Check[] {
-  const { prefix, wrote } = fixtures;
+  const { prefix, wrote, deleteDeadlineMs } = fixtures;
 
-  /** Writes, and tells the caller what key it left behind. */
-  const put = async (bytes: Uint8Array): Promise<PutResult> => {
-    const result = await store.put(prefix, bytes, CONTENT_TYPE);
+  /** Writes under a given prefix, and says what key it left behind. */
+  const putAt = async (
+    where: string,
+    bytes: Uint8Array
+  ): Promise<PutResult> => {
+    const result = await store.put(where, bytes, CONTENT_TYPE);
     wrote?.(result.key);
     return result;
+  };
+
+  /** The fixture's own prefix, which is where all but one check writes. */
+  const put = (bytes: Uint8Array): Promise<PutResult> => putAt(prefix, bytes);
+
+  /** What still names the key and how, or `null` once nothing does. */
+  const whatStillNames = async (key: string): Promise<string | null> => {
+    if ((await store.get(key)) !== null) {
+      return `get still hands back "${key}" after it was deleted`;
+    }
+    const named = (await store.list(prefix)).some((one) => one.key === key);
+    return named ? `list("${prefix}") still names "${key}"` : null;
+  };
+
+  /**
+   * One pass with no deadline, so an immediately consistent adapter is held to
+   * a single read; otherwise look again until the deadline passes.
+   */
+  const gone = async (key: string): Promise<void> => {
+    const deadline = Date.now() + (deleteDeadlineMs ?? 0);
+    for (;;) {
+      const problem = await whatStillNames(key);
+      if (problem === null) return;
+      if (Date.now() >= deadline) throw new Error(problem);
+      await sleep(POLL_INTERVAL_MS);
+    }
   };
 
   return [
@@ -149,6 +198,127 @@ export function storeConformance(
       },
     },
     {
+      name: "head of a missing key is null and of a present key reports the stored size",
+      async run() {
+        const bytes = payload("head");
+        const { key } = await put(bytes);
+
+        const found = await store.head(key);
+
+        ok(found !== null, `the key "${key}" just written heads as missing`);
+        strictEqual(found.key, key);
+        // The size of what is stored, never the size the caller had in hand.
+        strictEqual(found.size, bytes.byteLength);
+        strictEqual(found.contentType, CONTENT_TYPE);
+
+        const missing = `${prefix}/${"0".repeat(64)}.png`;
+        strictEqual(await store.head(missing), null);
+      },
+    },
+    {
+      name:
+        deleteDeadlineMs === undefined
+          ? "after delete, get is null and list no longer names the key"
+          : `after delete, get is null and list no longer names the key, within ${deadlineLabel(deleteDeadlineMs)}`,
+      async run() {
+        const bytes = payload("deleted");
+        const { key } = await put(bytes);
+
+        // Proved present first, so a delete that never had anything to remove
+        // cannot pass this check by accident.
+        ok(
+          (await store.get(key)) !== null,
+          `the key "${key}" just written reads as missing`
+        );
+        ok(
+          (await store.list(prefix)).some((one) => one.key === key),
+          `list("${prefix}") does not name "${key}" before the delete`
+        );
+
+        await store.delete(key);
+
+        await gone(key);
+      },
+    },
+    {
+      name: "deleting a key that is already gone is not an error",
+      async run() {
+        const never = `${prefix}/${"1".repeat(64)}.png`;
+
+        // Twice: a retry and a cascade that runs a second time are the two
+        // ways this happens, and neither may throw.
+        await store.delete(never);
+        await store.delete(never);
+      },
+    },
+    {
+      name: "list names every key under the prefix with its size, however many pages that takes",
+      async run() {
+        const written = new Map<string, number>();
+        for (const label of ["listed one", "listed two", "listed three"]) {
+          const bytes = payload(label);
+          const { key } = await put(bytes);
+          written.set(key, bytes.byteLength);
+        }
+
+        const listed = new Map(
+          (await store.list(prefix)).map((one) => [one.key, one])
+        );
+
+        for (const [key, size] of written) {
+          const one = listed.get(key);
+          ok(one !== undefined, `list("${prefix}") does not name "${key}"`);
+          strictEqual(one.size, size);
+          ok(
+            !Number.isNaN(Date.parse(one.createdAt)),
+            `"${one.createdAt}" is no date`
+          );
+        }
+      },
+    },
+    {
+      name: "list names a subtree, so a prefix never matches half a segment",
+      async run() {
+        // `${prefix}-sibling` shares every character of the prefix but ends a
+        // segment elsewhere. Under a raw string match `people/laica/p_1` would
+        // name `people/laica/p_10/…`, and a cascade delete would prove itself
+        // against another Person's objects.
+        const sibling = `${prefix}-sibling`;
+        const { key } = await putAt(sibling, payload("sibling subtree"));
+
+        const listed = await store.list(prefix);
+
+        ok(
+          !listed.some((one) => one.key === key),
+          `list("${prefix}") names "${key}", which is outside it`
+        );
+        ok(
+          (await store.list(sibling)).some((one) => one.key === key),
+          `list("${sibling}") does not name its own "${key}"`
+        );
+      },
+    },
+    {
+      name: "list hands its objects back ordered by key",
+      async run() {
+        // Promised rather than incidental: a `Map` yields insertion order and a
+        // backend yields its own, so an unordered `list` is a difference
+        // between the two adapters that a caller would find in production.
+        await put(payload("ordered one"));
+        await put(payload("ordered two"));
+
+        const listed = await store.list(prefix);
+
+        ok(listed.length > 1, `list("${prefix}") named ${listed.length}`);
+        for (let i = 1; i < listed.length; i += 1) {
+          ok(
+            listed[i - 1]!.key < listed[i]!.key,
+            `list("${prefix}") names "${listed[i - 1]!.key}" before "${listed[i]!.key}"`
+          );
+        }
+      },
+    },
+    {
       name: "a key with `..`, an empty segment or a leading slash is refused",
       async run() {
         // Refused before a call is made, so this costs a live run nothing.
@@ -170,6 +340,11 @@ export function storeConformance(
           /Namespace/
         );
         await rejects(() => store.get("people/../renders/a.png"), /\.\./);
+
+        // Every verb that takes a key, not only the two that carry bytes.
+        await rejects(() => store.head("people/../renders/a.png"), /\.\./);
+        await rejects(() => store.delete("people/../renders/a.png"), /\.\./);
+        await rejects(() => store.list("uploads"), /Namespace/);
       },
     },
     {

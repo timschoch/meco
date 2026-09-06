@@ -4,18 +4,35 @@
  */
 import {
   BlobNotFoundError,
+  del as blobDel,
   get as blobGet,
   head as blobHead,
+  list as blobList,
   put as blobPut,
 } from "@vercel/blob";
 import { credentialFor } from "./credentials";
-import { type Access, accessFor, assertKey, storeKey } from "./keys";
+import {
+  type Access,
+  accessFor,
+  assertKey,
+  byKey,
+  storeKey,
+  subtreePrefix,
+} from "./keys";
 
 /** The bytes at one Store Key, with what is known about them. */
 export interface StoredObject {
   readonly key: string;
   readonly size: number;
   readonly contentType: string;
+}
+
+/** One Stored Object as `list` names it: enough to prove it is still there. */
+export interface Listing {
+  readonly key: string;
+  readonly size: number;
+  /** When the object was written, ISO 8601. */
+  readonly createdAt: string;
 }
 
 export interface PutResult extends StoredObject {
@@ -46,6 +63,30 @@ export interface Store {
   ): Promise<PutResult>;
   /** The bytes at this key, or `null` when nothing was ever written there. */
   get(key: string): Promise<Uint8Array | null>;
+  /**
+   * What is known about the object at this key without fetching its bytes, or
+   * `null` when nothing was ever written there.
+   */
+  head(key: string): Promise<StoredObject | null>;
+  /**
+   * Remove the object at this key. Unconditional: the store does not know
+   * whether anything still points at those bytes, and never asks. Two Brands
+   * whose Crops come out byte-identical share one key, so reference counting
+   * is `records`' question.
+   *
+   * Deleting a key that is already gone is not an error, so a retry and a
+   * cascade that runs twice both cost nothing.
+   */
+  delete(key: string): Promise<void>;
+  /**
+   * Every object under this prefix, ordered by key.
+   *
+   * This exists to prove that a delete left nothing behind, and for nothing
+   * else — the Gallery reads `records`. A prefix names a subtree rather than a
+   * string, so `list("people/laica/p_1")` never names `people/laica/p_10/…`,
+   * the same whole-segment rule `isPrivate` applies to the Namespace.
+   */
+  list(prefix: string): Promise<Listing[]>;
 }
 
 export interface BlobStoreConfig {
@@ -58,11 +99,37 @@ export interface BlobStoreConfig {
   readonly env?: NodeJS.ProcessEnv;
   /** Bounds every call the returned store makes. */
   readonly abortSignal?: AbortSignal;
+  /**
+   * How many objects one `list` request asks for. Blob's own maximum, 1000, is
+   * the default and the only value production uses.
+   *
+   * It is settable because the property worth proving is that `list` follows
+   * the cursor past the end of a page, and writing 1001 objects to prove it
+   * would cost more than the live suite's whole two-minute budget. Lowered to
+   * a handful, the same check exercises the same loop in seconds.
+   */
+  readonly listPageSize?: number;
 }
+
+/** Blob returns at most this many objects per `list` request. */
+const MAX_LIST_PAGE = 1000;
 
 export function blobStore(config: BlobStoreConfig = {}): Store {
   const env = config.env ?? process.env;
-  const { abortSignal } = config;
+  const { abortSignal, listPageSize = MAX_LIST_PAGE } = config;
+  // Refused at construction rather than at the call, so a page size that would
+  // quietly shorten every listing can never become a deletion proof that
+  // looked at less than it reported.
+  if (!Number.isInteger(listPageSize) || listPageSize < 1) {
+    throw new Error(
+      `@meco/store: listPageSize ${listPageSize} is no page size. An integer from 1 to ${MAX_LIST_PAGE}.`
+    );
+  }
+  if (listPageSize > MAX_LIST_PAGE) {
+    throw new Error(
+      `@meco/store: listPageSize ${listPageSize} is over Blob's own maximum of ${MAX_LIST_PAGE}, which would silently return fewer.`
+    );
+  }
 
   const options = (access: Access) => {
     const { auth } = credentialFor(env, access);
@@ -118,6 +185,49 @@ export function blobStore(config: BlobStoreConfig = {}): Store {
       });
       if (found === null || found.statusCode !== 200) return null;
       return new Uint8Array(await new Response(found.stream).arrayBuffer());
+    },
+
+    async head(key) {
+      assertKey(key);
+      const found = await head(key, options(accessFor(key)));
+      return found === null ? null : { key, ...found };
+    },
+
+    async delete(key) {
+      assertKey(key);
+      // Blob's `del` is already silent about a key that is not there, which is
+      // the promise this interface makes; nothing here has to make it so.
+      await blobDel(key, options(accessFor(key)));
+    },
+
+    async list(prefix) {
+      assertKey(prefix, "prefix");
+      const under = subtreePrefix(prefix);
+      const common = options(accessFor(prefix));
+
+      const listed: Listing[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await blobList({
+          ...common,
+          prefix: under,
+          limit: listPageSize,
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        for (const one of page.blobs) {
+          listed.push({
+            key: one.pathname,
+            size: one.size,
+            createdAt: one.uploadedAt.toISOString(),
+          });
+        }
+        // Following the cursor rather than stopping at the first page: a
+        // listing that stopped there would hide every object past the page
+        // size and report a deletion proof that had not looked.
+        cursor = page.hasMore ? page.cursor : undefined;
+      } while (cursor !== undefined);
+
+      return listed.sort(byKey);
     },
   };
 }

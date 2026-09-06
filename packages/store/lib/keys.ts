@@ -105,6 +105,27 @@ export function assertKey(key: string, label = "Store key"): void {
   }
 }
 
+/**
+ * What `list` matches a subtree against. The trailing slash is the whole
+ * point: on a raw string match `people/laica/p_1` would also name
+ * `people/laica/p_10/…`, and a cascade delete would then prove itself against
+ * another Person's objects. It is the same whole-segment rule `isPrivate`
+ * applies to the Namespace, one segment further down.
+ */
+export function subtreePrefix(prefix: string): string {
+  return `${prefix}/`;
+}
+
+/**
+ * The order every adapter's `list` hands its objects back in. A `Map` yields
+ * insertion order and a backend yields its own, so without one comparator both
+ * share, the two adapters would differ in what a caller may rely on — which is
+ * the difference the Conformance Checks exist to catch.
+ */
+export function byKey(a: { key: string }, b: { key: string }): number {
+  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+}
+
 /** The extension for a content type, or a refusal naming the type. */
 export function extensionFor(contentType: string): string {
   const extension = EXTENSIONS.get(contentType);

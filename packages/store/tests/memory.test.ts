@@ -12,9 +12,14 @@ import { storeConformance } from "../conformance";
 const PREFIX = "people/laica/p_conformance";
 
 /**
- * The rows of `docs/specs/store.md`, "Testing decisions", that #124 implements,
- * in the order they run. `head`, `delete` and `list` are #125's rows and the
- * two URL rows are #126's, so this list grows with those tickets.
+ * The rows of `docs/specs/store.md`, "Testing decisions", that #124 and #125
+ * implement, in the order they run. The two URL rows are #126's, so this list
+ * grows with that ticket.
+ *
+ * The deletion check is named without a deadline here because `memoryStore` is
+ * immediately consistent and so reads once. The live Blob run names its own
+ * deadline; that difference is the point, and `conformance.live.ts` asserts it
+ * from the other side.
  */
 const CHECK_NAMES = [
   "put files the bytes under their own full sha256",
@@ -23,6 +28,12 @@ const CHECK_NAMES = [
   "writing different bytes under one prefix gives different keys",
   "the store owns its bytes, in and out",
   "get of a key never written is null, not a throw",
+  "head of a missing key is null and of a present key reports the stored size",
+  "after delete, get is null and list no longer names the key",
+  "deleting a key that is already gone is not an error",
+  "list names every key under the prefix with its size, however many pages that takes",
+  "list names a subtree, so a prefix never matches half a segment",
+  "list hands its objects back ordered by key",
   "a key with `..`, an empty segment or a leading slash is refused",
   "bytes over MAX_OBJECT_BYTES are refused, with the size in the message",
   "an unmapped content type is refused rather than guessed",
@@ -60,7 +71,14 @@ describe("storeConformance", () => {
     }
 
     expect(wrote.length).toBeGreaterThan(0);
-    for (const key of wrote) expect(key.startsWith(`${PREFIX}/`)).toBe(true);
+    // `${PREFIX}-sibling/` is the one deliberate write outside the prefix: the
+    // subtree check needs an object a raw string match would wrongly name. It
+    // is still under the run-scoped prefix, so a live run cleans it up too.
+    for (const key of wrote) {
+      expect(
+        key.startsWith(`${PREFIX}/`) || key.startsWith(`${PREFIX}-sibling/`)
+      ).toBe(true);
+    }
   });
 });
 
