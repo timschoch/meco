@@ -2,17 +2,10 @@ import sharp from "sharp";
 import { fromJsx } from "@takumi-rs/helpers/jsx";
 import type { RgbaImage } from "@takumi-rs/helpers";
 import type { Box, DecodedImage } from "@meco/contracts";
-import type { Look, Template } from "../template";
-import { placement as placementById, type Placement } from "../placements";
 import { ComposeError } from "./errors";
-import { LOOKS } from "./looks/registry";
-import {
-  findMarked,
-  IMAGE_SLOT_MARKER,
-  type MeasuredBox,
-} from "./measured-tree";
+import type { MeasuredBox } from "./measured-tree";
+import { layout, resolve, type PlanInput } from "./plan";
 import { lookImages, sharedRenderer } from "./renderer";
-import { TEMPLATES } from "./templates/registry";
 
 /** The formats compose encodes, the same set as the contracts `Target`. */
 export type RenderFormat = "png" | "jpeg" | "webp";
@@ -40,11 +33,8 @@ const DEFAULT_QUALITY = 90;
  */
 const ASPECT_TOLERANCE_PX = 1;
 
-export interface RenderInput {
-  readonly template: string;
-  readonly placement: string;
-  readonly brand: string;
-  readonly fields: unknown;
+/** A Plan's four inputs plus the picture and the window frame chose. */
+export interface RenderInput extends PlanInput {
   /** The redacted Source Image, at the resolution the Annotation describes. */
   readonly source: DecodedImage;
   /** What frame chose, in Source Image fractions. */
@@ -56,96 +46,6 @@ export interface RenderInput {
 export interface RenderResult {
   readonly bytes: Uint8Array;
   readonly mime: string;
-}
-
-interface Resolved {
-  readonly template: Template;
-  readonly look: Look;
-  readonly placement: Placement;
-  readonly fields: unknown;
-}
-
-function resolve(input: {
-  template: string;
-  placement: string;
-  brand: string;
-  fields: unknown;
-}): Resolved {
-  const template = TEMPLATES.get(input.template);
-  if (!template) {
-    throw new ComposeError(
-      "unknown_template",
-      `No Template with id "${input.template}".`
-    );
-  }
-
-  const look = LOOKS.get(input.brand);
-  if (!look) {
-    throw new ComposeError(
-      "unknown_brand",
-      `No Look for Brand "${input.brand}".`
-    );
-  }
-
-  const placement = placementById(input.placement);
-  if (!placement || !template.placements.includes(placement.id)) {
-    throw new ComposeError(
-      "placement_not_supported",
-      `Template "${template.id}" does not support Placement "${input.placement}".`
-    );
-  }
-
-  const parsed = template.fields.safeParse(input.fields);
-  if (!parsed.success) {
-    throw new ComposeError(
-      "invalid_fields",
-      `Fields do not match what "${template.id}" asks for.`,
-      parsed.error.issues
-    );
-  }
-
-  return { template, look, placement, fields: parsed.data };
-}
-
-/**
- * The Image Slot's box in canvas pixels, measured from a tree laid out with no
- * image bytes. Whole pixels, because the slot is what sharp resizes into.
- *
- * The descriptor handed to the Template carries the Placement's size, not the
- * slot's: the slot is what this call is measuring. That is sound only because a
- * Template may not size itself to the picture — the same rule that lets the
- * Plan be built before any picture exists (ADR-0009, decision 2).
- */
-async function measureSlot(resolved: Resolved): Promise<MeasuredBox> {
-  const { template, look, placement } = resolved;
-  const renderer = await sharedRenderer();
-  const { node, css } = await fromJsx(
-    template.render({
-      fields: resolved.fields,
-      look,
-      placement,
-      image: { width: placement.width, height: placement.height },
-    })
-  );
-  const measured = await renderer.measure(node, {
-    width: placement.width,
-    height: placement.height,
-    css,
-  });
-
-  const slots = findMarked(node, measured, IMAGE_SLOT_MARKER);
-  const slot = slots[0];
-  if (slots.length !== 1 || slot === undefined) {
-    throw new Error(
-      `Template "${template.id}" placed ${slots.length} ImageSlots; exactly one is required.`
-    );
-  }
-  return {
-    x: Math.round(slot.x),
-    y: Math.round(slot.y),
-    width: Math.round(slot.width),
-    height: Math.round(slot.height),
-  };
 }
 
 /** The window in whole source pixels, clamped to the image. */
@@ -227,7 +127,10 @@ export async function render(input: RenderInput): Promise<RenderResult> {
   const resolved = resolve(input);
   const { template, look, placement } = resolved;
 
-  const slot = await measureSlot(resolved);
+  // Re-planned rather than carried over from the caller's own `plan` call:
+  // the layout costs 0.6–3.6 ms (ADR-0009 decision 1), and a handle passed
+  // between two calls would be a Plan that no longer matches these Fields.
+  const { slot } = await layout(resolved);
   const src = await fitToSlot(input.source, input.window, slot);
 
   const renderer = await sharedRenderer();

@@ -53,7 +53,13 @@ export interface Look {
  */
 export interface SlotImage {
   readonly src?: RgbaImage;
-  /** The Image Slot's pixel size, once compose has measured it. */
+  /**
+   * The Image Slot's pixel size while the picture is drawn, and the
+   * Placement's while a Plan is measured, because the slot is what that pass
+   * is measuring. A Template may read neither into its layout: doing so makes
+   * the Plan disagree with the picture wherever the slot is not the whole
+   * canvas. `layoutConformance` holds every Template to it.
+   */
   readonly width: number;
   readonly height: number;
 }

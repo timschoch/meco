@@ -1,4 +1,4 @@
-import type { RenderInput } from "../index";
+import type { PlanInput, RenderInput } from "../index";
 import { centredWindow, decode, KART_FIXTURE } from "./fixture";
 import { PLACEMENTS } from "../placements";
 
@@ -33,6 +33,24 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
 export const STORY_CASE = GOLDEN_CASES[0]!;
 
 /**
+ * The `plan` half of a golden case: the same Template, Placement, Brand and
+ * Fields the picture is rendered from, so a Plan test and a golden cannot drift
+ * apart. Synchronous, because a Plan needs no picture.
+ */
+export function planFor(
+  test: GoldenCase,
+  overrides: Partial<PlanInput> = {}
+): PlanInput {
+  return {
+    template: test.template,
+    placement: test.placement,
+    brand: test.brand,
+    fields: test.fields,
+    ...overrides,
+  };
+}
+
+/**
  * The exact `render` call a golden case stands for, with anything a test wants
  * to vary laid over the top.
  *
@@ -48,10 +66,7 @@ export async function inputFor(
   const placement = PLACEMENTS.find((p) => p.id === test.placement);
   if (!placement) throw new Error(`Unknown Placement ${test.placement}.`);
   return {
-    template: test.template,
-    placement: test.placement,
-    brand: test.brand,
-    fields: test.fields,
+    ...planFor(test),
     source,
     window: centredWindow(source, placement),
     ...overrides,

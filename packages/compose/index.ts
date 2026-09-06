@@ -3,6 +3,8 @@
 // compose lays a Template over a picture and produces the finished Render. It
 // is the last stage that touches pixels and the only one that encodes. It
 // fetches nothing, stores nothing, and chooses no crop.
+export { plan } from "./lib/plan";
+export type { Plan, PlanInput } from "./lib/plan";
 export { render } from "./lib/render";
 export type { RenderFormat, RenderInput, RenderResult } from "./lib/render";
 export { ComposeError, COMPOSE_ERROR_CODES } from "./lib/errors";

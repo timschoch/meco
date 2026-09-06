@@ -33,7 +33,7 @@ One package, `@meco/compose`, with two pure functions. `plan` says what a Templa
 
 ### Interface
 
-Three entry points, per `packages/README.md`.
+Four entry points, per `packages/README.md`.
 
 `index.ts`, what the gateway calls:
 
@@ -50,6 +50,8 @@ ComposeError { code: "unknown_template" | "unknown_brand" | "placement_not_suppo
 `template.ts`, the only import a Template author needs: the `Template` and `Look` types, `TemplateProps`, and the Markers `ImageSlot` and `Occludes`.
 
 `placements.ts`: `Placement`, `PlacementId` and the catalogue, also reachable from `index.ts`.
+
+`conformance.ts`: `layoutConformance(fixtures) → Check[]`, the layout suite below. Its own entry point, like [`packages/contracts/conformance.ts`](../../packages/contracts/conformance.ts), so the fixture pictures the Checks take never reach the runtime graph. A Template author outside compose runs the same Checks from their own Vitest file.
 
 ### The Template contract
 
@@ -101,15 +103,19 @@ takumi (`@takumi-rs/core`, `@takumi-rs/helpers`), one `Renderer` per process wit
 
 Tests cross the entry points only, enforced by dependency-cruiser. Prior art: contracts' `schemaConformance` for shapes; nothing in the repo for pictures yet.
 
-**Layout checks**, one Vitest file, run for every Template x declared Placement with the Template's `example`:
+**Layout checks**, `layoutConformance` from `conformance.ts`, run by [`packages/compose/tests/layout.test.ts`](../../packages/compose/tests/layout.test.ts) for every Template x declared Placement with the Template's `example`:
 
-- exactly one `ImageSlot` in the measured tree;
-- every Occlusion Zone inside the Image Slot after clipping, fractions in `[0, 1]`;
-- every text run inside its own box, so no overflow;
-- the Plan is identical with no image bytes and with a fixture photo;
-- `subjectArea`, when declared, is a valid Box.
+- exactly one `ImageSlot` in the measured tree, of a positive size;
+- every Occlusion Zone parses as a contracts `Box`, so its fractions are in `[0, 1]`;
+- no Occlusion Zone had to be clipped, so the Template's own overlay stays on its own Image Slot;
+- every text run inside its own box on the inline axis. That axis only: a run's reported height is the font's line box, not the CSS one, so a Template that tightens `lineHeight` puts every run over its box by design;
+- the Plan is identical with no image bytes, with a flat 9x16 placeholder and with a fixture photo;
+- `subjectArea`, when declared, is a valid Box;
+- no more Occlusion Zones than the `MAX_OCCLUSION_ZONES` a FramingRequest holds, so a Template that cannot be framed fails here and not at the gateway.
 
-Exact assertions, no tolerance. Each check names the mutation that turns it red: a `<div>` where `<Occludes>` belongs, a title three times longer than the box, a Template that reads `image.width` into its layout.
+Exact assertions. The Plan's own numbers carry no tolerance: `tests/plan.test.ts` names the text block in whole Image Slot pixels, 92, 1437, 896 by 391 for the example Fields. The two containment rules allow half a pixel, because takumi lays out in floats and a run that exactly fills its line comes back a fraction over; anything a reader would see is whole pixels.
+
+Each check names the mutation that turns it red: a `<div>` where `<Occludes>` belongs, a title three times longer than the box, a Template that reads `image.width` into its layout.
 
 **Golden images**, one per Template x Placement, rendered from a fixture photo and the `example` Fields, compared by mean absolute pixel difference against a threshold set from a cross-platform measurement (takumi is byte-deterministic on one machine; Linux CI is the open question). Regenerated only by an explicit script, never by the suite.
 
