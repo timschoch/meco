@@ -1,4 +1,4 @@
-import type { PlanInput, RenderInput } from "../index";
+import { templates, type PlanInput, type RenderInput } from "../index";
 import { centredWindow, decode, FACE_FIXTURE, KART_FIXTURE } from "./fixture";
 import { PLACEMENTS } from "../placements";
 
@@ -31,49 +31,53 @@ export interface GoldenCase {
 }
 
 /**
- * The Fields both Hope Family Templates are rendered from. One set, because the
- * two Templates carry the same blog post at two shapes and a golden pair is only
- * worth comparing by eye when nothing but the shape differs.
+ * A Template's own `example` Fields, off the catalogue.
+ *
+ * Read rather than copied, because the catalogue is what a caller fills a
+ * Template from: a golden rendered from a second, hand-kept set of Fields would
+ * be a picture no caller can reproduce, and it would go on matching after the
+ * `example` moved.
  */
-export const HOPE_FIELDS = {
-  title: "Vier Wochen Vanlife durch Norwegen",
-  kicker: "Neuer Blogpost",
-  excerpt:
-    "Fjorde, Regen und ein Kocher, der nie funktioniert hat — was wir unterwegs gelernt haben.",
-  date: "6. September 2026",
-};
+export function exampleFields(template: string): Record<string, unknown> {
+  const described = templates().find((t) => t.id === template);
+  if (!described) throw new Error(`${template} is not in the catalogue.`);
+  return described.example as Record<string, unknown>;
+}
 
-/** A Hope Family Template's golden at each Placement it declares. */
-function hopeFamily(
+/**
+ * One golden per Placement a Template declares, taken from `SHIPPED` so the
+ * goldens cannot list a Placement the Template does not draw for, or miss one
+ * it does.
+ */
+function goldensFor(
   template: string,
-  placements: readonly string[]
+  brand: string,
+  fixture: string,
+  only?: readonly string[]
 ): GoldenCase[] {
-  return placements.map((placement) => ({
+  const shipped = SHIPPED.find((t) => t.id === template);
+  if (!shipped) throw new Error(`${template} is not in SHIPPED.`);
+  const fields = exampleFields(template);
+  return (only ?? shipped.placements).map((placement) => ({
     template,
     placement,
-    brand: "hopefamily",
-    fixture: FACE_FIXTURE,
-    fields: HOPE_FIELDS,
+    brand,
+    fixture,
+    fields,
     golden: `${template}--${placement.replace("/", "-")}.png`,
   }));
 }
 
 export const GOLDEN_CASES: readonly GoldenCase[] = [
-  {
-    template: "swisshutless-story",
-    placement: "instagram/story",
-    brand: "swisshutless",
-    fixture: KART_FIXTURE,
-    fields: {
-      headline: "Wohlen",
-      kicker: "Nächstes Rennen",
-      subline: "Wohlen, Schweiz",
-      footnote: "12. – 14. Juni 2026",
-    },
-    golden: "swisshutless-story--instagram-story.png",
-  },
-  ...hopeFamily("hopefamily-story", ["instagram/story", "facebook/story"]),
-  ...hopeFamily("hopefamily-post", ["instagram/post", "facebook/post"]),
+  // Swiss Hutless has one golden and two Placements: `facebook/story` is
+  // 1080x1920 like `instagram/story`, so it renders the same bytes. Hope Family
+  // takes one per Placement, per #116, which is what makes a Template that ever
+  // varies by Placement id visible here.
+  ...goldensFor("swisshutless-story", "swisshutless", KART_FIXTURE, [
+    "instagram/story",
+  ]),
+  ...goldensFor("hopefamily-story", "hopefamily", FACE_FIXTURE),
+  ...goldensFor("hopefamily-post", "hopefamily", FACE_FIXTURE),
 ];
 
 /** The story every test starts from, so one edit moves the golden and the tests together. */

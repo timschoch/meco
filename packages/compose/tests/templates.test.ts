@@ -9,8 +9,9 @@ const listed = templates();
 const TEMPLATE_IDS = SHIPPED.map((t) => t.id);
 
 /**
- * The one Template that ships. Thrown for by name rather than indexed, so a
- * catalogue that lost it fails here with what it does hold in the message.
+ * The Swiss Hutless story, the Template every other test in this package is
+ * written around. Thrown for by name rather than indexed, so a catalogue that
+ * lost it fails here with what it does hold in the message.
  */
 const story = listed.find((t) => t.id === "swisshutless-story");
 if (!story) {
@@ -25,7 +26,7 @@ if (!story) {
 const ajv = new Ajv2020({ strict: false });
 
 describe("templates", () => {
-  it("lists swisshutless-story with what a caller needs to fill it", () => {
+  it("lists every Template that ships, with what a caller needs to fill it", () => {
     // Sorted by id, which is the catalogue's own promise and not the order the
     // registry's static imports happen to sit in.
     expect(listed.map((t) => t.id)).toEqual([

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { COMPOSE_ERROR_CODES, ComposeError, plan, type Plan } from "../index";
-import { HOPE_FIELDS, planFor, STORY_CASE } from "./cases";
+import { exampleFields, planFor, STORY_CASE } from "./cases";
 
 const SLOT = { width: 1080, height: 1920 };
 
@@ -133,7 +133,7 @@ describe("plan for the Hope Family Templates", () => {
         template,
         placement,
         brand: "hopefamily",
-        fields: HOPE_FIELDS,
+        fields: exampleFields(template),
       });
 
       expect(result.imageSlot).toEqual(slot);
