@@ -84,7 +84,7 @@ export const MAX_OCCLUSION_ZONES: 16;
 - **frame throws on nothing that is geometry.** Every geometric shortfall is answered with the best window there is and a flag saying what was missed.
 - **The occlusion cap is the contracts schema's wall, not frame's.** `FramingRequest.occlusion` is `z.array(Box).max(16)`, so the gateway refuses a longer list with a `400` and frame never sees one. frame keeps a `RangeError` above `MAX_OCCLUSION_ZONES` as a defensive invariant, because the Free Area sweep is polynomial in the zone count and an unbounded list has no best-effort answer to give, only work to refuse. Decided on [contracts: FramingRequest and Match schemas with defaults #93](https://github.com/timschoch/meco/issues/93).
 - **`window` is whole pixels, inside the Source Image, and within one pixel of the target aspect.**
-- **Matches are filtered to `request.brand`.** `identify` guarantees it; frame checks anyway, because a Match crossing the Brand wall would show as a stranger leading somebody else's Crop.
+- **Matches are filtered to `request.brand`, and to a Region this Annotation holds.** `identify` guarantees the Brand; frame checks anyway, because a Match crossing the Brand wall would show as a stranger leading somebody else's Crop. A Match naming no Region in the picture has no box to frame, so it is ignored, which is also what leaves the leader's own Region certain to exist.
 
 ### Composing the Subject
 
@@ -98,11 +98,13 @@ export const MAX_OCCLUSION_ZONES: 16;
 
 Nothing composed → the Crop Anchor named in the request → the centre. `resolvedBy` is `anchor` or `center`, and `leadRegionId` and `subject` are both absent: no Region led and no Subject was composed. A window standing in for the Subject it does not have would be held by every rung of the fallback ladder without meaning it, and the point the anchor stands at is not a `Box`, whose sides are above zero. Decided on [#82](https://github.com/timschoch/meco/issues/82), shipped in [#101](https://github.com/timschoch/meco/issues/101).
 
-**`persons` narrows who may lead and nothing else.** With `persons` given, only Matches whose `personId` is on the list are candidates to lead. A photograph that matched somebody, but nobody on the list, **falls through to the next `pinTo` entry** rather than leading on the unlisted Match: a caller who named `persons` asked for those people, and choosing the window around a different named person would leak who else is in the picture. Every Match is still a kept Subject at its tier whichever rung answers.
+**`persons` narrows who may lead and nothing else.** With `persons` given, only Matches whose `personId` is on the list are candidates to lead. A photograph that matched somebody, but nobody on the list, **falls through to the next `pinTo` entry** rather than leading on the unlisted Match: a caller who named `persons` asked for those people, and choosing the window around a different named person would leak who else is in the picture. A Match the list excluded is still a kept face at its tier on this rung, because `persons` decides who leads and not who is kept.
 
-Ties: the highest `similarity`, then the lowest `regionId`. `similarity` and not the largest face, because it says who meco is surest of and does not move as people walk about — largest would let the framing wobble across a burst of photographs.
+Ties: the highest `similarity`, then the lowest `regionId`. `similarity` and not the largest face, because it says who meco is surest of and does not move as people walk about — largest would let the framing wobble across a burst of photographs. "Lowest" is read off the id's own number, `<kind>-<n>` from the Region schema, and never off the position in `annotation.regions`: `assignRegionIds` does hand the Regions over in id order, but `Annotation.parse` promises nothing about the order they arrive in.
 
 Three tiers exist inside the answering rung, and only the drop rung consults them: the Leading Subject, a matched non-leading face, every other face. The prototype's cross-producer `PRIORITY` table is gone; with `pinTo` deciding which rung answers, it had nothing left to decide.
+
+**The tiers are the order of `keptRegionIds`**, cheapest last, so the drop rung sacrifices from the end and no field carries them that a caller could pair with another rung's Subject. Only `match` has a second tier to name; `face` and `kart` leave their kept Regions in Region id order. Shipped in [#104](https://github.com/timschoch/meco/issues/104).
 
 A `face` Subject is the face box alone. frame never grows it to the `person` Region containing it: the Eye Line criterion was measured on face boxes, and framing on a body is a different composition with no measurement behind it.
 

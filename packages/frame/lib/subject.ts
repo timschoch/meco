@@ -1,7 +1,13 @@
-import type { Annotation, FramingRequest, Region } from "@meco/contracts";
+import type {
+  Annotation,
+  FramingRequest,
+  Match,
+  Region,
+} from "@meco/contracts";
 import { regionWithLargestBox } from "./boxes";
 import type { ComposedSubject } from "./framing";
 import { kartSubject } from "./kart";
+import { matchSubject } from "./match";
 
 /**
  * The `face` rung: every face Region is kept and the largest box leads.
@@ -30,20 +36,26 @@ const faceSubject = (regions: Region[]): ComposedSubject | undefined => {
 };
 
 /**
- * One rung, asked what it composes. `match` (#104) composes nothing yet, so a
- * ladder naming it walks past it to whatever follows.
+ * One rung, asked what it composes. A rung that yields nothing is walked past,
+ * and the next entry of `pinTo` is asked instead.
+ *
+ * Only `match` reads the Matches, and it is the only rung that reads the
+ * request at all. The other two compose from the bytes alone, which is why they
+ * take Regions and nothing else.
  */
 const composeRung = (
   rung: FramingRequest["pinTo"][number],
-  regions: Region[]
+  regions: Region[],
+  matches: Match[],
+  request: FramingRequest
 ): ComposedSubject | undefined => {
   switch (rung) {
+    case "match":
+      return matchSubject(regions, matches, request);
     case "face":
       return faceSubject(regions);
     case "kart":
       return kartSubject(regions);
-    default:
-      return undefined;
   }
 };
 
@@ -54,10 +66,11 @@ const composeRung = (
  */
 export function composeSubject(
   annotation: Annotation,
+  matches: Match[],
   request: FramingRequest
 ): ComposedSubject | undefined {
   for (const rung of request.pinTo) {
-    const composed = composeRung(rung, annotation.regions);
+    const composed = composeRung(rung, annotation.regions, matches, request);
     if (composed !== undefined) return composed;
   }
 

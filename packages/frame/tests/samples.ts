@@ -7,6 +7,7 @@ import {
   Annotation,
   DEFAULT_PIN_TO,
   FramingRequest,
+  Match,
   type Box,
   type Landmarks,
   type ModelId,
@@ -43,13 +44,31 @@ export const emptyAnnotation = (source: Size): Annotation =>
     regions: [],
   });
 
+/**
+ * The Brand every request below is made for. Named once, so a Match built for
+ * another Brand has to say so and cannot become one by a typo.
+ */
+export const BRAND = "hope-family";
+
+/**
+ * A Match, parsed by the contracts schema like every other fixture here. For
+ * this Brand unless the test names another: crossing the Brand wall is
+ * something a check states out loud.
+ */
+export const matchOf = (
+  regionId: string,
+  personId: string,
+  similarity: number,
+  brand: string = BRAND
+): Match => Match.parse({ regionId, personId, brand, similarity });
+
 /** A request for one target size, everything optional left out. */
 export const requestFor = (
   target: Size,
   extra: Record<string, unknown> = {}
 ): FramingRequest =>
   FramingRequest.parse({
-    brand: "hope-family",
+    brand: BRAND,
     source: { hash: HASH },
     target,
     pinTo: DEFAULT_PIN_TO,
