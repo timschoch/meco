@@ -177,6 +177,10 @@ const prints = (value: unknown): number => {
 const stepsOn = (html: string): string[] =>
   [...html.matchAll(/class="step-name"[^>]*>([^<]+)</g)].map((m) => m[1] ?? "");
 
+/** The first Brand this key holds. `/v1/brands` answers `{ items }` (#214). */
+const firstBrand =
+  (brands.body as { items?: { id: string }[] }).items?.[0]?.id ?? "laica";
+
 type AnnotateAnswer = {
   call?: { id: string };
   annotation?: { hash: string; regions: { kind: string }[]; producedBy: unknown[] };
@@ -184,7 +188,7 @@ type AnnotateAnswer = {
 };
 
 for (const round of ["first", "second"] as const) {
-  const brand = (brands.body as { id: string }[])[0]?.id ?? "laica";
+  const brand = firstBrand;
   const answer = await post("/v1/annotate", {
     brand,
     source: { url: sourceUrl },
@@ -206,6 +210,120 @@ for (const round of ["first", "second"] as const) {
     line(
       view.status === 200 && (round === "first" || !modelsRan),
       `GET /ui/calls/${body.call.id} -> ${view.status}, ${modelsRan ? "models ran" : "cache hit"}, steps: ${steps.join(", ")}`
+    );
+  }
+}
+
+// --- People, end to end (#185) -----------------------------------------------
+//
+// Create, enrol, list, erase, against the live database and the live private
+// store. The photograph is a fixture one, which ADR-0003 Decision 2 says is not
+// a precedent: meco has no consenting live subject yet, so the Person is
+// created and erased inside this one run, exactly as identify's live acceptance
+// does it (`packages/identify/tests/enrol.live.ts`). Replacing the URL with a
+// consenting subject's photograph is the only change this block then needs.
+//
+// The last lines are the Erasure's own listing of everything that was theirs,
+// and the listing after it. A run that leaves a Face Print behind fails here
+// even if every line above it passed.
+
+const PHOTOGRAPH =
+  process.env["MECO_PERSON_URL"] ??
+  "https://commons.wikimedia.org/wiki/Special:FilePath/Jonny_Kim_official_portrait.jpg";
+
+async function send(
+  method: string,
+  path: string
+): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(`${url}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${key}` },
+  });
+  const text = await res.text();
+  let parsed: unknown = text;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // not JSON: kept as text
+  }
+  return { status: res.status, body: parsed };
+}
+
+const created = await post("/v1/people", {
+  brand: firstBrand,
+  name: `probe-${new Date().toISOString()}`,
+});
+const personId = (created.body as { id?: string }).id;
+line(
+  created.status === 200 && typeof personId === "string",
+  `POST /v1/people -> ${created.status} ${JSON.stringify(created.body)}`
+);
+
+if (typeof personId === "string") {
+  try {
+    const enrolled = await post(`/v1/people/${personId}/photos`, {
+      brand: firstBrand,
+      source: { url: PHOTOGRAPH },
+      consentAt: new Date().toISOString(),
+    });
+    const answer = enrolled.body as { status?: string };
+    line(
+      enrolled.status === 200 && answer.status === "enrolled",
+      `POST /v1/people/<id>/photos -> ${enrolled.status} in ${enrolled.ms.toFixed(0)} ms ${JSON.stringify(enrolled.body)}`
+    );
+    line(prints(enrolled.body) === 0, "     no facePrint on the wire");
+
+    const listed = await get(`/v1/people?brand=${firstBrand}`, {
+      Authorization: `Bearer ${key}`,
+    });
+    const people = (listed.body as { items?: { id: string; photos: unknown[] }[] })
+      .items;
+    const mine = people?.find((one) => one.id === personId);
+    line(
+      listed.status === 200 && mine?.photos.length === 1,
+      `GET /v1/people?brand=${firstBrand} -> ${listed.status}, reference photos for this Person: ${String(mine?.photos.length)}`
+    );
+    line(prints(listed.body) === 0, "     no facePrint on the wire");
+    console.log(`     ${JSON.stringify(mine)}`);
+
+    // The other Door, on the same rows: one table, so the tool has to answer
+    // exactly what the route answered.
+    const tool = await rpc("tools/call", {
+      name: "list_people",
+      arguments: { brand: firstBrand },
+    });
+    const toolText = (
+      tool.result as { content?: { text?: string }[] } | undefined
+    )?.content?.[0]?.text;
+    line(
+      tool.status === 200 && toolText === JSON.stringify(listed.body),
+      `POST /mcp tools/call list_people -> ${tool.status}, same JSON as GET /v1/people: ${String(toolText === JSON.stringify(listed.body))}`
+    );
+  } finally {
+    const erased = await send(
+      "DELETE",
+      `/v1/people/${personId}?brand=${firstBrand}`
+    );
+    const erasure = erased.body as {
+      erased?: boolean;
+      remaining?: unknown[];
+    };
+    line(
+      erased.status === 200 &&
+        erasure.erased === true &&
+        erasure.remaining?.length === 0,
+      `DELETE /v1/people/<id> -> ${erased.status} ${JSON.stringify(erased.body)}`
+    );
+
+    const after = await get(`/v1/people?brand=${firstBrand}`, {
+      Authorization: `Bearer ${key}`,
+    });
+    const left = (after.body as { items?: { id: string }[] }).items?.find(
+      (one) => one.id === personId
+    );
+    line(
+      after.status === 200 && left === undefined,
+      `GET /v1/people?brand=${firstBrand} after the Erasure -> ${after.status}, this Person is gone: ${String(left === undefined)}`
     );
   }
 }

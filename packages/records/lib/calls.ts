@@ -30,7 +30,8 @@ import {
 import { calls } from "./schema";
 
 /** What kind of work the gateway was asked for. Closed. */
-export type CallKind = "annotate" | "crop" | "render" | "carousel" | "enrol";
+export type CallKind =
+  "annotate" | "crop" | "render" | "carousel" | "enrol" | "erase";
 
 /** How the Call ended. Closed. */
 export type CallStatus = "ok" | "failed";
@@ -132,6 +133,7 @@ const KINDS: readonly CallKind[] = [
   "render",
   "carousel",
   "enrol",
+  "erase",
 ];
 
 const STATUSES: readonly CallStatus[] = ["ok", "failed"];
