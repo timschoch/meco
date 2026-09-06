@@ -64,6 +64,17 @@ const sources = (html: string): string[] =>
     (match) => match[1] ?? ""
   );
 
+/**
+ * The Overlay's own markup, which is where a Region's label is. The page names
+ * the same Person again in the Matches table, so a check that read the whole
+ * page could not tell a labelled box from an unlabelled one.
+ */
+const overlayOf = (html: string): string =>
+  html.slice(
+    html.indexOf('<div class="overlay">'),
+    html.indexOf("<h2>Steps</h2>")
+  );
+
 /** A Source Image records knows about, held by one Brand. 800 × 600. */
 async function writeSource(
   one: Records,
@@ -598,9 +609,16 @@ describe("the Overlay", () => {
 
       const html = await (await app.request(`/calls/${call.id}`)).text();
 
-      expect(html).toContain("Nora Bianchi");
-      expect(html).toContain("hidden");
-      expect(html).toContain("face-3");
+      // Inside the Overlay itself: the Matches table names the Person too, so
+      // the whole page would say "Nora Bianchi" even with every box labelled
+      // by its Region id.
+      const drawn = overlayOf(html);
+      expect(drawn).toContain("Nora Bianchi");
+      expect(drawn).toContain("hidden");
+      expect(drawn).toContain("face-3");
+      expect(drawn).not.toContain("face-1");
+      expect(drawn).toContain('data-hidden="true"');
+
       // The verdicts of the faces nobody matched are on the page too.
       expect(html).toContain("unknown");
       expect(html).toContain("uncompared");
