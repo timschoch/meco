@@ -75,6 +75,8 @@ export const MAX_OCCLUSION_ZONES: 16;
 
 `CropWindow` is deliberately not a contracts `Box`. A `Box` is fractions; this is pixels. A type that looked like a `Box` and was not one would be the `w`/`h` mistake of ADR-0002 in a new costume.
 
+**`subjectAreaSatisfied` and `subjectAreaShortfall` measure two different things, and disagree on purpose.** Satisfaction is containment, measured on the window **actually cut** rather than the one the area first asked for. The shortfall is a ratio of sizes: 1 whenever the Source Image was big enough to fill the area, the factor it fell short by otherwise. So an area missed for any reason other than size — a window the picture's own edge pushed off it, or a Subject a rung of the ladder sacrificed — reports `subjectAreaSatisfied: false` at a shortfall of 1. The anchor and the centre compose no Subject, so an area declared with either of them answering reports the same pair and leaves the placement alone: nothing was composed, so nothing filled the area, and no size fell short. Decided on [#82](https://github.com/timschoch/meco/issues/82), shipped in [#106](https://github.com/timschoch/meco/issues/106).
+
 ### The interface beyond the signature
 
 - **Pure.** No clock, no random, no I/O. The same input gives byte-identical output.
