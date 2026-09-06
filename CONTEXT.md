@@ -300,7 +300,7 @@ The name a Stored Object is filed under: a Namespace, an optional caller-chosen 
 _Avoid_: path, id, filename, url
 
 **Namespace**:
-The first segment of a Store Key, saying what kind of thing is filed under it: `sources`, `renders`, `crops`, `people`. It is also what decides public from private, so no call site can choose the wrong store by forgetting.
+The first segment of a Store Key, saying what kind of thing is filed under it: `sources`, `renders`, `crops`, `people`, `health`. It is also what decides public from private, so no call site can choose the wrong store by forgetting. A first segment naming none of the five is refused, because an unknown Namespace is not private and would otherwise land in the Public Store without saying so.
 _Avoid_: bucket, folder, directory, prefix (a prefix is any leading part of a key)
 
 **Public Store**:
@@ -314,6 +314,22 @@ _Avoid_: secure bucket, vault, protected store
 **Signed URL**:
 A URL that hands over one Private Store object to whoever holds it, until it expires minutes later. Minted only by the gateway, only for a caller it has already authorised, and short-lived because the reason it was minted does not outlive the request.
 _Avoid_: presigned URL, temporary link, token URL, share link
+
+**Deduped**:
+What a write reports when the bytes were already filed under that key, so nothing was written. Not a cache hit and not a failure — it is the ordinary outcome of a Store Key ending in the Content Hash of its own bytes, which is what makes a retry free and an overwrite impossible.
+_Avoid_: cached, skipped, exists, duplicate, no-op
+
+**Credential Source**:
+Which credential carried one call to one store: the platform's OIDC token, or that store's read-write token. Resolved per store and per call in that order, and reported rather than assumed, because the two rungs are available in different runtimes — a container gets no OIDC token, and only a measurement says so.
+_Avoid_: rung (a Fallback Rung is frame's), auth mode, strategy, provider
+
+**Store Reach**:
+What one of the two stores looks like from inside the deployment: whether it is configured, which store it is, the Credential Source that reached it, whether bytes written came back identical, and how long that took. A measurement of the round trip, never a reading of whether an environment variable happens to be set.
+_Avoid_: status, connection, ping, availability
+
+**Store Health**:
+Both Store Reaches together, as `GET /health` reports them. A store that cannot be reached is reported here rather than by failing the endpoint: the service answering is up, and saying which store is not is the whole point of the block.
+_Avoid_: store status, healthcheck, diagnostics
 
 ## redact
 

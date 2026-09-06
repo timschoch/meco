@@ -34,3 +34,27 @@ describe("gateway GET /health with the models binding injected", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("gateway GET /health with neither store configured", () => {
+  it("reports both stores unconfigured without reaching a backend", async () => {
+    vi.stubEnv("BLOB_PUBLIC_STORE_ID", "");
+    vi.stubEnv("BLOB_PRIVATE_STORE_ID", "");
+    vi.stubGlobal("fetch", () => {
+      throw new Error("no call should leave the process");
+    });
+
+    const res = await createApp().request("/health");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      store: {
+        private: { configured: false, credential: null, roundTrip: false },
+        public: { configured: false, credential: null, roundTrip: false },
+      },
+    });
+
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+});
