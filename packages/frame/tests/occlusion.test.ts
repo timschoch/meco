@@ -91,6 +91,12 @@ const measure = (
  * What `frameCrop` answered before Occlusion Zones existed, measured on
  * `origin/main` at d4dd3d6 and written out rather than re-derived.
  *
+ * Two entries moved when the fallback ladder shipped (#108), and both are the
+ * ladder doing its job rather than an Occlusion Zone doing anything: at 16:9
+ * the cover window is wide enough to hold a whole crew, so `artemis-2-crew.jpg`
+ * answers on `relax` and `soyuz-crew.jpg` on `zoom-out` instead of on the Eye
+ * Line's tighter window. The other ten are unchanged.
+ *
  * This is the ticket's "deep-equal to the same request without the field",
  * written the only way the schema allows: `FramingRequest.occlusion` is
  * required, so a request without the field does not parse, and the promise
@@ -105,11 +111,11 @@ const BEFORE_ANY_ZONE: Record<string, string> = {
   "artemis-2-crew.jpg at 1:1": "0,145,1280x1280",
   "artemis-2-crew.jpg at 4:5": "30,37,1250x1563",
   "artemis-2-crew.jpg at 9:16": "292,37,879x1563",
-  "artemis-2-crew.jpg at 16:9": "0,359,1280x720",
+  "artemis-2-crew.jpg at 16:9": "0,274,1280x720",
   "soyuz-crew.jpg at 1:1": "92,0,695x695",
   "soyuz-crew.jpg at 4:5": "144,0,557x696",
   "soyuz-crew.jpg at 9:16": "208,0,391x695",
-  "soyuz-crew.jpg at 16:9": "0,0,1236x695",
+  "soyuz-crew.jpg at 16:9": "0,0,1381x777",
 };
 
 const asText = (window: {

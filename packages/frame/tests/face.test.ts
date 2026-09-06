@@ -60,11 +60,15 @@ describe("the face rung", () => {
       );
       // Tier order, the same on every rung: the leader, then — no Match here —
       // every other face by Region id. `tiers.test.ts` holds the whole rule.
-      expect(framing.keptRegionIds).toEqual([
+      //
+      // Read off both lists, because the fallback ladder may sacrifice a face
+      // this shape cannot hold and the two lists partition what the rung
+      // composed on. `ladder.test.ts` holds that promise; this one is about
+      // which faces the rung kept and in what order.
+      expect([...framing.keptRegionIds, ...framing.droppedRegionIds]).toEqual([
         leadRegionId,
         ...faces.map((r) => r.id).filter((id) => id !== leadRegionId),
       ]);
-      expect(framing.droppedRegionIds).toEqual([]);
     });
   }
 });

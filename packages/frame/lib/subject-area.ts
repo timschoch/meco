@@ -1,4 +1,5 @@
 import type { Box, Size } from "@meco/contracts";
+import { containsWithSlack } from "./boxes";
 import { SLACK_PX, type CropWindow } from "./framing";
 import { coverWindow } from "./window";
 
@@ -91,8 +92,8 @@ export function solveSubjectArea(
 /**
  * Whether the Subject fills the Subject Area on the window actually cut, rather
  * than on the one the area first asked for. The two differ whenever something
- * moved the window afterwards: the Source Image clamping the aim today, a rung
- * of the fallback ladder rescuing the Subject on #108.
+ * moved the window afterwards: the Source Image clamping the aim, or a rung of
+ * the fallback ladder rescuing the Subject.
  *
  * The area is a fraction of the output frame, so it maps onto the window before
  * anything is compared, and both sides are then Source Image pixels.
@@ -103,17 +104,18 @@ export function fillsSubjectArea(
   window: CropWindow,
   source: Size
 ): boolean {
-  const left = window.x + area.x * window.width;
-  const top = window.y + area.y * window.height;
-  const subjectLeft = subject.x * source.width;
-  const subjectTop = subject.y * source.height;
-
-  return (
-    subjectLeft >= left - SLACK_PX &&
-    subjectTop >= top - SLACK_PX &&
-    subjectLeft + subject.width * source.width <=
-      left + area.width * window.width + SLACK_PX &&
-    subjectTop + subject.height * source.height <=
-      top + area.height * window.height + SLACK_PX
+  return containsWithSlack(
+    {
+      x: window.x + area.x * window.width,
+      y: window.y + area.y * window.height,
+      width: area.width * window.width,
+      height: area.height * window.height,
+    },
+    {
+      x: subject.x * source.width,
+      y: subject.y * source.height,
+      width: subject.width * source.width,
+      height: subject.height * source.height,
+    }
   );
 }

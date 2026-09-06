@@ -273,3 +273,31 @@ export const SOURCES: Size[] = [
   { width: 999, height: 1777 },
   { width: 512, height: 512 },
 ];
+
+/**
+ * An Annotation carrying several faces at boxes the test chose, numbered
+ * `face-1` up in the order they are given.
+ *
+ * The fallback ladder is about Regions the window fails to hold, and the
+ * recordings are photographs somebody framed well. Placing the faces is how a
+ * check reaches a rung the recordings never reach, and how it says which rung
+ * it means without deriving the answer from the rule under test.
+ */
+export const facesAnnotation = (source: Size, boxes: Box[]): Annotation =>
+  Annotation.parse({
+    schema: 1,
+    hash: HASH,
+    mime: "image/jpeg",
+    width: source.width,
+    height: source.height,
+    producedBy: [MODEL],
+    regions: boxes.map((box, at) => ({
+      id: `face-${at + 1}`,
+      kind: "face",
+      label: "face",
+      box,
+      score: 0.9,
+      model: MODEL,
+      landmarks: landmarksIn(box),
+    })),
+  });

@@ -1,4 +1,25 @@
 import type { Box, Point, Region } from "@meco/contracts";
+import { SLACK_PX } from "./framing";
+
+/**
+ * Whether one rectangle lies inside another, allowing {@link SLACK_PX} on every
+ * side. Both are in the same units, which at every call site is Source Image
+ * pixels: fractions of two different rectangles cannot be compared.
+ *
+ * The window is rounded to whole pixels before it is cut, so exact containment
+ * would report a miss for something half a pixel out. One budget, spent once —
+ * the fallback ladder's kept Regions and the Subject Area's containment are the
+ * same promise about the same rounding, so they are the same arithmetic and not
+ * two copies of it that could drift.
+ */
+export const containsWithSlack = (
+  outer: { x: number; y: number; width: number; height: number },
+  inner: { x: number; y: number; width: number; height: number }
+): boolean =>
+  inner.x >= outer.x - SLACK_PX &&
+  inner.y >= outer.y - SLACK_PX &&
+  inner.x + inner.width <= outer.x + outer.width + SLACK_PX &&
+  inner.y + inner.height <= outer.y + outer.height + SLACK_PX;
 
 /** A Box's area, in the square of the source fraction. Never a pixel count. */
 export const area = (box: Box): number => box.width * box.height;

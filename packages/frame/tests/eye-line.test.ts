@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Annotation, type Box, type Size } from "@meco/contracts";
-import { PHI_LINES, frameCrop } from "../index";
+import { PHI_LINES, frameCrop, type FallbackRung } from "../index";
 import {
   FACE_FIXTURES,
   KART_FIXTURES,
@@ -61,13 +61,14 @@ const measure = (
   const annotation = Annotation.parse(raw);
   const lead = annotation.regions.find((r) => r.id === leadRegionId)!;
   const eyes = (lead.landmarks!.rEye.y + lead.landmarks!.lEye.y) / 2;
-  const { window } = frameCrop({
+  const { window, fallback } = frameCrop({
     annotation,
     request: requestFor(target, extra),
   });
 
   return {
     window,
+    fallback,
     lead: lead.box,
     source: { width: annotation.width, height: annotation.height },
     slack: annotation.height - window.height,
@@ -77,14 +78,62 @@ const measure = (
 };
 
 /**
- * The rule itself. Every one of the twelve verticals has slack, and every one
+ * What the fallback ladder answered at each of the twelve, written out rather
+ * than detected: a solver that fell back everywhere would otherwise pass the
+ * sweep below by never being asked the Eye Line's question.
+ *
+ * Two shapes move the window. Both are 16:9 over a crew, where the cover window
+ * is wide enough to hold every face and holding the crew is worth more than one
+ * person's headroom.
+ *
+ * `soyuz-crew.jpg` sacrifices instead: at the three tall shapes no window of
+ * that shape holds all three faces, and the leader alone is held by the very
+ * window the Eye Line composed — so that is the window the drop rung buys back,
+ * and the placement below is still the Eye Line's.
+ */
+const RUNG: Record<string, FallbackRung | "none"> = {
+  "astronaut-portrait.jpg at 1:1": "none",
+  "astronaut-portrait.jpg at 4:5": "none",
+  "astronaut-portrait.jpg at 9:16": "none",
+  "astronaut-portrait.jpg at 16:9": "none",
+  "artemis-2-crew.jpg at 1:1": "none",
+  "artemis-2-crew.jpg at 4:5": "none",
+  "artemis-2-crew.jpg at 9:16": "none",
+  "artemis-2-crew.jpg at 16:9": "relax",
+  "soyuz-crew.jpg at 1:1": "drop",
+  "soyuz-crew.jpg at 4:5": "drop",
+  "soyuz-crew.jpg at 9:16": "drop",
+  "soyuz-crew.jpg at 16:9": "zoom-out",
+};
+
+/** The rungs that leave the window where the Eye Line put it. */
+const KEEPS_THE_WINDOW = new Set(["none", "drop"]);
+
+/**
+ * The rule itself. Every vertical the Eye Line keeps has slack, and every one
  * of them has it because the zoom made it: a cover window touches the Source
  * Image on one axis, and at three of these four shapes that axis is the
  * vertical. The `slack` check is what stops a solver that stopped sliding from
  * passing the placement check by never having anywhere to slide.
  */
 describe("the eyes on the upper Golden Line", () => {
+  // Without this, a fixture renamed or a shape added would read `undefined` out
+  // of the table and take the Eye Line's branch by accident.
+  it("names a rung for every one of the twelve", () => {
+    expect(Object.keys(RUNG).sort()).toEqual(CASES.map((c) => c.name).sort());
+  });
+
   for (const { name, fixture, target } of CASES) {
+    const rung = RUNG[name] as FallbackRung | "none";
+
+    it(`answers on the ${rung === "none" ? "composition itself" : `${rung} rung`}: ${name}`, () => {
+      const { fallback } = measure(fixture.raw, fixture.leadRegionId, target);
+
+      expect(fallback ?? "none").toBe(rung);
+    });
+
+    if (!KEEPS_THE_WINDOW.has(rung)) continue;
+
     it(`lands the eye midpoint at ${PHI_LINES[0].toFixed(3)}: ${name}`, () => {
       const { slack, inFrame } = measure(
         fixture.raw,
@@ -178,19 +227,27 @@ describe("what the zoom may not do", () => {
   // is the width the face needs, 500 px, and the height that shape then forces,
   // 889 px, against the 471 px the eyes alone would have asked for.
   //
-  // The window is big enough to hold the face; where it sits is not this
-  // rule's. This one lands at x 309 with the face spanning 250 to 750, so 59 px
-  // of it is outside — which is the ladder's `zoom-out` rung to answer, on #108.
-  it("sizes the window for a wide face at the cost of the headroom", () => {
+  // A window the width floor sized is exactly as wide as the face, so it holds
+  // the face only where it is aligned to the pixel — and the Golden Line puts
+  // it 59 px out. The ladder answers, and `relax` is where it stops. So the
+  // floor is no longer readable off the window here, and what this case holds
+  // is that it ran at all: the window it sized was refused for its placement,
+  // not for its size, and the sweep above keeps the floor honest at every
+  // fixture and shape.
+  it("sizes the window for a wide face, and the ladder rescues the placement", () => {
     const source = { width: 1000, height: 1000 };
     const face: Box = { x: 0.25, y: 0.1, width: 0.5, height: 0.2 };
-    const { window } = frameCrop({
+    const framing = frameCrop({
       annotation: oneFaceAnnotation(source, face),
       request: requestFor({ width: 1080, height: 1920 }, FACE_ONLY),
     });
 
-    expect(window.width).toBe(500);
-    expect(window.height).toBe(889);
+    expect(framing.fallback).toBe("relax");
+    expect(framing.window.width).toBe(563);
+    expect(framing.window.height).toBe(1000);
+    // The face, 250 to 750, inside the window the ladder settled on.
+    expect(framing.window.x).toBeLessThanOrEqual(250);
+    expect(framing.window.x + framing.window.width).toBeGreaterThanOrEqual(750);
   });
 });
 

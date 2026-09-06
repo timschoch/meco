@@ -46,8 +46,8 @@ export const matchesForBrand = (matches: Match[], brand: string): Match[] =>
  * non-leading Region, then every other kept Region, each group by Region id.
  *
  * One rule for every rung rather than one the `match` rung alone kept, so that
- * the drop rung (#108) has a single promise to read: the cheapest Subject to
- * sacrifice is the last one. A Match keeps its middle tier whichever rung
+ * the drop rung has a single promise to read: the cheapest Subject to sacrifice
+ * is the last one. A Match keeps its middle tier whichever rung
  * answered — the `face` rung can answer a request whose Matches were all
  * excluded by `persons`, and those faces are still the ones worth keeping.
  *
