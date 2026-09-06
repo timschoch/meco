@@ -101,6 +101,8 @@ One folder per Brand id under compose's private implementation: a token module (
 
 `fonts` and `logo` are calls, not fields: compose is a library and must import without touching the disk, so each file is read on the first `plan` or `render` that needs it and held for the rest of the process. Memoised by path, which is also what keeps two weights instanced out of one variable font file on the same bytes — takumi silently drops the second registration otherwise. A file that is not there when it is first asked for gives `look_assets_missing`, naming it. Reading at import instead cost a gateway bundle that built and then died at load on `Eina02-Regular.otf` (#209, measured on #181).
 
+The reader is keyed by the Brand: `lookAssets(brand)` resolves `<its own directory>/<brand>/<file>`, which is `lib/looks/<brand>/` in source and the copied folder beside the bundle in the gateway image — the shape a models adapter uses for its weights. Not each Look's own `import.meta.url`, because a bundler collapses the three Looks into one file and every Brand then reads one wordmark (#220). See [`DEPLOY.md`](../../DEPLOY.md), "The fourth trap: a bundled module still needs its files".
+
 Fonts: Eina 02 (Hope Family, already committed), Outfit and Figtree variable (laica), Barlow and Barlow Condensed 400/600/700 (Swiss Hutless). 816 KB total. Barlow, Barlow Condensed, Outfit and Figtree are OFL. Eina 02 is proprietary — a Textaxis face carrying "All rights reserved" and no licence URL — and its licence is held by the owner, text pending; `packages/compose/lib/looks/hopefamily/fonts/LICENCE.txt` records the notices the binaries carry and nothing more (#116).
 
 ### The registry

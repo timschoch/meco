@@ -91,6 +91,24 @@ configuration forces legacy deploy implementation`; it installed from the
   cold. `GET /mcp` with no key is a `401` from the Caller middleware, with no
   store or database behind it.
 
+- **On production**, deployment `dpl_CCD4vWzW7861UqueuRtVR7M8NkLK`, from Zürich.
+  The front runs in `fra1`, beside the containers. Warm, the hop costs 40–50 ms
+  at the median over fifteen rounds. Cold, after 400 s idle:
+
+  | Stamp        | At     |
+  | ------------ | ------ |
+  | first byte   | 2.08 s |
+  | cold notice  | 2.13 s |
+  | confirmation | 4.74 s |
+  | result       | 4.79 s |
+
+- **`x-vercel-id`'s first segment is the edge PoP, not the Function's region.**
+  A warm `initialize` through the front carried `iad1:iad1:fra1…` and read as a
+  Function in `iad1` beside a `fra1` container. It was not: the request entered
+  Vercel at `iad1`, which is where Zürich enters, and the Function ran in `fra1`
+  throughout. Read the region off the project's Function configuration, never off
+  this header.
+
 ### The two entrypoint traps, re-measured
 
 `docs/research/vercel-two-services.md` read the current docs as saying the build
@@ -254,6 +272,14 @@ first, then the wall time, `Server-Timing` and the Annotation, and `/health`
 once more; a refusal prints its `ModelsError` code and exits 1. Default
 fixture: `fixtures/faces/artemis-2-crew.jpg`.
 
+## Where a render Call's time goes
+
+Measured on production, 2026-09-06, Call `e0db031c`, a 384 KB JPEG through
+`/v1/render` with both stores in `fra1`: **2.3 s** wall, of which **`store.put`
+is 1.7 s** — three quarters of the Call, and more than the decode, the models
+round trip and the render put together. A lead for later, not a change made
+here: the Steps on the Call View are where to re-measure it.
+
 ## Env vars
 
 | Var                             | Set by                                  | Purpose                                                                                                                                                                                                                                                            |
@@ -290,9 +316,17 @@ reserved character in it would come back encoded differently.
 Measured on `meco-records-eu`, 6 Sep 2026: `verify-full` connects with no
 warning, and one `/health` round trip from Zürich to `eu-central-1` took 241 ms.
 
-The prototype's `BLOB_READ_WRITE_TOKEN`, `BLOB_PEOPLE_READ_WRITE_TOKEN` and
-`MECO_TOKEN` are still set on the project. Nothing in this repo reads them yet;
-the `store`, `records` and `gateway` module agents decide what to keep.
+`BLOB_READ_WRITE_TOKEN` and `BLOB_PEOPLE_READ_WRITE_TOKEN` are what reaches the
+two Blob stores. `MECO_TOKEN` is the prototype's and nothing reads it.
+
+**OIDC does not reach a container.** `@meco/store` prefers `VERCEL_OIDC_TOKEN`
+because it rotates itself and falls back to the store's own read-write token
+(`packages/store/lib/credentials.ts`), and it reports which one carried the call
+as the Credential Source rather than assuming. Vercel injects that token into
+Functions, not into container services, so on production both stores answer
+`"credential": "token"` in `/health` — read it off the running deployment, not
+off this sentence. Unset both and the store refuses by name; nothing falls back
+to the other store.
 
 Pull them locally: `vercel env pull .env.local`
 
@@ -372,6 +406,17 @@ rejection from `meco-records-eu` rather than as the wrong host.
 `pnpm test:records:live`, which creates and drops databases: pointed at the wrong
 server by a stale export, it would drop them there. `unset` anything you exported
 by hand before running one, and check the host each suite prints.
+
+### A stale `VERCEL_OIDC_TOKEN` reads as "Access denied"
+
+`vercel env pull` writes a `VERCEL_OIDC_TOKEN` scoped to **Development**, and
+`.envrc` exports it. The store prefers it over the store's own read-write token,
+so a laptop pointed at the production stores presents a Development credential
+and Vercel Blob answers `Access denied` — a wrong-credential failure that reads
+like a wrong-token one. The token also expires within hours, so a pull from this
+morning fails the same way this afternoon. Re-pull, or `unset VERCEL_OIDC_TOKEN`
+to fall through to the store token. `/health`'s `credential` field says which one
+a call actually used.
 
 ## Images
 

@@ -51,7 +51,7 @@ The part of a Source Image that must survive a Crop — a face, a person, a prod
 _Avoid_: foreground, region of interest, focal subject
 
 **Subject Box**:
-One rectangle in a Source Image, in fractions 0..1, that frame composes from Regions and then solves over. Internal to frame: a Subject Box never crosses a seam, and what crosses is the Region it was composed from. A composer that knows a point rather than a region — a Crop Anchor — yields a box of zero extent.
+One rectangle in a Source Image, in fractions 0..1, that frame composes from Regions and then solves over. Internal to frame: a Subject Box never crosses a seam, and what crosses is the Region it was composed from. Only a Pin To rung composes one. When no rung yields, frame falls back to the Crop Anchor and then the centre, which place the window directly and compose no Subject Box at all — the Framing's `subject` is absent, never a box of zero extent (#101).
 _Avoid_: region, bbox, focal point
 
 **Crop**:
@@ -75,7 +75,7 @@ Everything true of one Source Image's bytes: its Content Hash, size and type, th
 _Avoid_: metadata, tags, detection result, analysis
 
 **Kart Producer**:
-How frame composes one Subject from a kart and its driver together. It takes the largest `vehicle` Region, unions it with every `person` or `vehicle` Region overlapping it, and yields one Subject Box. No `vehicle` Region, no kart: the producer declines and the ladder walks past it. It used to seed on the largest `person` instead, which framed a body and still called the answer `kart`. It selects on Region Kind and never on a Label, so replacing the Model that draws the boxes moves nothing here.
+How frame composes one Subject from a kart and its driver together. It takes the largest `vehicle` Region, unions it with every `person` or `vehicle` Region overlapping it by at least 0.25 of the smaller of the two boxes, and yields one Subject Box. Overlap is measured against the smaller box, so a helmet beside a kart joins on its own area and not on the kart's; 0.25 is a measured constant with its band recorded in [`packages/frame/lib/kart.ts`](packages/frame/lib/kart.ts). No `vehicle` Region, no kart: the producer declines and the ladder walks past it. It used to seed on the largest `person` instead, which framed a body and still called the answer `kart`. It selects on Region Kind and never on a Label, so replacing the Model that draws the boxes moves nothing here.
 
 Named for what it frames, not for what detects it. The Subject of a karting photograph is neither the kart nor the driver but both — a frame on the driver's head loses the livery the photograph was taken for, and a frame on the kart cuts the helmet off. The prototype's reason for it was that a helmet is not a face: measured on 32 on-track photographs, its face detector put a box on the leading driver's head in 9 of them. The shipped YuNet does not miss the helmet — 0.6488 through a dark visor, 0.8080 through an open one (#109) — so the reason is the composition and not the detector's blind spot, and it is why this producer precedes the Face Producer in the default Pin To.
 _Avoid_: vehicle producer, motorbike producer, kart detector
@@ -95,7 +95,7 @@ A photograph enrolled for one Person, showing that Person's face. Several per Pe
 _Avoid_: training image, sample, example, headshot
 
 **Face Print**:
-The 512 floats meco-faces returns for one face, on the unit sphere, from which two faces can be compared but no photograph can be recovered. A Person has one per Reference Photo. Still a biometric template of a real person. meco-faces computes them and stores nothing.
+The 512 floats the Print Model returns for one face, on the unit sphere, from which two faces can be compared but no photograph can be recovered. The shipped Print Model is EdgeFace, `edgeface/1`, an Enricher in the models Catalogue; the prototype's `meco-faces` service is gone. A Person has one per Reference Photo. Still a biometric template of a real person. models computes them and stores nothing.
 _Avoid_: embedding, descriptor, template, vector, encoding
 
 **Match**:
@@ -127,7 +127,7 @@ The SHA-256 of a Source Image's bytes, in hex. The only key an Annotation is fil
 _Avoid_: id, fingerprint, checksum, digest
 
 **Region**:
-One rectangle in a Source Image that a Model drew, with its Region Kind, its Label, its score and the Model that drew it. A face Region also carries its five landmarks and may carry a Face Print. Numbered `<kind>-<n>` within its Annotation after sorting on where it sits — `kind`, then `box.y`, `box.x`, `box.width` — so two runs of the same Model give the same ids whatever order the Model Adapters answered in.
+One rectangle in a Source Image that a Model drew, with its Region Kind, its Label, its score and the Model that drew it. A face Region also carries its five landmarks and may carry a Face Print. Numbered `<kind>-<n>` within its Annotation after sorting on where it sits — `kind`, then `box.y`, `box.x`, `box.width`, with five further keys settling boxes that share all four — so two runs of the same Model give the same ids whatever order the Model Adapters answered in.
 _Avoid_: detection, bbox, detected object, box (a Box is the rectangle alone), subject box (that is frame's)
 
 **Region Kind**:
@@ -150,8 +150,12 @@ _Avoid_: detector, producer, service, network
 Already defined above under Faces. In an Annotation it rides on a face Region together with the Model that made it, because the Model that drew the box is not the one that made the print.
 
 **FramingRequest**:
-Everything true of one output and of nothing else: the Brand, the Source Image's Content Hash, the target size and format, what to pin to, the Occlusion Zones, the Subject Area, and the redaction policy. Never cached, never a key; kept only in the call record so what was asked can be shown.
+Everything true of one output and of nothing else: the Brand, the Source Image's Content Hash, the target size and format, what to pin to, the Named Persons, the Crop Anchor, the Occlusion Zones, the Subject Area, and the redaction policy. Never cached, never a key; kept only in the call record so what was asked can be shown.
 _Avoid_: crop request, render options, job, parameters
+
+**Named Persons**:
+The `persons` list on a FramingRequest: the Person ids the caller allows to lead the frame. It narrows who may lead and nothing else — every other Match is still a Match, and redaction is untouched. Absent means any of the Brand's People may lead. Present and matching nobody in the photograph, the `match` rung composes nothing and Pin To walks on, rather than leading on an unlisted Person and telling the caller who else was there. An empty list is legal and means no Match may lead (#93, #104).
+_Avoid_: people, allowlist, filter, targets, whitelist
 
 **Occlusion Zone**:
 A rectangle of the Image Slot, in fractions, that a Template will cover, so the Subject must not land there. A Template with a non-rectangular overlay declares several. The inverse of the Subject Area, which says where the Subject must land.
@@ -211,7 +215,10 @@ The caller's ordered list of what to compose the Subject from — `match`, `face
 frame's: frame's own last resorts are the Crop Anchor and the centre, and they
 are not in the caller's vocabulary. The default is `match`, `kart`, `face`,
 most specific first: `kart` yields only on a `vehicle` Region, so a photograph
-without one still reaches `face`.
+without one still reaches `face`. One entry is loosely called a rung, and so is
+a Fallback Rung; they are two different ladders. A Pin To rung says what the
+Subject is composed from, before any window exists; a Fallback Rung rescues a
+window that cannot hold what was composed. Write which one is meant.
 _Avoid_: gravity, strategy, priority, focus, target
 
 **Leading Subject**:

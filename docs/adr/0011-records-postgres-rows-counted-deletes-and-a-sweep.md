@@ -41,6 +41,7 @@ The suite runs on pglite in `pnpm check` and, identically, on Neon under `pnpm t
 ## Consequences
 
 - records is the only module with a `Store` and a `Database` in hand, so every cascade and the Sweep are records methods and no other module can delete a byte by accident.
+- **"In one transaction" in Decision 3 covers the rows and not the bytes.** A store is not a transaction participant, so `outputs.delete`, `people.unenrol` and `people.erase` count and delete rows inside the transaction, collect the keys no row still names, and call `store.delete` after the commit (#162). The transaction is what makes the count right; the delete after it is what makes a rollback leave no orphaned row pointing at bytes that are gone. The cost is the other direction: a crash between the commit and the last `store.delete` leaves bytes no row names, which the Sweep never reaches because the Sweep reads rows.
 - A retry is a `records` lookup by Request Hash and one Call whose only Step is `records.replay`; the Gallery shows one Output and two Calls.
 - `pending > 0` in the `/health` records block on a running container is a bug, since boot applies migrations.
 - The Retention Window is a data-protection decision the owner can change without a deploy. Thirty days is a default with no measurement behind it; the owner sets the number.

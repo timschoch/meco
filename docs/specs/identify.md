@@ -201,7 +201,7 @@ The brief says "given a kart, this is the kart". A kart is frame's composition o
 
 ## Testing decisions
 
-Vitest, through `packages/identify/index.ts` only, `tests-through-entrypoints` enforced. Dependencies are real where an adapter exists and fake only at the model: `records(pgliteDatabase(), memoryStore())`, `memoryStore()`, and an `Annotator` that returns a committed fixture Annotation for a known hash. No network, no ONNX, no fake `Records`; a fake would be a third adapter nobody keeps honest.
+Vitest, through `packages/identify/index.ts` only, `tests-through-entrypoints` enforced. Dependencies are real where an adapter exists and fake only at the model: `records({ database: pgliteDatabase(), store: memoryStore() })` (#174), `memoryStore()`, and an `Annotator` that returns a committed fixture Annotation for a known hash. No network, no ONNX, no fake `Records`; a fake would be a third adapter nobody keeps honest.
 
 The number rule is tested on the two Annotations at `fixtures/karts/annotations/`, recorded through the shipped Catalogue and shared with frame's and the gateway's suites. A recording and not a hand-built Annotation: every question the rule answers is a question about boxes a detector really drew, and a fixture somebody typed would answer them by construction.
 
@@ -209,31 +209,31 @@ One question those recordings cannot ask, and it is the containment floor's own.
 
 Fixture Annotations are built from `fixtures/faces/detected.json` (YuNet boxes and landmarks) and `fixtures/faces/face-prints.json` (prints, 7 people lettered A to G), and from `fixtures/karts/face-prints.json` for the helmet, parsed with the contracts schema inside the test so a drift fails here.
 
-| Check                                                                                                       | Mutation that must turn it red         |
-| ----------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| a stranger's face is `unknown` with `best` under 0.50                                                       | drop the threshold test                |
-| a Person's held-out print is `match` with the right `personId`                                              | invert the comparison                  |
-| two People whose best differ by under 0.05 give `unknown` with both numbers                                 | drop the margin test                   |
-| a Person with three prints matches on the best, not the mean                                                | aggregate by mean                      |
-| a face with no `facePrint` is `uncompared: no-print`, and `matches` omits it                                | treat a missing print as a zero vector |
-| a print from `edgeface/2` is `uncompared: other-model`                                                      | drop the model gate                    |
-| a face under 40 px in the Decoded Image is `too-small`, one over is compared                                | judge in photograph pixels             |
-| the helmet print is `not-identifiable: not-a-face`, naming the reference                                    | drop the Not-a-Face check              |
-| an enrolled helmet print is in `unusableReferencePhotos` and lends no name                                  | compare against every enrolled print   |
-| a Person of Brand A is never a Match for Brand B                                                            | list every Brand's People              |
-| `matches` and `faces` are sorted by Region id number                                                        | sort by position in `regions`          |
-| `enrol` without `consentAt` throws `consent_required`; store prefix and rows stay empty                     | skip the check                         |
-| `enrol` on a helmet photograph throws `not_a_face`; nothing written                                         | write before validating                |
-| `enrol` on a two-face photograph without `regionId` returns `choose`, largest first                         | pick the first                         |
-| `enrol` with `regionId` on a two-face photograph enrols that face                                           | ignore `regionId`                      |
-| `enrol` writes under `people/<brand>/<personId>/` and the row names that key and the chosen print           | write under `sources/`                 |
-| the calibration file recomputes the table above from the committed prints and fails on a single false Match | raise a stranger pair over 0.50        |
+| Check                                                                                                        | Mutation that must turn it red          |
+| ------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| a stranger's face is `unknown` with `best` under 0.50                                                        | drop the threshold test                 |
+| a Person's held-out print is `match` with the right `personId`                                               | invert the comparison                   |
+| two People whose best differ by under 0.05 give `unknown` with both numbers                                  | drop the margin test                    |
+| a Person with three prints matches on the best, not the mean                                                 | aggregate by mean                       |
+| a face with no `facePrint` is `uncompared: no-print`, and `matches` omits it                                 | treat a missing print as a zero vector  |
+| a print from `edgeface/2` is `uncompared: other-model`                                                       | drop the model gate                     |
+| a face under 40 px in the Decoded Image is `too-small`, one over is compared                                 | judge in photograph pixels              |
+| the helmet print is `not-identifiable: not-a-face`, naming the reference                                     | drop the Not-a-Face check               |
+| an enrolled helmet print is in `unusableReferencePhotos` and lends no name                                   | compare against every enrolled print    |
+| a Person of Brand A is never a Match for Brand B                                                             | list every Brand's People               |
+| `matches` and `faces` are sorted by Region id number                                                         | sort by position in `regions`           |
+| `enrol` without `consentAt` throws `consent_required`; store prefix and rows stay empty                      | skip the check                          |
+| `enrol` on a helmet photograph throws `not_a_face`; nothing written                                          | write before validating                 |
+| `enrol` on a two-face photograph without `regionId` returns `choose`, largest first                          | pick the first                          |
+| `enrol` with `regionId` on a two-face photograph enrols that face                                            | ignore `regionId`                       |
+| `enrol` writes under `people/<brand>/<personId>/` and the row names that key and the chosen print            | write under `sources/`                  |
+| the calibration file recomputes the table above from the committed prints and fails on a single false Match  | raise a stranger pair over 0.50         |
 | the `24` on the recorded grid matches `vehicle-3`, not the number's own Region and not the largest `vehicle` | seed the number rule on the largest box |
-| the `21`, wholly inside three nested `vehicle` boxes, matches the smallest of them                          | break that tie on the id alone         |
-| the `227`, over no `vehicle` box at all, is no Match                                                        | take any `vehicle` that overlaps at all |
-| a number straddling two karts, neither holding a majority of it, is no Match                                | drop the containment floor             |
-| a number no Person of the Brand carries is no Match, and another Brand's list names nobody                  | look the label up across Brands        |
-| the target photograph, whose driver is in a helmet and has no face Region, still matches by its number      | require a face Region to be present    |
+| the `21`, wholly inside three nested `vehicle` boxes, matches the smallest of them                           | break that tie on the id alone          |
+| the `227`, over no `vehicle` box at all, is no Match                                                         | take any `vehicle` that overlaps at all |
+| a number straddling two karts, neither holding a majority of it, is no Match                                 | drop the containment floor              |
+| a number no Person of the Brand carries is no Match, and another Brand's list names nobody                   | look the label up across Brands         |
+| the target photograph, whose driver is in a helmet and has no face Region, still matches by its number       | require a face Region to be present     |
 
 Every check is proved able to fail by its mutation before it ships. Commit the green state first, then mutate, then `git restore`.
 

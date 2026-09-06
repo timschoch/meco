@@ -68,7 +68,7 @@ Styling is one `<style>` block in the layout, system fonts, no CSS framework. Da
 | `/ui/calls/:id`        | Call View  | One Call: the Source Thumbnail under the Overlay, the request as sent, the Framing with the Variant it chose read out on its own line, the Matches with Person names, the Redaction Records, the Steps as bars, the cost, the error, and the Outputs this Call made at their Public URLs. |
 | `/ui/calls/:id/source` | redirect   | `302` to a Signed URL for the Call's Source Image, 60 seconds, after `sources.heldBy(call.brand, call.sourceHash)`.                                                                                                                                                                       |
 
-Every Gallery card links to its Call View. There is no Output page: an Output is keyed `(brand, store_key)` and its story is its Call.
+Every Gallery card links to its Call View. There is no Output page: an Output is keyed `(brand, request_hash)` (#224, ADR-0011, Decision 3) and its story is its Call. A Replay records no Output of its own, because that key already names the one the first Call made; the Call View reads it back by Request Hash.
 
 ### Who may see what
 

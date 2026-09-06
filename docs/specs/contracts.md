@@ -49,7 +49,7 @@ Boundary rule: if two outputs cut from the same bytes could disagree about it, i
 
 ### Region fields
 
-- `id`: `<kind>-<n>`, `n` from 1, numbered after sorting by `(kind, box.y, box.x, box.width)`. `assignRegionIds` is the one place that rule lives.
+- `id`: `<kind>-<n>`, `n` from 1, numbered after sorting by `(kind, box.y, box.x, box.width)`. Five further keys — `box.height`, `-score`, `label`, `model.name`, `model.version` — settle Regions that share all four, so that no id can depend on the order the adapters ran in (#128). `assignRegionIds` is the one place that rule lives; read the whole key off [`packages/contracts/lib/region-ids.ts`](../../packages/contracts/lib/region-ids.ts).
 - `kind`: `face | person | vehicle | number`.
 - `label`: the Model's own word, non-empty string. For a `number` Region, the digits as read and nothing else.
 - `box`: fractions, `x, y` in `[0, 1]`, `width, height` above 0, `x + width` and `y + height` at most 1.
