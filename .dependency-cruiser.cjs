@@ -97,18 +97,49 @@ module.exports = {
     {
       name: "services-do-not-import-each-other",
       comment:
-        "`gateway` and `models` deploy as separate containers. gateway reaches models over the Vercel service binding at runtime, never by importing it.",
+        "`gateway` and `models` deploy as separate containers. gateway reaches models over the Vercel service binding at runtime, and imports exactly one file to do it: `models/index.ts`, the client that holds the wire. Nothing else crosses, in either direction.",
       severity: "error",
       from: { path: `^${R}/(gateway|models)/` },
-      to: { path: `^${R}/(gateway|models)/`, pathNot: `^${R}/$1/` },
+      to: {
+        path: `^${R}/(gateway|models)/`,
+        pathNot: [`^${R}/$1/`, `^${R}/models/index\\.ts$`],
+      },
+    },
+    {
+      name: "models-client-stays-thin",
+      comment:
+        "A root file of `models` that is not the host's own entry point is a client: another package imports it, so it must carry the wire and no server. It may reach neither the ONNX Runtime, sharp, Hono nor `app`/`catalogue`/`server` — not directly, and not through anything it imports, which is why this rule is `reachable`. Without it the gateway image would gain the runtime and the weights from one import.",
+      severity: "error",
+      from: {
+        path: `^${R}/models/[^/]+[.]ts$`,
+        pathNot: `^${R}/models/(app|catalogue|server)[.]ts$`,
+      },
+      to: {
+        path: [
+          `^${R}/models/(app|catalogue|server)[.]ts$`,
+          // Anywhere in the path, not anchored: pnpm files a package under
+          // `node_modules/.pnpm/<name>@<version>/node_modules/<name>/`.
+          "(^|/)node_modules/(onnxruntime-node|sharp|hono|@hono/[^/]+)/",
+        ],
+        reachable: true,
+      },
     },
   ],
   options: {
+    // A dependency on a package is followed no further than the package: its
+    // own internals are not our boundaries. It stays IN the graph, though —
+    // excluding it would hide the one thing `models-client-stays-thin` is
+    // about, which is whether the client reaches sharp or the ONNX Runtime.
     doNotFollow: { path: "node_modules" },
-    // `dist/` is build output: emitted declarations would otherwise be cruised
-    // as if they were source, and their unresolvable relative imports would
-    // drown out every real violation.
-    exclude: { path: "(^|/)(node_modules|dist|[.]temp|[.]agents|[.]claude)/" },
+    // A package's own `dist/` is build output: emitted declarations would
+    // otherwise be cruised as if they were source, and their unresolvable
+    // relative imports would drown out every real violation. Anchored to a
+    // package, because most published packages ship from `dist/` too and an
+    // unanchored pattern quietly drops sharp and Hono from the graph — which
+    // is the graph `models-client-stays-thin` reads.
+    exclude: {
+      path: `(^${R}/[^/]+/dist/|(^|/)[.](temp|agents|claude)/)`,
+    },
     tsConfig: { fileName: "tsconfig.json" },
     enhancedResolveOptions: {
       extensions: [".ts", ".tsx", ".js", ".jsx", ".json"],

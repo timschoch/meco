@@ -291,6 +291,14 @@ _Avoid_: max size, downscale, thumbnail, resize, working size
 A Model whose session exists on the instance answering, so a request pays inference and not the load. True per instance, never per deployment: a scale-to-zero fleet has cold and warm instances at once.
 _Avoid_: loaded, ready, hot, cached
 
+**Wire**:
+What crosses between models and its callers: the three routes, their bodies, and the error codes with their statuses. Written once as schemas both sides use — the host types its answers against them, the Models Client parses answers with them — so neither side can drift from the other. Only the Annotation is refused for a field it does not know; the diagnostic answers are not, because the two containers do not deploy in the same instant.
+_Avoid_: API, protocol, contract (contracts is the package), interface
+
+**Models Client**:
+The one file another module imports from models, `packages/models/index.ts`. It holds the Wire and nothing that runs a Model, so importing it puts no ONNX Runtime, sharp or weights in the caller's image. It parses every answer before returning it and refuses an Annotation that names a hash other than the one it was given.
+_Avoid_: SDK, wrapper, proxy, API client, stub
+
 ## store
 
 Bytes filed under a name, handed back on request. The store knows what a key is and which of the two stores it belongs to, and nothing else: not what the bytes depict, not who may see them, not whether anything still points at them.

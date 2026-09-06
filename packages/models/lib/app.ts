@@ -5,25 +5,15 @@ import {
   ANNOTATION_SCHEMA,
   Annotation,
   assignRegionIds,
-  type ModelId,
-  type RegionKind,
 } from "@meco/contracts";
 import { readBody } from "./body";
 import { decode } from "./decode";
 import type { Catalogue, Detector } from "./detector";
 import type { Enricher } from "./enricher";
 import { HostError } from "./errors";
-import { type Health, version } from "./health";
+import { version } from "./health";
 import { Laps } from "./timing";
-
-/** One Catalogue entry as `GET /models` lists it. */
-export type CatalogueEntry = ModelId & {
-  /** The Kinds it draws. Empty for an Enricher: it draws no Region of its own. */
-  readonly kinds: readonly RegionKind[];
-  /** The licence id. The text is in the repository and the image. */
-  readonly licence: string;
-  readonly warm: boolean;
-};
+import type { CatalogueEntry, ModelsHealth } from "./wire";
 
 /** The two roles, of the whole Catalogue or of what a request selected. */
 interface Roles {
@@ -106,7 +96,7 @@ export function createApp(catalogue: Catalogue): Hono {
   const app = new Hono();
 
   app.get("/health", (c) => {
-    const body: Health = {
+    const body: ModelsHealth = {
       ok: true,
       service: "models",
       version: version(),

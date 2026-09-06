@@ -132,9 +132,11 @@ The probe, against any base URL that reaches `models`:
 pnpm --filter @meco/models probe http://127.0.0.1:8791 [fixture] [models]
 ```
 
-It prints `/health` before and after, the `/annotate` status, wall time,
-`Server-Timing` and the Annotation. Default fixture:
-`fixtures/faces/artemis-2-crew.jpg`.
+It calls through `@meco/models`' client with the hash check on, so a live run
+crosses the seam the gateway crosses. It prints `/health` and the Catalogue
+first, then the wall time, `Server-Timing` and the Annotation, and `/health`
+once more; a refusal prints its `ModelsError` code and exits 1. Default
+fixture: `fixtures/faces/artemis-2-crew.jpg`.
 
 ## Env vars
 

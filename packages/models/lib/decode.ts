@@ -1,14 +1,7 @@
 import sharp from "sharp";
 import type { Annotation, DecodedImage } from "@meco/contracts";
+import { DECODE_BOUND } from "./decode-bound";
 import { HostError } from "./errors";
-
-/**
- * The Decode Bound: the longest edge a Decoded Image may have. Measured in the
- * prototype on the 5878x7348 group fixture (`docs/specs/models.md`, "Why
- * 1600"): no box moves 0.002 between full size and any cap down to 640, and
- * the identity threshold was calibrated at this size.
- */
-export const DECODE_BOUND = 1600;
 
 /** What sharp calls a format, to what contracts calls its mime. */
 const MIME: Record<string, Annotation["mime"]> = {
