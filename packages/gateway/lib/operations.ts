@@ -12,7 +12,7 @@
 import { templates } from "@meco/compose";
 import { PLACEMENTS } from "@meco/compose/placements";
 import type { Template } from "@meco/compose/template";
-import type { Annotation, ModelId } from "@meco/contracts";
+import { type Annotation, type ModelId, Redaction } from "@meco/contracts";
 import type { Identify } from "@meco/identify";
 import type { ModelsClient } from "@meco/models";
 import type { Caller, Records } from "@meco/records";
@@ -223,19 +223,14 @@ export const OPERATIONS: readonly Operation[] = [
     path: "/brands/:brand",
     input: z.object({
       brand: Brand,
-      // Nullable and required: clearing the default has to be sayable, and an
-      // absent field would be indistinguishable from "leave it alone" on a
-      // PATCH that has exactly one thing to change.
-      redaction: z
-        .strictObject({
-          blurUnknownFaces: z
-            .boolean()
-            .describe("Hide every face meco cannot name. meco's default is true."),
-        })
-        .nullable()
-        .describe(
-          "This Brand's redaction default, or null to fall back to meco's."
-        ),
+      // contracts' `Redaction` and not `RedactionDefault`: a Brand setting a
+      // default states it, and the way to say nothing is `null`. Nullable and
+      // required, because clearing has to be sayable and an absent field would
+      // be indistinguishable from "leave it alone" on a PATCH with exactly one
+      // thing to change.
+      redaction: Redaction.nullable().describe(
+        "This Brand's redaction default, or null to fall back to meco's. `blurUnknownFaces` hides every face meco cannot name; meco's own default is true."
+      ),
     }),
     async handler(ctx, { brand, redaction }) {
       const row = await ctx.records.brands.setRedaction(brand, redaction);

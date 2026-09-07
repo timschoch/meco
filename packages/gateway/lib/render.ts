@@ -111,10 +111,10 @@ const RENDER: Stages<RenderInput> = {
   },
 
   // The Template's rung of the Redaction Policy, off the same catalogue
-  // `list_templates` answers from and the same registry the Plan came from.
-  // A Template the Brand does not have is not refused here: `compose.plan`
-  // already ran and would have said so, and a lookup that missed can only
-  // mean the Template declares nothing.
+  // `list_templates` answers from and the same registry the Plan will come
+  // from. A Template the Brand does not have is not refused here: `fill` runs
+  // next and `compose.plan` refuses it with `unknown_template`, so a lookup
+  // that missed only ever means the Template declares nothing.
   templateRedaction: (deps, input) =>
     templates(input.brand, deps.templates).find(
       (one) => one.id === input.template

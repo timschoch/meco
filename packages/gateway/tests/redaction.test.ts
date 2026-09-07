@@ -29,8 +29,17 @@ const BRAND = "hopefamily";
 const PLACEMENT = "instagram/story";
 /** Declares `redaction: { blurUnknownFaces: false }`. */
 const UNBLURRED = "hopefamily-unblurred";
+/** Declares `redaction: { blurUnknownFaces: true }`. */
+const BLURRED = "hopefamily-blurred";
 /** Declares nothing, so the Brand's default answers next. */
 const SILENT = "hopefamily-silent";
+
+/** What each Template declares, as the table states it rather than looks it up. */
+const DECLARED: Readonly<Record<string, boolean | undefined>> = {
+  [UNBLURRED]: false,
+  [BLURRED]: true,
+  [SILENT]: undefined,
+};
 
 type Framing = {
   readonly redaction?: { blurUnknownFaces: boolean; from: string };
@@ -90,9 +99,14 @@ async function setBrandRedaction(one: Opened, value: Level): Promise<void> {
 }
 
 /**
- * Every combination of set and absent for a Render: three requests, two
+ * Every combination of set and absent for a Render: three requests, three
  * Templates, three Brands. The expected level is the first that says anything,
  * and `default` when none does.
+ *
+ * Three Templates and not two, so the Template rung is proved in both
+ * directions: `false` over a Brand that said `true`, and `true` over a Brand
+ * that said `false`. With only the `false` Template, every row where the
+ * Template answered also happened to be a row where the answer was `false`.
  */
 const RENDER_TABLE: readonly {
   request: Level;
@@ -100,12 +114,9 @@ const RENDER_TABLE: readonly {
   brand: Level;
   expect: { blurUnknownFaces: boolean; from: string };
 }[] = [true, false, undefined].flatMap((request) =>
-  [UNBLURRED, SILENT].flatMap((template) =>
+  [UNBLURRED, BLURRED, SILENT].flatMap((template) =>
     [true, false, undefined].map((brand) => {
-      // The Template rung, read off the Template the row names. Written out
-      // here rather than looked up, so the table states the expectation
-      // instead of re-deriving it from the code under test.
-      const declared = template === UNBLURRED ? false : undefined;
+      const declared = DECLARED[template];
       const [from, blurUnknownFaces] =
         request !== undefined
           ? (["request", request] as const)
@@ -205,6 +216,32 @@ describe("the Redaction Policy resolves request → template → brand → defau
       }
     },
     TIMEOUT * 4
+  );
+
+  it(
+    "an empty policy on the request is silence, not an opinion",
+    async () => {
+      const one = await stack();
+      await setBrandRedaction(one, false);
+
+      // Before #249 this resolved to `true` at the door. Field by field, an
+      // object with no opinion in it is not an opinion, so it falls through.
+      const answer = await post(one, "/v1/render", {
+        brand: BRAND,
+        template: SILENT,
+        placement: PLACEMENT,
+        fields: { caption: "an empty policy" },
+        source,
+        redaction: {},
+      });
+
+      expect(answer.status).toBe(200);
+      expect(answer.body.framing?.redaction).toEqual({
+        blurUnknownFaces: false,
+        from: "brand",
+      });
+    },
+    TIMEOUT
   );
 
   it(

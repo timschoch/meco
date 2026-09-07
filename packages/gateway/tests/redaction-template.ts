@@ -1,7 +1,8 @@
 /**
- * Two Templates for one Brand: one that declares a redaction default and one
- * that declares none. They exist so the Template rung of the Redaction Policy
- * can be walked end to end through `createApp().request` (#249).
+ * Three Templates for one Brand: one declaring `false`, one declaring `true`,
+ * and one declaring nothing. They exist so the Template rung of the Redaction
+ * Policy can be walked end to end through `createApp().request`, in both
+ * directions, against every Brand default (#249).
  *
  * Not shipped. compose's registry holds the Templates a Brand actually
  * publishes, and a Template nobody asked for would show up in `list_templates`
@@ -61,12 +62,7 @@ export const silentTemplate: Template<typeof Fields> = {
   description: "A Template with no opinion about redaction.",
 };
 
-/**
- * Declares `false`, so it outranks the Brand and only the request outranks it.
- * `false` and not `true`: the default is already `true`, so a Template
- * declaring `true` would be indistinguishable from one declaring nothing in
- * every answer but `from`.
- */
+/** Declares `false`, so it outranks the Brand and only the request outranks it. */
 export const unblurredTemplate: Template<typeof Fields> = {
   ...base,
   id: "hopefamily-unblurred",
@@ -74,11 +70,25 @@ export const unblurredTemplate: Template<typeof Fields> = {
   redaction: { blurUnknownFaces: false },
 };
 
-/** The registry `createApp` is handed: these two and nothing else. */
+/**
+ * Declares `true`, which is also meco's default — and is not the same thing.
+ * Over a Brand that set `false`, this Template blurs and the Brand does not,
+ * so a rung that only ever declared `false` would leave the Template's
+ * precedence proved in one direction and assumed in the other.
+ */
+export const blurredTemplate: Template<typeof Fields> = {
+  ...base,
+  id: "hopefamily-blurred",
+  description: "A Template that hides every face meco cannot name.",
+  redaction: { blurUnknownFaces: true },
+};
+
+/** The registry `createApp` is handed: these three and nothing else. */
 export const REDACTION_TEMPLATES: ReadonlyMap<string, Template> = new Map<
   string,
   Template
 >([
   [silentTemplate.id, silentTemplate],
   [unblurredTemplate.id, unblurredTemplate],
+  [blurredTemplate.id, blurredTemplate],
 ]);
