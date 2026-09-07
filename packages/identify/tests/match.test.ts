@@ -18,14 +18,18 @@ import {
   MATCH_MARGIN,
   MATCH_THRESHOLD,
   MIN_FACE_PX,
+  NOT_A_FACE_CERTAIN,
+  NOT_A_FACE_PRINTS,
   PRINT_MODEL,
   identify,
 } from "../index";
 import {
   annotationOf,
+  classifiedRecording,
   cosine,
   faceIn,
   kartAnnotationOf,
+  kartRecording,
   kartPhotographs,
   kartPrint,
   kartPrints,
@@ -550,14 +554,15 @@ describe("identify().match, the things that are not faces", () => {
   const REAL_FACE_NEAR_THE_HELMET = kartPrint("paddock-mixed.jpg#4");
 
   it(
-    "refuses to identify the detection the Not-a-Face Print was taken from, and names it",
+    "calls the detection the Not-a-Face Print was taken from a Not-a-Face, and names it",
     async () => {
       const brand = "a-helmet";
       await open.enrol({ brand, name: "A", prints: [A_PORTRAIT] });
 
       // The photograph the reference print came from, annotated whole. It is
-      // 41 px in the Decoded Image, so it clears the size floor and the
-      // Not-a-Face check is the only thing that can refuse it.
+      // 41 px in the Decoded Image, so it clears the size floor, and at a
+      // similarity of 1 to itself it is over the certainty as well as the
+      // threshold: the back of a helmet, with no face behind it to hide.
       const helmetPhoto = kartAnnotationOf("on-track-rear-helmet.jpg");
       const regionId = kartRegionId(helmetPhoto, "on-track-rear-helmet.jpg#0");
 
@@ -566,11 +571,11 @@ describe("identify().match, the things that are not faces", () => {
         brand,
       });
 
-      expect(verdictOn(found.faces, regionId)).toMatchObject({
-        verdict: "not-identifiable",
-        reason: "not-a-face",
+      expect(verdictOn(found.faces, regionId)).toEqual({
+        regionId,
+        verdict: "not-a-face",
         // The detail names the reference and what a human saw in it, so a
-        // Brand can be told why the refusal happened.
+        // Brand can be told why the verdict happened.
         detail: expect.stringContaining("on-track-rear-helmet.jpg#0"),
       });
       expect(found.matches).toEqual([]);
@@ -699,6 +704,7 @@ describe("identify().match, the things that are not faces", () => {
       // The Not-a-Face sweep run as `match` and not as arithmetic beside it.
       // `tests/calibration.test.ts` recomputes the cosines; this says the rule
       // on the seam acts on them, over every kart photograph at once.
+      const notAFace: string[] = [];
       const refused: string[] = [];
       const compared: string[] = [];
       for (const file of kartPhotographs()) {
@@ -712,7 +718,9 @@ describe("identify().match, the things that are not faces", () => {
             (one) => one.regionId === face.regionId
           );
           if (detection?.is === undefined) continue;
-          if (
+          if (face.verdict === "not-a-face") {
+            notAFace.push(detection.id);
+          } else if (
             face.verdict === "not-identifiable" &&
             face.reason === "not-a-face"
           ) {
@@ -723,10 +731,12 @@ describe("identify().match, the things that are not faces", () => {
         }
       }
 
+      // The reference print itself, at a similarity of 1 to itself: over the
+      // certainty, so the helmet and not a face resembling one.
+      expect(notAFace).toEqual(["on-track-rear-helmet.jpg#0"]);
       expect(refused.sort()).toEqual([
-        // The reference print itself, at a similarity of 1 to itself.
-        "on-track-rear-helmet.jpg#0",
-        // A second driver's helmet, held out of the reference set.
+        // A second driver's helmet, held out of the reference set. Visor up,
+        // 0.6933: under the certainty, so it stays hidden — the stated limit.
         "on-track-visor-open.jpg#0",
         // A man seen from behind: the rejection the rule exists for.
         "paddock-mixed.jpg#7",
@@ -783,6 +793,152 @@ describe("identify().match, the things that are not faces", () => {
         verdict: "not-identifiable",
         reason: "too-small",
       });
+    },
+    PGLITE_TIMEOUT_MS
+  );
+});
+
+/**
+ * The fifth verdict (#248): a face Region that is the helmet itself. Measured
+ * on whole recordings under `fixtures/karts/annotations/`, because the
+ * question is what the shipped pipeline hands identify for a real photograph
+ * of a grid, and a fixture assembled by hand would answer it by construction.
+ */
+describe("identify().match, a Not-a-Face: the helmet itself", () => {
+  /** The nearest Not-a-Face Print to one Region's print. */
+  const nearestNotAFace = (region: Region | undefined): number =>
+    NOT_A_FACE_PRINTS.reduce(
+      (high, print) =>
+        Math.max(high, cosine(region?.facePrint?.vector ?? [], print.vector)),
+      Number.NEGATIVE_INFINITY
+    );
+
+  const regionOf = (annotation: Annotation, id: string): Region | undefined =>
+    annotation.regions.find((one) => one.id === id);
+
+  it(
+    "calls the mirrored visor on the grid a Not-a-Face, and lends it no name",
+    async () => {
+      const brand = "the-grid";
+      await open.enrol({ brand, name: "A", prints: [A_PORTRAIT] });
+
+      // The owner's photograph #248 is about: four helmets, and the visor of
+      // kart 24 boxed as `face-1` — 85 px, so over the size floor, and
+      // printed at 0.9461 to the helmet reference.
+      const grid = kartRecording("kart-grid-24");
+      const found = await identifier().match({ annotation: grid, brand });
+
+      expect(found.faces).toEqual([
+        {
+          regionId: "face-1",
+          verdict: "not-a-face",
+          detail: expect.stringContaining("on-track-rear-helmet.jpg#0"),
+        },
+      ]);
+      expect(found.matches).toEqual([]);
+      expect(nearestNotAFace(regionOf(grid, "face-1"))).toBeGreaterThanOrEqual(
+        NOT_A_FACE_CERTAIN
+      );
+    },
+    PGLITE_TIMEOUT_MS
+  );
+
+  it(
+    "keeps every face in the crowd a face, the two kart drivers included",
+    async () => {
+      const brand = "the-crowd";
+      await open.enrol({ brand, name: "A", prints: [A_PORTRAIT] });
+
+      // Twelve faces at the barriers and on two karts, 22 to 58 px. Not one
+      // of them is the helmet, so not one may lose its blur.
+      const crowd = kartRecording("street-karting-crowd");
+      const found = await identifier().match({ annotation: crowd, brand });
+
+      expect(found.faces).toHaveLength(12);
+      expect(found.faces.filter((one) => one.verdict === "not-a-face")).toEqual(
+        []
+      );
+      // The two drivers: printed, compared, and unknown to a Brand that
+      // enrolled neither. Geometry would have called both of them helmets.
+      expect(verdictOn(found.faces, "face-11")).toMatchObject({
+        verdict: "unknown",
+      });
+      expect(verdictOn(found.faces, "face-12")).toMatchObject({
+        verdict: "unknown",
+      });
+    },
+    PGLITE_TIMEOUT_MS
+  );
+
+  it(
+    "asks about the size before it asks whether the face is the helmet",
+    async () => {
+      const brand = "the-crowd-small";
+      await open.enrol({ brand, name: "A", prints: [A_PORTRAIT] });
+
+      // A 23 px face at the barrier prints at 0.9320 to the helmet reference,
+      // over the certainty. Under the floor nothing about a print is trusted,
+      // so it stays too small and stays hidden: the order is load-bearing.
+      const crowd = kartRecording("street-karting-crowd");
+      const small = regionOf(crowd, "face-8");
+      expect(nearestNotAFace(small)).toBeGreaterThanOrEqual(NOT_A_FACE_CERTAIN);
+      expect(
+        Math.min(
+          (small?.box.width ?? 0) * crowd.width,
+          (small?.box.height ?? 0) * crowd.height
+        )
+      ).toBeLessThan(MIN_FACE_PX);
+
+      const found = await identifier().match({ annotation: crowd, brand });
+      expect(verdictOn(found.faces, "face-8")).toMatchObject({
+        verdict: "not-identifiable",
+        reason: "too-small",
+      });
+    },
+    PGLITE_TIMEOUT_MS
+  );
+
+  it(
+    "keeps a real face in a helmet a face, and a helmet with the visor up hidden",
+    async () => {
+      const brand = "the-paddock";
+      await open.enrol({ brand, name: "A", prints: [A_PORTRAIT] });
+
+      const paddock = classifiedRecording("paddock-mixed.jpg");
+      const found = await identifier().match({
+        annotation: paddock.annotation,
+        brand,
+      });
+
+      // No face a human classified as a face is the helmet.
+      for (const face of paddock.faces.filter((one) => one.is === "face")) {
+        expect(verdictOn(found.faces, face.regionId)).not.toMatchObject({
+          verdict: "not-a-face",
+        });
+      }
+      // The driver in a helmet with the visor up and the face towards the
+      // camera: a real face, compared, and hidden by default like any other.
+      expect(
+        verdictOn(found.faces, kartRegionId(paddock, "paddock-mixed.jpg#4"))
+      ).toMatchObject({ verdict: "unknown" });
+      // The child at 0.6545: still refused a name by the 0.60 rule, and still
+      // hidden. The certainty is what keeps that refusal from lifting a blur.
+      expect(
+        verdictOn(found.faces, kartRegionId(paddock, "paddock-mixed.jpg#8"))
+      ).toMatchObject({ verdict: "not-identifiable", reason: "not-a-face" });
+
+      // The limit: a helmet with the visor up, 0.6933 to the reference, is
+      // under the certainty and stays hidden. Whoever is behind that visor is
+      // blurred rather than shown.
+      const heldOut = kartRecording("on-track-visor-open");
+      const visorUp = await identifier().match({ annotation: heldOut, brand });
+      expect(verdictOn(visorUp.faces, "face-1")).toMatchObject({
+        verdict: "not-identifiable",
+        reason: "not-a-face",
+      });
+      expect(nearestNotAFace(regionOf(heldOut, "face-1"))).toBeLessThan(
+        NOT_A_FACE_CERTAIN
+      );
     },
     PGLITE_TIMEOUT_MS
   );

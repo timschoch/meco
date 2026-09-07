@@ -100,6 +100,11 @@ const verdictFor = (
     if (face.reason === "no-print" || face.reason === "other-model") {
       return { regionId, verdict: "uncompared", reason: face.reason };
     }
+    // The helmet itself, not a face resembling one: the fifth verdict, and
+    // the one that lifts a blur rather than refusing a name (#248).
+    if (face.reason === "not-a-face" && face.certain) {
+      return { regionId, verdict: "not-a-face", detail: face.detail };
+    }
     return {
       regionId,
       verdict: "not-identifiable",

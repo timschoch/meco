@@ -463,6 +463,7 @@ describe("POST /v1/annotate on a photograph meco has never seen", () => {
           "unknown",
           "uncompared",
           "not-identifiable",
+          "not-a-face",
         ]).toContain(face.verdict);
       }
       expect(body.identification?.matches).toEqual([]);

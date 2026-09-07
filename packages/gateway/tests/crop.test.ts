@@ -385,6 +385,32 @@ describe("the framing options a Crop carries", () => {
   );
 });
 
+describe("a Not-a-Face on the wire", () => {
+  it(
+    "leaves the visor on the grid sharp, and says so in the Face Report",
+    async () => {
+      const one = await stack();
+      // The grid's one face Region is the mirrored visor of kart 24 (#248).
+      // identify calls it the helmet itself; the gateway never hands it to
+      // redact; the Face Report carries the verdict with `hidden: false`.
+      const { status, body } = await crop(one, KART_GRID_FILE);
+
+      expect(status).toBe(200);
+      expect(body.faces).toEqual([
+        {
+          regionId: "face-1",
+          verdict: "not-a-face",
+          hidden: false,
+          inFrame: expect.any(Boolean),
+        },
+      ]);
+      const recorded = await call(one, body.call?.id);
+      expect(recorded.redactions).toEqual([]);
+    },
+    TIMEOUT
+  );
+});
+
 describe("the Number Report", () => {
   /** The grid: four race numbers read, five karts, one face. */
   const GRID = KART_GRID_FILE;

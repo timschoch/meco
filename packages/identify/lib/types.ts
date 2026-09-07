@@ -40,11 +40,21 @@ export interface MatchRequest {
 }
 
 /**
- * What identify says about one face Region. Four answers where the prototype
- * had one silence: named, compared and nobody, never compared, and not a face
- * worth comparing.
+ * What identify says about one face Region. Five answers where the prototype
+ * had one silence: named, compared and nobody, never compared, not a face
+ * worth comparing, and not a face at all.
  */
 export type FaceVerdict = { readonly regionId: string } & (
+  | {
+      /**
+       * The helmet itself, at or over `NOT_A_FACE_CERTAIN` to a Not-a-Face
+       * Print: nothing to name and nothing to hide. The one verdict redact
+       * never sees a Region for (#248).
+       */
+      readonly verdict: "not-a-face";
+      /** What was measured, so a Brand can act on it. */
+      readonly detail: string;
+    }
   | {
       readonly verdict: "match";
       readonly personId: string;

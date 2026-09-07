@@ -18,6 +18,7 @@ import type { Annotation, FacePrint, Region } from "@meco/contracts";
 import { DECODE_BOUND } from "@meco/models";
 import {
   MIN_FACE_PX,
+  NOT_A_FACE_CERTAIN,
   NOT_A_FACE_THRESHOLD,
   PRINT_DIMENSIONS,
   PRINT_MODEL,
@@ -132,6 +133,13 @@ export type IdentifiableFace =
       readonly identifiable: false;
       readonly reason: "not-a-face";
       readonly detail: string;
+      /**
+       * At or over {@link NOT_A_FACE_CERTAIN}: the Region is the helmet
+       * itself, not a face that resembles one, and there is nothing behind
+       * it to hide. `match` answers `not-a-face` for it; `enrol` refuses it
+       * exactly as it refuses the uncertain kind.
+       */
+      readonly certain: boolean;
     };
 
 /**
@@ -166,12 +174,18 @@ export const identifiableFace = (
   // still not a face. The back of a crash helmet is what taught this rule
   // (issue #34): it was enrolled as a Person, and a stranger in a helmet was
   // named after them with their face left sharp.
+  //
+  // Asked after the size floor on purpose: a 23 px face prints over even the
+  // certainty (`street-karting-crowd`, 0.9320), and under the floor nothing a
+  // print says is trusted. Swap the two and that face loses its blur (#248).
   const notAFace = disqualifyingNotAFace(print.vector);
   if (notAFace !== null) {
+    const certain = notAFace.similarity >= NOT_A_FACE_CERTAIN;
     return {
       identifiable: false,
       reason: "not-a-face",
-      detail: `${notAFace.similarity.toFixed(4)} to the Not-a-Face Print ${notAFace.print.id} (${notAFace.print.saw}), at or over the ${NOT_A_FACE_THRESHOLD} threshold`,
+      certain,
+      detail: `${notAFace.similarity.toFixed(4)} to the Not-a-Face Print ${notAFace.print.id} (${notAFace.print.saw}), at or over the ${certain ? NOT_A_FACE_CERTAIN : NOT_A_FACE_THRESHOLD} ${certain ? "certainty" : "threshold"}`,
     };
   }
 

@@ -17,7 +17,7 @@
  * package and not in a caller's.
  */
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Annotation, type Box, type Point, type Region } from "@meco/contracts";
 import { PRINT_MODEL } from "../index";
@@ -423,6 +423,85 @@ export const kartRegionId = (built: KartAnnotation, id: string): string => {
   const found = built.faces.find((one) => one.id === id);
   if (found === undefined) throw new Error(`no kart detection ${id}`);
   return found.regionId;
+};
+
+/**
+ * `fixtures/karts/annotations/`: whole Annotations recorded through the
+ * shipped Catalogue, shared with frame's and the gateway's suites. Unlike
+ * {@link kartAnnotationOf}, a recording carries the `person` and `vehicle`
+ * Regions and the prints the host took on the day, so it is the Annotation
+ * production hands identify and not a rebuild of one.
+ */
+const RECORDINGS = fileURLToPath(
+  new URL("../../../fixtures/karts/annotations/", import.meta.url)
+);
+
+/** One recording, parsed by the contracts schema so a drift fails here. */
+export const kartRecording = (name: string): Annotation =>
+  Annotation.parse(readFrom(RECORDINGS, `${name}.json`));
+
+/** Every recording under `fixtures/karts/annotations/`, by name. */
+export const kartRecordings = (): readonly {
+  name: string;
+  annotation: Annotation;
+}[] =>
+  readdirSync(RECORDINGS)
+    .filter((file) => file.endsWith(".json"))
+    .sort()
+    .map((file) => ({
+      name: file.replace(/\.json$/, ""),
+      annotation: kartRecording(file.replace(/\.json$/, "")),
+    }));
+
+/**
+ * How far apart, in fractions of the frame, a recorded face Region's centre
+ * may sit from the `detected.json` box it is paired with. Same Detector, same
+ * photograph, same bound: the two agree to the sixth decimal, and anything
+ * near this tolerance is a different detection.
+ */
+const RECORDED_PAIRING_TOLERANCE = 0.002;
+
+/**
+ * A recording's face Regions joined onto the human's classification.
+ *
+ * The recording numbers its faces in the host's order and `expected.json` in
+ * the Detector's, so the two are paired by box centre, as `print:fixtures`
+ * pairs them, and a face that pairs with nothing throws rather than losing
+ * its classification quietly.
+ */
+export const classifiedRecording = (file: string): KartAnnotation => {
+  const name = file.replace(/\.jpg$/, "");
+  const annotation = kartRecording(name);
+  const image = kartDetected.images[file];
+  if (image === undefined) throw new Error(`no recorded detection for ${file}`);
+
+  const faces = annotation.regions
+    .filter((region) => region.kind === "face")
+    .map((region): KartFace => {
+      const distances = image.faces.map((face, index) => ({
+        index,
+        distance: apart(face.box, region.box),
+      }));
+      const nearest = distances.sort((a, b) => a.distance - b.distance)[0];
+      if (
+        nearest === undefined ||
+        nearest.distance > RECORDED_PAIRING_TOLERANCE
+      ) {
+        throw new Error(
+          `${name} ${region.id} pairs with no detection in detected.json`
+        );
+      }
+      const printed = KART_PRINTS.find(
+        (one) => one.file === file && one.index === nearest.index
+      );
+      return {
+        regionId: region.id,
+        id: `${file}#${nearest.index}`,
+        ...(printed === undefined ? {} : { is: printed.is }),
+      };
+    });
+
+  return { annotation, faces };
 };
 
 /** Every same-human and different-human pair among the committed prints. */

@@ -56,6 +56,30 @@ export const MIN_FACE_PX = 40 as const;
 export const NOT_A_FACE_THRESHOLD = 0.6 as const;
 
 /**
+ * The similarity to a Not-a-Face Print at which a detection *is* the helmet:
+ * a Not-a-Face, with nothing behind it to name and nothing to hide.
+ *
+ * A second, higher line above {@link NOT_A_FACE_THRESHOLD}, never the same
+ * one. 0.60 refuses a name and keeps the blur, and it has a real face inside
+ * it (`paddock-mixed#8`, 0.6545) as its accepted price; a line that lifts a
+ * blur can afford no such price. Measured 7 Sep 2026 (#248) over every
+ * printed face of every recording in `fixtures/karts/annotations/`,
+ * `edgeface/1` at the 1600 px bound: the two helmets sit at 1.0 (the
+ * reference itself) and 0.9461 (the mirrored visor of kart 24, 85 px); the
+ * nearest thing at or over {@link MIN_FACE_PX} that is not one is the
+ * visor-up helmet of `on-track-visor-open` at 0.6933, then the child at
+ * 0.6545. The band is 0.25 wide; 0.85 sits 0.096 under the visor and 0.157
+ * over the visor-up helmet.
+ *
+ * Asked only after the size floor. A 23 px face at the barrier of
+ * `street-karting-crowd` prints at 0.9320 to the reference, over this line:
+ * under the floor nothing about a print is trusted, and that face stays
+ * hidden. `tests/calibration.test.ts` prints the table and asserts all three
+ * rows every run.
+ */
+export const NOT_A_FACE_CERTAIN = 0.85 as const;
+
+/**
  * The one Model whose Face Prints the numbers above were calibrated on. A print
  * from any other `{ name, version }` is an Uncompared Face and an enrolled one
  * is an Unusable Reference Photo, so a Model swap forces a re-enrolment rather

@@ -309,10 +309,20 @@ export async function pipeline<I extends FramingInput>(
     decodeAt(await source.bytes(), annotation)
   );
 
+  // A Not-a-Face is the helmet itself, not a face resembling one (identify,
+  // `NOT_A_FACE_CERTAIN`): nothing to name and nothing to hide. redact holds
+  // no threshold and reads no verdict, so the Region is not handed to it at
+  // all, and the Face Report says `hidden: false` beside the verdict (#248).
+  const notAFace = new Set(
+    identification.faces
+      .filter((face) => face.verdict === "not-a-face")
+      .map((face) => face.regionId)
+  );
+
   const hidden = await trace.step("redact.blur", () =>
     redact({
       image: decoded,
-      regions: annotation.regions,
+      regions: annotation.regions.filter((region) => !notAFace.has(region.id)),
       matches: identification.matches,
       redaction,
     })

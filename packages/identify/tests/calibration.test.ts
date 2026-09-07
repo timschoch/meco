@@ -24,6 +24,7 @@ import {
   MATCH_MARGIN,
   MATCH_THRESHOLD,
   MIN_FACE_PX,
+  NOT_A_FACE_CERTAIN,
   NOT_A_FACE_PRINTS,
   NOT_A_FACE_THRESHOLD,
   PRINT_MODEL,
@@ -34,6 +35,7 @@ import {
   facePrintsPrintedBy,
   kartPrints,
   kartPrintsPrintedBy,
+  kartRecordings,
   type PrintedBy,
   printPairs,
 } from "./fixtures";
@@ -366,5 +368,143 @@ describe("the Not-a-Face calibration on the committed kart prints", () => {
     expect(
       accepted.filter((one) => one.id.startsWith("paddock-mixed.jpg"))
     ).toHaveLength(6);
+  });
+});
+
+/**
+ * The Not-a-Face certainty (#248), recomputed in the gate.
+ *
+ * `NOT_A_FACE_THRESHOLD` refuses a name; `NOT_A_FACE_CERTAIN` lifts a blur,
+ * and a lifted blur on a real face is the worse mistake, so it is measured on
+ * every printed face of every recording under `fixtures/karts/annotations/`
+ * and not on the classified prints alone. The recordings carry what the
+ * shipped pipeline hands identify — the grid's visor included, which the
+ * classified set never held.
+ *
+ * Two rows decide it: the visor of kart 24 (the lowest helmet) above, and the
+ * visor-up helmet of `on-track-visor-open` (the nearest thing that is not
+ * one) below. The third row is why the size floor is asked first: a 23 px
+ * face in the crowd prints over the certainty.
+ */
+describe("the Not-a-Face certainty on the recorded Annotations", () => {
+  const recordings = kartRecordings();
+
+  /** Every printed face Region of every recording, against the reference set. */
+  const swept = recordings.flatMap(({ name, annotation }) =>
+    annotation.regions.flatMap((region) => {
+      const vector = region.facePrint?.vector;
+      if (region.kind !== "face" || vector === undefined) return [];
+      const scale = Math.min(
+        1,
+        DECODE_BOUND / Math.max(annotation.width, annotation.height)
+      );
+      return [
+        {
+          id: `${name} ${region.id}`,
+          pixels:
+            Math.min(
+              region.box.width * annotation.width,
+              region.box.height * annotation.height
+            ) * scale,
+          nearest: NOT_A_FACE_PRINTS.reduce(
+            (high, print) => Math.max(high, cosine(vector, print.vector)),
+            Number.NEGATIVE_INFINITY
+          ),
+        },
+      ];
+    })
+  );
+  const overFloor = swept
+    .filter((one) => one.pixels >= MIN_FACE_PX)
+    .sort((a, b) => b.nearest - a.nearest);
+  const underFloor = swept
+    .filter((one) => one.pixels < MIN_FACE_PX)
+    .sort((a, b) => b.nearest - a.nearest);
+
+  it("sweeps every recording, each made by the Print Model at or under the bound", () => {
+    expect(recordings.map((one) => one.name)).toEqual([
+      "kart-24-target",
+      "kart-grid-24",
+      "on-track-dark-visor",
+      "on-track-rear-helmet",
+      "on-track-visor-open",
+      "paddock-mixed",
+      "podium-trophy-2",
+      "podium-trophy",
+      "street-karting-crowd",
+    ]);
+    for (const { annotation } of recordings) {
+      expect(annotation.producedBy).toContainEqual(PRINT_MODEL);
+      expect(Math.max(annotation.width, annotation.height)).toBeLessThanOrEqual(
+        DECODE_BOUND
+      );
+    }
+    // 25 printed faces: 1 grid, 1 rear helmet, 1 visor up, 8 paddock, 2
+    // podiums, 12 crowd (the paddock's ninth face has no print, the aligner
+    // refused it). Asserted so a recording gaining or losing a print is loud.
+    expect(swept).toHaveLength(25);
+    expect(overFloor).toHaveLength(15);
+    expect(underFloor).toHaveLength(10);
+  });
+
+  it("recomputes #248's table and leaves the band open on both sides", () => {
+    const helmets = overFloor.filter(
+      (one) => one.nearest >= NOT_A_FACE_CERTAIN
+    );
+    const nearestOther = overFloor.find(
+      (one) => one.nearest < NOT_A_FACE_CERTAIN
+    );
+    const lowestHelmet = helmets[helmets.length - 1];
+    const highestUnderFloor = underFloor[0];
+    if (
+      lowestHelmet === undefined ||
+      nearestOther === undefined ||
+      highestUnderFloor === undefined
+    ) {
+      throw new Error("the recordings lost a helmet, a face or a small face");
+    }
+
+    console.log(
+      [
+        `not-a-face certainty — ${recordings.length} recordings under fixtures/karts/annotations/, ${swept.length} printed faces`,
+        ...overFloor.map(
+          (one) =>
+            `  ${one.nearest >= NOT_A_FACE_CERTAIN ? "helmet " : "face   "} ${one.nearest.toFixed(4)}  ${Math.round(one.pixels).toString().padStart(3)} px  ${one.id}`
+        ),
+        `  certainty              ${NOT_A_FACE_CERTAIN} (threshold ${NOT_A_FACE_THRESHOLD})`,
+        `  lowest helmet          ${lowestHelmet.nearest.toFixed(4)} — ${lowestHelmet.id}`,
+        `  nearest other          ${nearestOther.nearest.toFixed(4)} — ${nearestOther.id}`,
+        `  band                   ${(lowestHelmet.nearest - nearestOther.nearest).toFixed(4)} wide, ${(lowestHelmet.nearest - NOT_A_FACE_CERTAIN).toFixed(4)} above and ${(NOT_A_FACE_CERTAIN - nearestOther.nearest).toFixed(4)} below the certainty`,
+        `  under the floor, best  ${highestUnderFloor.nearest.toFixed(4)} — ${highestUnderFloor.id}, ${Math.round(highestUnderFloor.pixels)} px: why the size floor is asked first`,
+      ].join("\n")
+    );
+
+    // The certainty is a second, higher line above the threshold, never the
+    // same one: 0.60 has a real face inside it (paddock-mixed#8, 0.6545).
+    expect(NOT_A_FACE_CERTAIN).toBeGreaterThan(NOT_A_FACE_THRESHOLD);
+
+    // Measured 7 Sep 2026 on recordings from the Catalogue at f6f625b,
+    // edgeface/1 at the 1600 px bound, onnxruntime 1.29.0. Exactly two Regions
+    // are the helmet: the reference itself and the visor #248 is about.
+    expect(helmets.map((one) => one.id)).toEqual([
+      "on-track-rear-helmet face-1",
+      "kart-grid-24 face-1",
+    ]);
+    expect(lowestHelmet.nearest).toBeCloseTo(0.9461, DECIMALS);
+    // The nearest thing that is not: the held-out helmet with its visor up.
+    // Whoever is behind it stays hidden.
+    expect(nearestOther.id).toBe("on-track-visor-open face-1");
+    expect(nearestOther.nearest).toBeCloseTo(0.6933, DECIMALS);
+    // Room on both sides, so a print path drifting by the 0.0006 #177 saw
+    // moves nothing.
+    expect(lowestHelmet.nearest - NOT_A_FACE_CERTAIN).toBeGreaterThan(0.05);
+    expect(NOT_A_FACE_CERTAIN - nearestOther.nearest).toBeGreaterThan(0.1);
+
+    // Under the floor the floor is the protection: a 23 px face at the
+    // barrier prints over the certainty, and is refused for its size before
+    // its print is read. Asked the other way round, it would lose its blur.
+    expect(highestUnderFloor.id).toBe("street-karting-crowd face-8");
+    expect(highestUnderFloor.nearest).toBeCloseTo(0.932, 3);
+    expect(highestUnderFloor.nearest).toBeGreaterThan(NOT_A_FACE_CERTAIN);
   });
 });
