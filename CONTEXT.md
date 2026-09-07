@@ -111,7 +111,7 @@ A Face Print meco keeps of something that is not a face — the back of a crash 
 _Avoid_: negative sample, decoy, blocklist, impostor
 
 **Identifiable Face**:
-A detected face meco is willing to compare against a Person at all: large enough to print, and with a Face Print unlike every Not-a-Face Print. A face that is not one is still detected, still a Subject Box and still hidden by Face Blur — it simply can never be a Match. The property is of the face and the model, not of any Brand.
+A detected face meco is willing to compare against a Person at all: large enough to print, and with a Face Print unlike every Not-a-Face Print. A face that is not one is still detected, still a Subject Box and still hidden by Face Blur — it simply can never be a Match. The one exception is a Not-a-Face (under identify), which is the helmet itself and is not hidden. The property is of the face and the model, not of any Brand.
 _Avoid_: valid face, real face, good face, quality
 
 **Uncompared Face**:
@@ -401,7 +401,7 @@ _Avoid_: store status, healthcheck, diagnostics
 Hiding what a Brand may not show. It happens on the Source Image, before anything is cut out of it, so the module is never told where the output will be framed and cannot be wrong about it. The policy is one boolean on the FramingRequest ([#67](https://github.com/timschoch/meco/issues/67)).
 
 **Unknown Face**:
-A face Region with no Match in this call. The thing redact hides. Never a property of the face alone — the same face is known to the Brand that enrolled the Person and unknown to every other. An Uncompared Face and a face that is not an Identifiable Face are both Unknown Faces, because neither produced a Match, and a similarity under identify's threshold arrives here as no Match at all.
+A face Region with no Match in this call. The thing redact hides. Never a property of the face alone — the same face is known to the Brand that enrolled the Person and unknown to every other. An Uncompared Face and a face that is not an Identifiable Face are both Unknown Faces, because neither produced a Match, and a similarity under identify's threshold arrives here as no Match at all. A Not-a-Face is not one: the gateway withholds that Region from redact, so redact still reads no verdict and holds no threshold.
 _Avoid_: stranger, unmatched face, anonymous face, non-person
 
 **Redaction Mask**:
@@ -493,8 +493,12 @@ Everything identify answers for one Annotation and one Brand: the Matches, one F
 _Avoid_: result, recognition, matches (alone), response
 
 **Face Verdict**:
-What identify says about one face Region: a Match with its similarity, unknown with the best similarity that did not clear the Match Rule, uncompared because no usable Face Print was there to compare, or not identifiable because the face is too small or resembles a Not-a-Face Print. Four different answers where the prototype had one silence.
+What identify says about one face Region: a Match with its similarity, unknown with the best similarity that did not clear the Match Rule, uncompared because no usable Face Print was there to compare, not identifiable because the face is too small or resembles a Not-a-Face Print, or a Not-a-Face. Five different answers where the prototype had one silence.
 _Avoid_: status, outcome, classification, confidence
+
+**Not-a-Face**:
+A face Region that is the helmet itself: its Face Print sits at or over the Not-a-Face certainty (0.85) to a Not-a-Face Print, well past the 0.60 at which a print merely stops carrying identity. Nothing to name and nothing to hide, so the gateway never hands it to redact and the Face Report says so. Judged only for a face over the size floor, because a tiny face prints like a helmet too. A helmet with the visor up sits under the certainty and stays hidden: the verdict lifts a blur only when the print leaves no room for a face behind it.
+_Avoid_: false positive, ghost face, visor (what the Region is of, not what it is), helmet face, not identifiable (the 0.60 refusal, which keeps the blur)
 
 **Match Rule**:
 A test that turns an Annotation and a Brand's People into Matches. There are two, and a Match says which one made it. The **face** rule is the open-set test a face has to pass: best similarity against one Person at or above the threshold, and ahead of the best other Person by the margin, calibrated once on committed fixture prints with the measurement recorded beside the numbers; never a Brand's or a caller's setting. The **number** rule is the one for a driver whose face is inside a helmet: a Number whose Label is on a Person's list, matched to the `vehicle` Region holding most of its box, which is the kart a Crop then frames. The two share no arithmetic and neither ranks the other.

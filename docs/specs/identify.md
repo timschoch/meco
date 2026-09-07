@@ -67,6 +67,7 @@ export interface Identification {
 }
 
 export type FaceVerdict = { regionId: string } & (
+  | { verdict: "not-a-face"; detail: string } // the helmet itself; never hidden
   | {
       verdict: "match";
       personId: string;
@@ -114,6 +115,7 @@ export const MATCH_THRESHOLD: 0.5;
 export const MATCH_MARGIN: 0.05;
 export const MIN_FACE_PX: 40;
 export const NOT_A_FACE_THRESHOLD: 0.6;
+export const NOT_A_FACE_CERTAIN: 0.85;
 export const NUMBER_ON_VEHICLE: 0.5;
 export const PRINT_MODEL: { name: "edgeface"; version: "1" };
 ```
@@ -128,6 +130,7 @@ export const PRINT_MODEL: { name: "edgeface"; version: "1" };
    - no `facePrint` → `uncompared: no-print` (the Enricher could not align it, or did not run);
    - `facePrint.model` not `PRINT_MODEL` → `uncompared: other-model`;
    - shorter side below `MIN_FACE_PX` in the Decoded Image → `not-identifiable: too-small`;
+   - similarity at or above `NOT_A_FACE_CERTAIN` to a Not-a-Face Print → `not-a-face`, `detail` naming the reference: the helmet itself, which the gateway withholds from redact ([ADR-0017](../adr/0017-a-visor-is-not-a-face.md)). Asked after the size floor on purpose — a 23 px face prints over the certainty;
    - similarity at or above `NOT_A_FACE_THRESHOLD` to a Not-a-Face Print → `not-identifiable: not-a-face`, `detail` naming the reference;
    - otherwise compared: best similarity per Person, the runner-up is the best other Person. `match` when best ≥ `MATCH_THRESHOLD` and best − runnerUp ≥ `MATCH_MARGIN` (no runner-up passes the margin); `unknown` otherwise, with `best` and `runnerUp` reported.
 4. `matches` is the `match` verdicts as contracts Matches, `by: "face"`, `brand` set, followed by the number Matches below.
@@ -169,17 +172,20 @@ The same photograph enrolled twice is two rows on one key (records, "People, Ref
 
 ### The constants and their provenance
 
-| Constant               | Value        | Provenance                                                                                                                                                            | Room                 |
-| ---------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `MATCH_THRESHOLD`      | 0.50         | ADR-0003 D3; measured 6 Sep 2026 on `fixtures/faces/face-prints.json`, `edgeface/1` at 1600 px: same-person worst 0.7263, stranger best 0.2978 over 33 pairs          | 0.20 either way      |
-| `MATCH_MARGIN`         | 0.05         | ADR-0003 D3: chosen, not measured; the fixtures hold no look-alikes                                                                                                   | unmeasured           |
-| `MIN_FACE_PX`          | 40           | ADR-0003 amendment; judged in the Decoded Image                                                                                                                       | none below 40        |
-| `NOT_A_FACE_THRESHOLD` | 0.60         | ADR-0003 amendment; measured 6 Sep 2026 over the 11 swept detections in `fixtures/karts/`, `edgeface/1` at 1600 px: nearest non-face 0.6364, nearest real face 0.6545 | 0.0364 up, none down |
-| `PRINT_MODEL`          | `edgeface/1` | `docs/specs/models.md`, the Catalogue                                                                                                                                 |                      |
+| Constant               | Value        | Provenance                                                                                                                                                                                                                                 | Room                 |
+| ---------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
+| `MATCH_THRESHOLD`      | 0.50         | ADR-0003 D3; measured 6 Sep 2026 on `fixtures/faces/face-prints.json`, `edgeface/1` at 1600 px: same-person worst 0.7263, stranger best 0.2978 over 33 pairs                                                                               | 0.20 either way      |
+| `MATCH_MARGIN`         | 0.05         | ADR-0003 D3: chosen, not measured; the fixtures hold no look-alikes                                                                                                                                                                        | unmeasured           |
+| `MIN_FACE_PX`          | 40           | ADR-0003 amendment; judged in the Decoded Image                                                                                                                                                                                            | none below 40        |
+| `NOT_A_FACE_THRESHOLD` | 0.60         | ADR-0003 amendment; measured 6 Sep 2026 over the 11 swept detections in `fixtures/karts/`, `edgeface/1` at 1600 px: nearest non-face 0.6364, nearest real face 0.6545                                                                      | 0.0364 up, none down |
+| `NOT_A_FACE_CERTAIN`   | 0.85         | ADR-0017; measured 7 Sep 2026 over the 15 printed faces at or over 40 px in the 9 recordings under `fixtures/karts/annotations/`, `edgeface/1` at 1600 px: lowest helmet 0.9461 (the grid's visor), nearest other 0.6933 (visor-up helmet) | 0.096 up, 0.157 down |
+| `PRINT_MODEL`          | `edgeface/1` | `docs/specs/models.md`, the Catalogue                                                                                                                                                                                                      |                      |
 
 **Measured against the shipped adapter, 6 Sep 2026 (#177).** Both fixture print files are re-taken by `pnpm --filter @meco/models print:fixtures` through the Catalogue's own `edgeface/1` at the Decode Bound, and each file records the Model, the bound and the ONNX Runtime that produced it. Every row above moved by less than 0.0006 against the prototype's ONNX path — worst per-print drift 0.999996 cosine over 21 prints, median 0.999999 — so both bands are the inherited ones and no constant moved. `packages/identify/tests/calibration.test.ts` recomputes both tables every run and refuses a print file from another Model or another bound. ADR-0012 Decision 3 carries the table with its deltas.
 
 **The margin is flat here, and the calibration says so.** Scored the way the rule scores, only three fixture faces reach `MATCH_THRESHOLD` — all one Person, all named correctly — and the worst of their margins is 0.5251, ten times `MATCH_MARGIN`. The six that do not reach it run down to a margin of 0.0005, and every one is refused by the threshold before the margin is consulted. The fixture set gives 0.05 nothing to be measured against; it stays a chosen number.
+
+**The certainty is a second line, not the threshold moved (#248, 7 Sep 2026).** 0.60 refuses a name and keeps the blur, and pays for it with one real face (`paddock-mixed#8`, 0.6545); a line that lifts a blur can pay no such price. Swept over every printed face of every recording under `fixtures/karts/annotations/` (recorded through the Catalogue at `f6f625b`, `edgeface/1` at the 1600 px bound, onnxruntime 1.29.0, arm64): the two helmets sit at 1.0 (the reference) and 0.9461 (the grid's mirrored visor, 85 px); the nearest thing at or over the floor that is not one is the visor-up helmet of `on-track-visor-open` at 0.6933, then the child at 0.6545. Under the floor, the crowd's `face-8` at 23 px prints at 0.9320, which is why the size floor is asked first. Three candidates were measured: geometry (a face inside a `person` inside a `vehicle`) separates nothing — drivers' person-in-vehicle shares run 0.39 to 1.00 and a bystander's reaches 0.66, and it would have unblurred the crowd's two kart drivers and the paddock's real face in a visor-up helmet; a helmet class in the Catalogue was not needed; distance from every real face print does not separate either (the visor's nearest real face is 0.6711). Nearness to the Not-a-Face Print is what does. `tests/calibration.test.ts` prints the table and asserts all three rows.
 
 **Max per Person, not centroid.** Measured 6 Sep 2026 on the one fixture Person with three prints, each held out in turn: max 0.8681 / 0.8681 / 0.8229, centroid 0.9101 / 0.8351 / 0.8015. Centroid wins once and loses twice; the threshold was calibrated on max.
 
@@ -203,37 +209,40 @@ The brief says "given a kart, this is the kart". A kart is frame's composition o
 
 Vitest, through `packages/identify/index.ts` only, `tests-through-entrypoints` enforced. Dependencies are real where an adapter exists and fake only at the model: `records({ database: pgliteDatabase(), store: memoryStore() })` (#174), `memoryStore()`, and an `Annotator` that returns a committed fixture Annotation for a known hash. No network, no ONNX, no fake `Records`; a fake would be a third adapter nobody keeps honest.
 
-The number rule is tested on the two Annotations at `fixtures/karts/annotations/`, recorded through the shipped Catalogue and shared with frame's and the gateway's suites. A recording and not a hand-built Annotation: every question the rule answers is a question about boxes a detector really drew, and a fixture somebody typed would answer them by construction.
+The number rule is tested on the two Annotations at `fixtures/karts/annotations/`, recorded through the shipped Catalogue and shared with frame's and the gateway's suites; the Not-a-Face verdict on all nine recordings there (#248 added the seven Commons photographs, and re-recorded the grid because its first recording predates the Enricher printing the visor). A recording and not a hand-built Annotation: every question the rule answers is a question about boxes a detector really drew, and a fixture somebody typed would answer them by construction.
 
 One question those recordings cannot ask, and it is the containment floor's own. In both of them every number that has a kart sits wholly inside it, so every floor in (0, 1] picks the same kart and dropping the floor altogether leaves the suite green. What the floor is for is a number that overhangs its kart or sits between two of them, which no committed photograph holds, so that geometry is built by hand — the right tool for asking what the rule does with a box already given, and the wrong one for asking where a detector draws one.
 
 Fixture Annotations are built from `fixtures/faces/detected.json` (YuNet boxes and landmarks) and `fixtures/faces/face-prints.json` (prints, 7 people lettered A to G), and from `fixtures/karts/face-prints.json` for the helmet, parsed with the contracts schema inside the test so a drift fails here.
 
-| Check                                                                                                        | Mutation that must turn it red          |
-| ------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
-| a stranger's face is `unknown` with `best` under 0.50                                                        | drop the threshold test                 |
-| a Person's held-out print is `match` with the right `personId`                                               | invert the comparison                   |
-| two People whose best differ by under 0.05 give `unknown` with both numbers                                  | drop the margin test                    |
-| a Person with three prints matches on the best, not the mean                                                 | aggregate by mean                       |
-| a face with no `facePrint` is `uncompared: no-print`, and `matches` omits it                                 | treat a missing print as a zero vector  |
-| a print from `edgeface/2` is `uncompared: other-model`                                                       | drop the model gate                     |
-| a face under 40 px in the Decoded Image is `too-small`, one over is compared                                 | judge in photograph pixels              |
-| the helmet print is `not-identifiable: not-a-face`, naming the reference                                     | drop the Not-a-Face check               |
-| an enrolled helmet print is in `unusableReferencePhotos` and lends no name                                   | compare against every enrolled print    |
-| a Person of Brand A is never a Match for Brand B                                                             | list every Brand's People               |
-| `matches` and `faces` are sorted by Region id number                                                         | sort by position in `regions`           |
-| `enrol` without `consentAt` throws `consent_required`; store prefix and rows stay empty                      | skip the check                          |
-| `enrol` on a helmet photograph throws `not_a_face`; nothing written                                          | write before validating                 |
-| `enrol` on a two-face photograph without `regionId` returns `choose`, largest first                          | pick the first                          |
-| `enrol` with `regionId` on a two-face photograph enrols that face                                            | ignore `regionId`                       |
-| `enrol` writes under `people/<brand>/<personId>/` and the row names that key and the chosen print            | write under `sources/`                  |
-| the calibration file recomputes the table above from the committed prints and fails on a single false Match  | raise a stranger pair over 0.50         |
-| the `24` on the recorded grid matches `vehicle-3`, not the number's own Region and not the largest `vehicle` | seed the number rule on the largest box |
-| the `21`, wholly inside three nested `vehicle` boxes, matches the smallest of them                           | break that tie on the id alone          |
-| the `227`, over no `vehicle` box at all, is no Match                                                         | take any `vehicle` that overlaps at all |
-| a number straddling two karts, neither holding a majority of it, is no Match                                 | drop the containment floor              |
-| a number no Person of the Brand carries is no Match, and another Brand's list names nobody                   | look the label up across Brands         |
-| the target photograph, whose driver is in a helmet and has no face Region, still matches by its number       | require a face Region to be present     |
+| Check                                                                                                                  | Mutation that must turn it red          |
+| ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| a stranger's face is `unknown` with `best` under 0.50                                                                  | drop the threshold test                 |
+| a Person's held-out print is `match` with the right `personId`                                                         | invert the comparison                   |
+| two People whose best differ by under 0.05 give `unknown` with both numbers                                            | drop the margin test                    |
+| a Person with three prints matches on the best, not the mean                                                           | aggregate by mean                       |
+| a face with no `facePrint` is `uncompared: no-print`, and `matches` omits it                                           | treat a missing print as a zero vector  |
+| a print from `edgeface/2` is `uncompared: other-model`                                                                 | drop the model gate                     |
+| a face under 40 px in the Decoded Image is `too-small`, one over is compared                                           | judge in photograph pixels              |
+| the helmet print is `not-a-face`, naming the reference; the visor-up helmet is `not-identifiable: not-a-face`          | drop the Not-a-Face check               |
+| the grid's visor is `not-a-face` and `matches` omits it                                                                | drop the certainty                      |
+| no face of the crowd, the two kart drivers included, is `not-a-face`; the 23 px face over the certainty is `too-small` | ask the certainty before the size floor |
+| no hand-classified real face of the paddock is `not-a-face`; the driver with the visor up is compared                  | lower the certainty to the threshold    |
+| an enrolled helmet print is in `unusableReferencePhotos` and lends no name                                             | compare against every enrolled print    |
+| a Person of Brand A is never a Match for Brand B                                                                       | list every Brand's People               |
+| `matches` and `faces` are sorted by Region id number                                                                   | sort by position in `regions`           |
+| `enrol` without `consentAt` throws `consent_required`; store prefix and rows stay empty                                | skip the check                          |
+| `enrol` on a helmet photograph throws `not_a_face`; nothing written                                                    | write before validating                 |
+| `enrol` on a two-face photograph without `regionId` returns `choose`, largest first                                    | pick the first                          |
+| `enrol` with `regionId` on a two-face photograph enrols that face                                                      | ignore `regionId`                       |
+| `enrol` writes under `people/<brand>/<personId>/` and the row names that key and the chosen print                      | write under `sources/`                  |
+| the calibration file recomputes the table above from the committed prints and fails on a single false Match            | raise a stranger pair over 0.50         |
+| the `24` on the recorded grid matches `vehicle-3`, not the number's own Region and not the largest `vehicle`           | seed the number rule on the largest box |
+| the `21`, wholly inside three nested `vehicle` boxes, matches the smallest of them                                     | break that tie on the id alone          |
+| the `227`, over no `vehicle` box at all, is no Match                                                                   | take any `vehicle` that overlaps at all |
+| a number straddling two karts, neither holding a majority of it, is no Match                                           | drop the containment floor              |
+| a number no Person of the Brand carries is no Match, and another Brand's list names nobody                             | look the label up across Brands         |
+| the target photograph, whose driver is in a helmet and has no face Region, still matches by its number                 | require a face Region to be present     |
 
 Every check is proved able to fail by its mutation before it ships. Commit the green state first, then mutate, then `git restore`.
 
@@ -249,6 +258,7 @@ Every check is proved able to fail by its mutation before it ships. Commit the g
 - Re-embedding stored Reference Photos after a Model swap. The row keeps the print's `model`; a re-enrolment ticket comes with the swap.
 - Deleting a Person or a Reference Photo: `records.people.erase`, called by the gateway.
 - Growing the Not-a-Face set. Needs CC0 photographs and a re-measurement; its own ticket when a non-face is found.
+- A face behind a raised visor. `on-track-visor-open` sits at 0.6933, under the certainty, and stays hidden; lifting that blur needs a second reference print or a photograph set nobody has.
 
 ## Further notes
 
