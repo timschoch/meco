@@ -68,7 +68,7 @@ Boundary rule: if two outputs cut from the same bytes could disagree about it, i
 - `anchor?`: one of `top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right`. Default `center`.
 - `subjectArea?`: a Box in Image Slot fractions.
 - `occlusion`: `Box[]` in Image Slot fractions, may be empty.
-- `redaction`: `{ blurUnknownFaces: boolean }`.
+- `redaction`: `{ blurUnknownFaces: boolean }` — the **resolved** policy, both fields required. `RedactionDefault` is the same shape with every field optional: what a level of the Redaction Policy that is not the last one declares (#249). Here and not in compose or records because three modules name it — compose types a Template's, records stores a Brand's, the gateway resolves both. An absent field is not `false`; it falls to the next level, and the two shapes are what keeps silence and a decision tellable apart.
 
 ### Units and naming
 
@@ -103,10 +103,10 @@ Two root files, per [`packages/README.md`](../../packages/README.md): `packages/
 // packages/contracts/index.ts
 export const Point, Box, Size;                      // zod; Point/Box fractions, Size pixels
 export const RegionKind, ModelId, Landmarks, FacePrint, Region, Annotation;
-export const PinTo, CropAnchor, Redaction, Target, FramingRequest;
+export const PinTo, CropAnchor, Redaction, RedactionDefault, Target, FramingRequest;
 export const Match;
 export type Point, Box, Size, RegionKind, ModelId, Landmarks, FacePrint, Region,
-  Annotation, PinTo, CropAnchor, Redaction, Target, FramingRequest, Match;
+  Annotation, PinTo, CropAnchor, Redaction, RedactionDefault, Target, FramingRequest, Match;
 export const ANNOTATION_SCHEMA: 1;
 export const DEFAULT_PIN_TO: PinTo[];               // ["match", "kart", "face"]
 export const DEFAULT_ANCHOR: CropAnchor;            // "center"

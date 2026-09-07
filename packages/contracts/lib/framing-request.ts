@@ -51,6 +51,25 @@ export const Redaction = z.strictObject({
 });
 
 /**
+ * A Redaction Policy as a level that is not the last one may declare it: every
+ * field optional, because a level says what it has an opinion about and stays
+ * silent on the rest (#249).
+ *
+ * A request, a Template and a Brand each hand one of these to the gateway,
+ * which resolves them field by field down to the {@link Redaction} the
+ * FramingRequest carries. An absent field is not `false`: it falls to the next
+ * level, so silence and a decision must stay tellable apart — which is what
+ * makes this a separate shape rather than {@link Redaction} with a default.
+ *
+ * Here and not in whichever module declares one, because three of them do:
+ * compose types a Template's, records stores a Brand's, and the gateway reads
+ * both.
+ */
+export const RedactionDefault = z.strictObject({
+  blurUnknownFaces: z.boolean().optional(),
+});
+
+/**
  * The most Occlusion Zones one request may declare. A design bound, not a
  * measurement: frame's free-area sweep is O(n^4) in the zone count and a
  * Template emits two or three, so the cap refuses abuse at the edge where
@@ -89,4 +108,5 @@ export type PinTo = z.infer<typeof PinTo>;
 export type CropAnchor = z.infer<typeof CropAnchor>;
 export type Target = z.infer<typeof Target>;
 export type Redaction = z.infer<typeof Redaction>;
+export type RedactionDefault = z.infer<typeof RedactionDefault>;
 export type FramingRequest = z.infer<typeof FramingRequest>;

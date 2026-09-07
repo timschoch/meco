@@ -6,12 +6,16 @@
  * What is here is what only a Render knows: compose's Plan is the Fill, and
  * compose's `render` is the paint.
  */
-import { plan as composePlan, render as composeRender } from "@meco/compose";
+import {
+  plan as composePlan,
+  render as composeRender,
+  templates,
+} from "@meco/compose";
 import { placement as placementById } from "@meco/compose/placements";
-import type { Framing } from "@meco/frame";
 import { z } from "zod";
 import { Brand, FramingOptions } from "./inputs";
 import {
+  type CallFraming,
   type FaceReport,
   type NumberReport,
   type PipelineDeps,
@@ -53,7 +57,7 @@ export type RenderAnswer = {
     readonly bytes: number;
   };
   readonly call: { readonly id: string; readonly replayed: boolean };
-  readonly framing: Framing;
+  readonly framing: CallFraming;
   readonly faces: readonly FaceReport[];
   readonly numbers: readonly NumberReport[];
 };
@@ -64,14 +68,17 @@ const RENDER: Stages<RenderInput> = {
 
   // One Fill per Plan, which is one per Template Variant: compose measures
   // every layout the Template offers and frame chooses among them.
-  async fill(input, trace) {
+  async fill(deps, input, trace) {
     const plans = await trace.step("compose.plan", () =>
-      composePlan({
-        template: input.template,
-        placement: input.placement,
-        brand: input.brand,
-        fields: input.fields,
-      })
+      composePlan(
+        {
+          template: input.template,
+          placement: input.placement,
+          brand: input.brand,
+          fields: input.fields,
+        },
+        deps.templates
+      )
     );
     return plans.map((plan) => ({
       target: plan.imageSlot,
@@ -84,21 +91,34 @@ const RENDER: Stages<RenderInput> = {
   },
 
   // `fill` is the one frame chose, so its Variant is the one to draw.
-  paint(input, fill, image, window, trace) {
+  paint(deps, input, fill, image, window, trace) {
     return trace.step("compose.render", () =>
-      composeRender({
-        template: input.template,
-        placement: input.placement,
-        brand: input.brand,
-        fields: input.fields,
-        source: image,
-        window,
-        ...(fill.variant === undefined ? {} : { variant: fill.variant }),
-        ...(input.format === undefined ? {} : { format: input.format }),
-        ...(input.quality === undefined ? {} : { quality: input.quality }),
-      })
+      composeRender(
+        {
+          template: input.template,
+          placement: input.placement,
+          brand: input.brand,
+          fields: input.fields,
+          source: image,
+          window,
+          ...(fill.variant === undefined ? {} : { variant: fill.variant }),
+          ...(input.format === undefined ? {} : { format: input.format }),
+          ...(input.quality === undefined ? {} : { quality: input.quality }),
+        },
+        deps.templates
+      )
     );
   },
+
+  // The Template's rung of the Redaction Policy, off the same catalogue
+  // `list_templates` answers from and the same registry the Plan will come
+  // from. A Template the Brand does not have is not refused here: `fill` runs
+  // next and `compose.plan` refuses it with `unknown_template`, so a lookup
+  // that missed only ever means the Template declares nothing.
+  templateRedaction: (deps, input) =>
+    templates(input.brand, deps.templates).find(
+      (one) => one.id === input.template
+    )?.redaction,
 };
 
 export async function renderImage(

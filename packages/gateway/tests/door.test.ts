@@ -64,7 +64,9 @@ describe("the Caller at the HTTP Door", () => {
       for (const answer of answers) {
         expect(answer.status).toBe(200);
         expect(answer.body).toEqual({
-          items: heldRows.map(({ id, name }) => ({ id, name })),
+          // `redaction: null` on every Brand: none has set a default, and
+          // `null` is not `false` — the policy falls to meco's default.
+          items: heldRows.map(({ id, name }) => ({ id, name, redaction: null })),
         });
       }
     },

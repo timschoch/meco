@@ -243,9 +243,15 @@ export function planOf(
  * Pure and cheap (0.6–3.6 ms per layout, ADR-0009 decision 1): the gateway
  * calls it to fill one FramingRequest per Plan from one source, lets frame
  * choose among them, then calls `render` with the Variant frame named.
+ *
+ * The registry is a parameter, as `resolve`'s is, so a caller that brought its
+ * own Templates plans from the same registry it will render from (#65).
  */
-export async function plan(input: PlanInput): Promise<readonly Plan[]> {
-  const resolved = resolve(input);
+export async function plan(
+  input: PlanInput,
+  templates: ReadonlyMap<string, Template> = TEMPLATES
+): Promise<readonly Plan[]> {
+  const resolved = resolve(input, templates);
   return Promise.all(
     variantsOf(resolved.template).map(async (variant) =>
       planOf(resolved, await layout(resolved, undefined, variant), variant)

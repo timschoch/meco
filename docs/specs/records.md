@@ -68,9 +68,10 @@ export interface Records {
     release(brand: string, hash: string): Promise<void>;
   };
   brands: {
-    ensure(brand: { id: string; name: string }): Promise<Brand>;
+    ensure(brand: { id: string; name: string }): Promise<Brand>; // never writes `redaction`
     get(id: string): Promise<Brand | null>;
     list(): Promise<Brand[]>;
+    setRedaction(id: string, redaction: unknown): Promise<Brand | null>; // `null` clears it; `null` back for an id no Brand has
   };
   callers: {
     create(caller: {
@@ -160,7 +161,7 @@ Three root files, as store has: the runtime surface, the health probe and the ch
 | `files`            | `hash`                    | `mime`, `width`, `height`, `bytes`, `store_key`, `first_seen_at`                                                                                                                                      | no           |
 | `annotations`      | `hash` → `files`, cascade | `schema`, `produced_by` jsonb, `annotation` jsonb, `annotated_at`                                                                                                                                     | no           |
 | `sources`          | `(brand, hash)`           | `first_used_at`                                                                                                                                                                                       | yes          |
-| `brands`           | `id`                      | `name`, `created_at`                                                                                                                                                                                  | is the Brand |
+| `brands`           | `id`                      | `name`, `redaction` jsonb (nullable), `created_at`                                                                                                                                                    | is the Brand |
 | `callers`          | `id`                      | `name`, `key_hash` unique, `brands text[]`, `created_at`                                                                                                                                              | holds Brands |
 | `people`           | `id`                      | `brand` → `brands`, `name`, `created_at`                                                                                                                                                              | yes          |
 | `reference_photos` | `id`                      | `person_id` → `people`, cascade; `brand`, `hash`, `store_key`, `region_id`, `face_print` jsonb, `consent_at` nullable, `created_at`                                                                   | yes          |
@@ -249,6 +250,7 @@ The probe is **write-once**. `GET /health` is unauthenticated, so a probe that i
 | `files.ensure` twice on one hash is one row                                                                                                            | insert without `on conflict`                                     |
 | `brands.ensure` twice on one id is one row under the last name                                                                                         | insert without `on conflict`                                     |
 | `brands.get` of an id no Brand has is `null`, not a throw                                                                                              | throw on a miss                                                  |
+| `brands.setRedaction` writes the policy back on `get` and `list`, `null` clears it, and `ensure` leaves it alone                                        | write `redaction` from `ensure`, or store `false` for a cleared one |
 | `callers.byKey` finds by hash and the table holds no plaintext key                                                                                     | store the key                                                    |
 | `callers.byKey` of a key that created nothing is `null`, not a throw                                                                                   | throw on a miss                                                  |
 | `callers.byKey` returns the Brands that Caller holds and no others                                                                                     | answer with every Brand row                                      |

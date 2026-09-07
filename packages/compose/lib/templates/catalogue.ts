@@ -1,3 +1,4 @@
+import type { RedactionDefault } from "@meco/contracts";
 import { z } from "zod";
 import type { PlacementId } from "../../placements";
 import type { Template } from "../../template";
@@ -24,6 +25,13 @@ export interface TemplateDescription {
    */
   readonly variants?: readonly string[];
   /**
+   * This Template's rung of the Redaction Policy, when it declares one. A
+   * caller reads it to know what an output gets when its request says nothing;
+   * the gateway reads it to resolve the policy (#249). Absent for a Template
+   * with no opinion, which is every shipped one today.
+   */
+  readonly redaction?: RedactionDefault;
+  /**
    * The Fields as JSON Schema, draft 2020-12.
    *
    * A plain object and not zod's own `JSONSchema` type: a description crosses
@@ -43,6 +51,7 @@ const describeTemplate = (template: Template): TemplateDescription => ({
   ...(template.variants === undefined
     ? {}
     : { variants: template.variants.map((variant) => variant.name) }),
+  ...(template.redaction === undefined ? {} : { redaction: template.redaction }),
   fields: z.toJSONSchema(template.fields) as Record<string, unknown>,
   example: template.example,
 });
@@ -54,9 +63,17 @@ const describeTemplate = (template: Template): TemplateDescription => ({
  * where a static import moved. A Brand with no Template yet lists nothing;
  * that is not a refusal, because asking what a Brand offers is a fair question
  * whatever the answer.
+ *
+ * The registry is a parameter for the same reason `resolve` takes one: a
+ * caller may bring Templates compose does not ship (#65), and the catalogue
+ * has to describe the registry `plan` and `render` will draw from rather than
+ * a different one. Every caller that ships with compose takes the default.
  */
-export function templates(brand?: string): readonly TemplateDescription[] {
-  return [...TEMPLATES.values()]
+export function templates(
+  brand?: string,
+  registry: ReadonlyMap<string, Template> = TEMPLATES
+): readonly TemplateDescription[] {
+  return [...registry.values()]
     .filter((template) => brand === undefined || template.brand === brand)
     .sort((a, b) => a.id.localeCompare(b.id))
     .map(describeTemplate);

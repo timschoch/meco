@@ -185,8 +185,19 @@ The output's size in pixels, `width` and `height`, with an optional format and q
 _Avoid_: size, dimensions, output
 
 **Redaction**:
-The per-output redaction policy on the FramingRequest, today only `blurUnknownFaces`. Never a Brand default: it is true of this output and of nothing else.
+The resolved redaction policy on the FramingRequest, today only `blurUnknownFaces`. True of this output and of nothing else: it is what the Redaction Policy answered for this call, not a setting anything is stored under.
 _Avoid_: privacy, blur settings
+
+**Redaction Policy**:
+Where the Redaction comes from: four levels, first set wins, an absent level falls to the next one and never to the default (#249).
+
+1. the request — `redaction.blurUnknownFaces`, set by the caller, per call
+2. the Template — a `redaction` default in its definition, set by its author
+3. the Brand — the `redaction` column on `brands`, set with `set_brand_redaction`
+4. the default — `true`, meco's own, because the safe answer is the default one
+
+Resolved at the gateway door when the FramingRequest is built, before frame and redact run. A Crop has no Template and walks 1 → 3 → 4. Which level answered rides on the Framing as `redaction.from` and is never part of the Request Hash, so a Brand or Template changing its default does not invalidate an Output already made.
+_Avoid_: privacy setting, blur flag, redaction settings, blur level
 
 ## frame
 

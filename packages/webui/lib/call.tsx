@@ -327,16 +327,35 @@ export function CallView(props: CallProps) {
 
       <h2>Framing</h2>
       {/*
-        The one field of the Framing read out on its own: which layout of the
-        Template the picture got is the first thing a reader asks of a Render
-        whose caption is not where the design puts it.
+        The two fields of the Framing read out on their own. Which layout of
+        the Template the picture got is the first thing a reader asks of a
+        Render whose caption is not where the design puts it; the Redaction
+        Policy is the first thing they ask of one where a stranger's face is
+        showing, and the level that decided it is where they go to change it.
       */}
-      {props.view.variant === null ? null : (
+      {props.view.variant === null && props.view.redaction === null ? null : (
         <dl class="facts">
-          <dt>variant</dt>
-          <dd>
-            <code>{props.view.variant}</code>
-          </dd>
+          {props.view.variant === null ? null : (
+            <>
+              <dt>variant</dt>
+              <dd>
+                <code>{props.view.variant}</code>
+              </dd>
+            </>
+          )}
+          {props.view.redaction === null ? null : (
+            <>
+              <dt>redaction</dt>
+              <dd>
+                <code>
+                  blurUnknownFaces={String(
+                    props.view.redaction.blurUnknownFaces
+                  )}
+                </code>{" "}
+                from the <code>{props.view.redaction.from}</code>
+              </dd>
+            </>
+          )}
         </dl>
       )}
       <Verbatim value={call.framing} absent="No window was framed." />

@@ -72,5 +72,12 @@ export const MIGRATIONS: readonly EmbeddedMigration[] = [
       "ALTER TABLE \"person_numbers\" ADD CONSTRAINT \"person_numbers_brand_brands_id_fk\" FOREIGN KEY (\"brand\") REFERENCES \"public\".\"brands\"(\"id\") ON DELETE no action ON UPDATE no action;",
       "CREATE INDEX \"person_numbers_person_id_index\" ON \"person_numbers\" USING btree (\"person_id\");"
     ]
+  },
+  {
+    "tag": "0003_a_brand_has_a_redaction_default",
+    "hash": "d48f2e137ef959d98fbef9dd77f64636dc6446f00c542abef46a7c0c29981111",
+    "statements": [
+      "ALTER TABLE \"brands\" ADD COLUMN \"redaction\" jsonb;"
+    ]
   }
 ];

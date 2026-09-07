@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { Template } from "@meco/compose/template";
 import { identify } from "@meco/identify";
 import type { ModelsClient } from "@meco/models";
 import type { Records } from "@meco/records";
@@ -32,6 +33,16 @@ export interface GatewayDeps {
   /** Fetches a `{ url }` Source Reference. The global `fetch` by default. */
   readonly fetch?: typeof fetch;
   /**
+   * The Templates the gateway plans, draws and lists. Absent means compose's
+   * own, which is what the deployment runs on. Handed in only by a caller
+   * that registered its own (#65) — and by the suite, which needs a Template
+   * declaring a redaction default without shipping one nobody asked for.
+   *
+   * One registry for all three: a catalogue that listed Templates the paint
+   * could not draw would be a catalogue lying about what a Brand offers.
+   */
+  readonly templates?: ReadonlyMap<string, Template>;
+  /**
    * `CRON_SECRET`, the only key `/internal/*` answers to. Absent or empty and
    * those routes are never registered, so `/internal/sweep` is a `404`.
    */
@@ -53,6 +64,7 @@ export function createApp(deps: GatewayDeps): Hono<CallerEnv> {
     store,
     models,
     fetch = globalThis.fetch,
+    templates,
     cronSecret,
     version = "0.0.0",
     now = () => new Date(),
@@ -114,6 +126,7 @@ export function createApp(deps: GatewayDeps): Hono<CallerEnv> {
       },
     }),
     fetch,
+    templates,
     catalogue: catalogueOf(models),
     now,
   };

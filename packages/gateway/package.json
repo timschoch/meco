@@ -30,6 +30,8 @@
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
-    "@electric-sql/pglite": "^0.5.8"
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/react": "^19.2.18",
+    "react": "^19.2.8"
   }
 }
