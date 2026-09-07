@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import type { RgbaImage } from "@takumi-rs/helpers";
 import type { z } from "zod";
-import type { Box } from "@meco/contracts";
+import type { Box, RedactionDefault } from "@meco/contracts";
 import type { Placement, PlacementId } from "./placements";
 
 export { ImageSlot, Occludes } from "./lib/markers";
@@ -121,6 +121,18 @@ export interface Template<Fields extends z.ZodType = z.ZodType> {
   /** Where the Subject should land, in Image Slot fractions. Design intent, per Placement. */
   readonly subjectArea?: Partial<Record<PlacementId, Box>>;
   /**
+   * This Template's rung of the Redaction Policy: what an output drawn from it
+   * gets when the request said nothing (#249). Beside the Look and the
+   * Variants because it is a design decision — a Template built around one
+   * recognisable face has an opinion about blurring the crowd behind it.
+   *
+   * Absent, and absent per field, means this Template has no opinion and the
+   * Brand's default answers next. compose neither reads nor applies it: it
+   * declares it and the gateway resolves it, because redaction happens on the
+   * Source Image long before compose is handed a window.
+   */
+  readonly redaction?: RedactionDefault;
+  /**
    * The Variants this Template offers, most preferred first, each named once.
    * A Template that declares none lays out one way and its `render` is never
    * handed a `variant`.
@@ -132,5 +144,5 @@ export interface Template<Fields extends z.ZodType = z.ZodType> {
 }
 
 export type { Placement, PlacementId } from "./placements";
-export type { Box } from "@meco/contracts";
+export type { Box, RedactionDefault } from "@meco/contracts";
 export type { RgbaImage } from "@takumi-rs/helpers";

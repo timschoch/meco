@@ -6,6 +6,7 @@ import type { Node } from "@takumi-rs/core";
 import type { Box, DecodedImage, Size } from "@meco/contracts";
 import { ComposeError } from "./errors";
 import { layout, resolve, resolveVariant, type PlanInput } from "./plan";
+import type { Template } from "../template";
 import { lookImages, sharedRenderer } from "./renderer";
 
 /** The formats compose encodes, the same set as the contracts `Target`. */
@@ -195,9 +196,15 @@ export async function cut(input: CutInput): Promise<RenderResult> {
  * compose is the last stage that touches pixels and the only one that encodes:
  * it resamples once, into the Image Slot, and hands back bytes. It fetches
  * nothing and stores nothing.
+ *
+ * The registry is a parameter, as `plan`'s is, so a caller that planned from
+ * its own Templates draws the one it planned (#65).
  */
-export async function render(input: RenderInput): Promise<RenderResult> {
-  const resolved = resolve(input);
+export async function render(
+  input: RenderInput,
+  templates?: ReadonlyMap<string, Template>
+): Promise<RenderResult> {
+  const resolved = resolve(input, templates);
   const { template, look, placement } = resolved;
   const variant = resolveVariant(template, input.variant);
 

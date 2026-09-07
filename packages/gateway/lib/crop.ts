@@ -10,10 +10,10 @@
  */
 import { Box } from "@meco/contracts";
 import { cut as composeCut } from "@meco/compose";
-import type { Framing } from "@meco/frame";
 import { z } from "zod";
 import { Brand, FramingOptions } from "./inputs";
 import {
+  type CallFraming,
   type FaceReport,
   type NumberReport,
   type PipelineDeps,
@@ -51,7 +51,7 @@ export type CropAnswer = {
     readonly bytes: number;
   };
   readonly call: { readonly id: string; readonly replayed: boolean };
-  readonly framing: Framing;
+  readonly framing: CallFraming;
   readonly faces: readonly FaceReport[];
   readonly numbers: readonly NumberReport[];
 };
@@ -64,7 +64,9 @@ const CROP: Stages<CropInput> = {
   // `occlusion: []` because nothing will be drawn over the picture, which is
   // what makes frame free to use the whole window. One Fill and no Variant:
   // there is no Template to lay out another way.
-  fill: async (input) => [
+  // No `templateRedaction`: a Crop has no Template, so its Redaction Policy
+  // walks request → brand → default (#249).
+  fill: async (_deps, input) => [
     {
       target: { width: input.width, height: input.height },
       occlusion: [],
@@ -74,7 +76,7 @@ const CROP: Stages<CropInput> = {
     },
   ],
 
-  paint(input, fill, image, window, trace) {
+  paint(_deps, input, fill, image, window, trace) {
     return trace.step("compose.cut", () =>
       composeCut({
         source: image,

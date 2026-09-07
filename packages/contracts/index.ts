@@ -21,6 +21,7 @@ export {
   MAX_OCCLUSION_ZONES,
   PinTo,
   Redaction,
+  RedactionDefault,
   Target,
 } from "./lib/framing-request";
 export { Match, type MatchRule } from "./lib/match";

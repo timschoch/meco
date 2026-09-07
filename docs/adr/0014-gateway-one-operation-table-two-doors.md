@@ -34,14 +34,14 @@ Records decided a boot timer for v1 ([#86](https://github.com/timschoch/meco/iss
 
 ## Decision 6 — the safe defaults and the flat error vocabulary
 
-- `redaction.blurUnknownFaces` defaults to **true** at the door. contracts requires the field; the gateway's input makes it optional; the default is the side the Brand Wall is on. The prototype defaulted to false.
+- `redaction.blurUnknownFaces` defaults to **true** at the door. contracts requires the field; the gateway's input makes it optional; the default is the side the Brand Wall is on. The prototype defaulted to false. Since [ADR-0016](0016-the-redaction-policy-resolves-through-four-levels.md) (#249) this is the **last** rung of the Redaction Policy rather than the only one: the request, the Template and the Brand are asked first, and an absent level falls to the next one, never straight to here.
 - `pinTo` defaults to `DEFAULT_PIN_TO` at the door, so the contract never carries an absent ladder (ledgered on #88).
 - Errors are `{ error: { code, message, details? } }` on both Doors, one flat code namespace: a module's typed code passes through verbatim, the gateway adds its own, and the status comes from one table. Codes were checked for collisions across compose, models, identify, records and gateway on 6 Sep 2026; none. `module` is on the Call record for the webui and not on the wire.
 - The Caller is looked up from `Authorization: Bearer`, `Authorization: Basic` (ADR-0013) or `x-auth-token`. The third exists because Claude Desktop's connector dialog reserves `Authorization` for its own OAuth flow and greys it out, so a custom connector can set no other header; recorded by the prototype and kept on that fact.
 
 ## Considered and rejected
 
-- **`persons` or a Brand default anywhere at the door.** Both belong to the FramingRequest and stay there (#67, #70).
+- **`persons` or a Brand default anywhere at the door.** Both belong to the FramingRequest and stay there (#67, #70). The Brand-default half is **reversed by [ADR-0016](0016-the-redaction-policy-resolves-through-four-levels.md)** (#249): a Brand stores a default, the door resolves it, and what reaches the FramingRequest is still one output's own policy. The `persons` half stands.
 - **A `result` column on `calls`** for the Face Report. The webui draws the Regions, the window and the Redaction Records over the source already; the report is computed for the wire from `projectIntoFrame` and not stored.
 - **Storing `Match[]` alone on the Call.** The `matches` column holds identify's whole Identification, because the verdicts are what a reader needs and records stores jsonb unread. Clarified on [#162](https://github.com/timschoch/meco/issues/162); no migration.
 - **Face Prints on the wire.** `POST /v1/annotate` strips them from the Regions. A 512-float biometric template of a stranger leaves the deployment for nobody.

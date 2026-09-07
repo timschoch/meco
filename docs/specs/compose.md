@@ -39,13 +39,13 @@ Four entry points, per `packages/README.md`.
 `index.ts`, what the gateway calls:
 
 ```ts
-plan({ template, placement, brand, fields }) → Promise<readonly Plan[]>   // one per Variant, most preferred first; one unnamed Plan for a Template that lays out one way
+plan({ template, placement, brand, fields }, registry?) → Promise<readonly Plan[]>   // one per Variant, most preferred first; one unnamed Plan for a Template that lays out one way
   Plan = { imageSlot: Size, occlusion: Box[], subjectArea?: Box, variant?: string }
-render({ template, placement, brand, fields, source: DecodedImage, window: Box, variant?, format?, quality? })
+render({ template, placement, brand, fields, source: DecodedImage, window: Box, variant?, format?, quality? }, registry?)
   → Promise<{ bytes: Uint8Array, mime }>
 cut({ source: DecodedImage, window: Box, target: Size, format?, quality? })
   → Promise<{ bytes: Uint8Array, mime }>   // a bare Crop: no Template
-templates(brand?) → TemplateDescription[]       // id, brand, description, placements, variants?, fields as JSON Schema, example
+templates(brand?, registry?) → TemplateDescription[]  // id, brand, description, placements, variants?, redaction?, fields as JSON Schema, example
 PLACEMENTS: readonly Placement[]                 // the closed catalogue
 ComposeError { code: "unknown_template" | "unknown_brand" | "placement_not_supported" | "invalid_fields" | "unknown_variant" | "framing_mismatch" | "look_assets_missing" }
 ```
@@ -58,12 +58,15 @@ ComposeError { code: "unknown_template" | "unknown_brand" | "placement_not_suppo
 
 ### The Template contract
 
-A Template is one TSX module default-exporting `{ id, brand, description, fields, placements, subjectArea?, variants?, example, render }`.
+A Template is one TSX module default-exporting `{ id, brand, description, fields, placements, subjectArea?, redaction?, variants?, example, render }`.
+
+`registry` on `plan`, `render` and `templates` is the map of Templates to work from; every caller that ships with compose omits it and gets compose's own. It exists so a caller bringing its own Templates (#65) plans, draws and lists from **one** registry — a catalogue naming Templates the paint could not draw would lie about what a Brand offers.
 
 - `id` is `<brand>-<name>`.
 - `fields` is a zod object; the gateway turns it into the MCP input schema. Fields hold text and small values, never a URL to fetch: compose fetches nothing.
 - `placements` is closed. A Placement not in it is refused with `placement_not_supported`.
 - `subjectArea?` is static per Placement, in Image Slot fractions.
+- `redaction?` is this Template's rung of the Redaction Policy (`{ blurUnknownFaces? }`), a design decision beside the Look: a Template built around one recognisable face has an opinion about blurring the crowd behind it. compose declares it and never applies it — redaction happens on the Source Image long before compose is handed a window — and the gateway resolves it (`docs/specs/gateway.md`, "The Redaction Policy"). Absent, and absent per field, means no opinion. No shipped Template declares one.
 - `variants?` names the Variants, most preferred first, each `{ name, subjectArea? }`: the same Fields and Look with the blocks somewhere else, and its own Subject Area per Placement where the clear part of the frame moved with them (the Template's is the fallback). A name declared twice or an empty list is refused at registration. A Template that declares none lays out one way.
 - `render(props)` returns the element. `props = { fields, look, placement, image: { src, width, height }, variant? }`; `variant` is one of the declared names and absent for a Template with none. The Template places `<ImageSlot src={image.src}>` exactly once and wraps what covers the picture in `<Occludes>`.
 - `example` is real data that renders, as in the prototype's catalogue.

@@ -68,6 +68,16 @@ export interface RedactionRow {
   readonly reason: string;
 }
 
+/**
+ * The resolved Redaction Policy, as the gateway writes it on the Framing:
+ * what was decided and which of the four levels decided it.
+ */
+export interface RedactionPolicyRow {
+  readonly blurUnknownFaces: boolean;
+  /** `request`, `template`, `brand` or `default`, as the gateway wrote it. */
+  readonly from: string;
+}
+
 export interface CallView {
   readonly call: Call;
   /** The Source Image's File, for the Overlay's own arithmetic. */
@@ -75,6 +85,12 @@ export interface CallView {
   readonly overlay: Overlay | null;
   /** The Template Variant frame chose, off the Framing; `null` when it names none. */
   readonly variant: string | null;
+  /**
+   * The Redaction Policy this output was made under and the level that decided
+   * it, off the Framing. `null` for a Call recorded before the policy had
+   * levels, and for one that framed nothing.
+   */
+  readonly redaction: RedactionPolicyRow | null;
   /** `null` when `matches` is not identify's shape: the page prints it raw. */
   readonly faces: readonly FaceVerdictRow[] | null;
   /** The Matches this Call made, with their rule. Empty when it made none. */
@@ -114,6 +130,19 @@ function pixelWindowOf(framing: unknown): PixelWindow | null {
 /** The Variant frame chose, as frame writes it: a string on the Framing, or nothing. */
 const variantOf = (framing: unknown): string | null =>
   isObject(framing) && isString(framing["variant"]) ? framing["variant"] : null;
+
+/**
+ * The resolved Redaction Policy, as the gateway writes it beside frame's own
+ * fields. `null` for anything that is not both fields: a Call recorded before
+ * the policy had levels carries none, and the page shows the line only when
+ * there is one to show.
+ */
+function redactionPolicyOf(framing: unknown): RedactionPolicyRow | null {
+  if (!isObject(framing) || !isObject(framing["redaction"])) return null;
+  const { blurUnknownFaces, from } = framing["redaction"];
+  if (typeof blurUnknownFaces !== "boolean" || !isString(from)) return null;
+  return { blurUnknownFaces, from };
+}
 
 /**
  * The Crop Window over the Source Thumbnail, as a fraction of the picture the
@@ -360,6 +389,7 @@ export function viewOf(read: CallRead): CallView {
             window: window === null ? null : windowFraction(window, file),
           },
     variant: variantOf(call.framing),
+    redaction: redactionPolicyOf(call.framing),
     faces: faceVerdictsOf(call.matches),
     matches: matchesOf(call.matches),
     redactions: redactionsOf(call.redactions),

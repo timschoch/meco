@@ -11,6 +11,7 @@
  */
 import { templates } from "@meco/compose";
 import { PLACEMENTS } from "@meco/compose/placements";
+import type { Template } from "@meco/compose/template";
 import type { Annotation, ModelId } from "@meco/contracts";
 import type { Identify } from "@meco/identify";
 import type { ModelsClient } from "@meco/models";
@@ -48,6 +49,8 @@ export interface OperationDeps {
   readonly identify: Identify;
   /** Fetches a `{ url }` Source Reference. */
   readonly fetch: typeof fetch;
+  /** The Templates to plan, draw and list. Absent means compose's own. */
+  readonly templates?: ReadonlyMap<string, Template>;
   /** The `{ name, version }` pairs a cached Annotation must be complete for. */
   catalogue(): Promise<readonly ModelId[]>;
   /** The clock a Call's `startedAt` is read from. */
@@ -175,7 +178,7 @@ export const OPERATIONS: readonly Operation[] = [
     input: z.object({ brand: Brand.optional() }),
     async handler(ctx) {
       const items = ctx.brands
-        .flatMap((brand) => templates(brand))
+        .flatMap((brand) => templates(brand, ctx.templates))
         .sort((a, b) => a.id.localeCompare(b.id));
       return { items };
     },
@@ -190,7 +193,8 @@ export const OPERATIONS: readonly Operation[] = [
   }),
   define({
     name: "list_brands",
-    description: "The Brands your key holds.",
+    description:
+      "The Brands your key holds, with each Brand's redaction default.",
     method: "GET",
     path: "/brands",
     input: z.object({}),
@@ -199,11 +203,52 @@ export const OPERATIONS: readonly Operation[] = [
         ctx.brands.map((id) => ctx.records.brands.get(id))
       );
       // By id, as `brands.list` orders, so two keys holding the same Brands
-      // see the same list.
+      // see the same list. `redaction` is `null` for a Brand that has set
+      // none, which is not `false`: the policy then falls to meco's default.
       const items = ctx.brands
-        .map((id, i) => ({ id, name: rows[i]?.name ?? id }))
+        .map((id, i) => ({
+          id,
+          name: rows[i]?.name ?? id,
+          redaction: rows[i]?.redaction ?? null,
+        }))
         .sort((a, b) => a.id.localeCompare(b.id));
       return { items };
+    },
+  }),
+  define({
+    name: "set_brand_redaction",
+    description:
+      "Set what a Brand's outputs do about faces meco cannot name, for every call that does not say. `null` clears it and meco's default (hide them) applies again. A request and a Template both outrank this.",
+    method: "PATCH",
+    path: "/brands/:brand",
+    input: z.object({
+      brand: Brand,
+      // Nullable and required: clearing the default has to be sayable, and an
+      // absent field would be indistinguishable from "leave it alone" on a
+      // PATCH that has exactly one thing to change.
+      redaction: z
+        .strictObject({
+          blurUnknownFaces: z
+            .boolean()
+            .describe("Hide every face meco cannot name. meco's default is true."),
+        })
+        .nullable()
+        .describe(
+          "This Brand's redaction default, or null to fall back to meco's."
+        ),
+    }),
+    async handler(ctx, { brand, redaction }) {
+      const row = await ctx.records.brands.setRedaction(brand, redaction);
+      // Unreachable through a Door: the Brand Wall passed, so the Caller holds
+      // this Brand, and a Brand a Caller holds has a row. A `null` here is the
+      // Seed and the Caller's brand list disagreeing.
+      if (row === null) {
+        throw new GatewayError(
+          "not_found",
+          `there is no brand ${brand} to set a redaction default on`
+        );
+      }
+      return { id: row.id, name: row.name, redaction: row.redaction ?? null };
     },
   }),
   define({

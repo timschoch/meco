@@ -160,6 +160,7 @@ describe("POST /v1/render on a photograph meco has never seen", () => {
         "records.annotations.put",
         "records.sources.hold",
         "identify.match",
+        "records.brand",
         "compose.plan",
         "frame.crop",
         "source.decode",

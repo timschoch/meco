@@ -23,6 +23,7 @@ import {
   DEFAULT_PIN_TO,
   type DecodedImage,
   FramingRequest,
+  type RedactionDefault,
   type Size,
 } from "@meco/contracts";
 import {
@@ -34,11 +35,13 @@ import {
 import type { FaceVerdict, Identification, Identify } from "@meco/identify";
 import { type RedactionRecord, redact } from "@meco/redact";
 import type { Caller, Records } from "@meco/records";
+import type { Template } from "@meco/compose/template";
 import type { Namespace, Store } from "@meco/store";
 import type { z } from "zod";
 import { type AnnotateDeps, annotationOf } from "./annotate";
 import { decodeAt } from "./decode";
 import type { FramingOptions } from "./inputs";
+import { type ResolvedRedaction, resolveRedaction } from "./redaction";
 import { requestHash } from "./request-hash";
 import { type SourceReference, resolveSource } from "./source";
 import type { Trace } from "./trace";
@@ -50,6 +53,13 @@ export interface PipelineDeps extends AnnotateDeps {
   readonly identify: Identify;
   readonly fetch: typeof fetch;
   readonly caller: Caller;
+  /**
+   * The Templates to plan, draw and read defaults from. Absent means compose's
+   * own, which is what the deployment runs on; a caller that registered its
+   * own Templates hands them here, and every compose call takes the same one
+   * so the catalogue, the Plan and the paint cannot be three different sets.
+   */
+  readonly templates?: ReadonlyMap<string, Template>;
   now(): Date;
 }
 
@@ -95,19 +105,26 @@ export interface Stages<I extends FramingInput> {
    * Render, in a Step of its own (`compose.plan`); the request itself, once,
    * for a Crop. frame is handed every one and names the Variant it chose.
    */
-  fill(input: I, trace: Trace): Promise<readonly Fill[]>;
+  fill(deps: PipelineDeps, input: I, trace: Trace): Promise<readonly Fill[]>;
   /**
    * After redact: the pixels, for the Fill frame chose. Records its own Step,
    * because `compose.render` and `compose.cut` are two names for two different
    * amounts of work.
    */
   paint(
+    deps: PipelineDeps,
     input: I,
     fill: Fill,
     image: DecodedImage,
     window: Box,
     trace: Trace
   ): Promise<RenderResult>;
+  /**
+   * This kind's Template rung of the Redaction Policy, when it has a Template
+   * at all. A Render reads the one its Template declares; a Crop leaves this
+   * out, which is what makes it walk request → brand → default (#249).
+   */
+  templateRedaction?(deps: PipelineDeps, input: I): RedactionDefault | undefined;
 }
 
 /**
@@ -153,12 +170,28 @@ export interface NumberReport {
   readonly inFrame?: boolean;
 }
 
+/**
+ * The Framing as the gateway answers and stores it: frame's own, plus the
+ * Redaction Policy this output was made under and the level that decided it.
+ *
+ * frame's shape is left alone. frame is handed the policy on the FramingRequest
+ * and has no opinion about where it came from, so `redaction` is the gateway's
+ * own line on the Framing rather than a field frame would have to carry.
+ *
+ * Optional, and only on the way out: every Call this code makes writes it, and
+ * a Replay of a Call recorded before #249 has none. Stored shapes are survived,
+ * not rewritten — the same rule `scale` and `lowResolution` landed under.
+ */
+export type CallFraming = Framing & {
+  readonly redaction?: ResolvedRedaction;
+};
+
 /** What one pass produced, before the Call row exists. */
 interface Produced {
   readonly storeKey: string;
   readonly mime: string;
   readonly bytes: number;
-  readonly framing: Framing;
+  readonly framing: CallFraming;
   readonly faces: readonly FaceReport[];
   readonly numbers: readonly NumberReport[];
 }
@@ -196,13 +229,28 @@ export async function pipeline<I extends FramingInput>(
   );
   trace.matches(identification);
 
-  const fills = await stages.fill(input, trace);
+  // The Redaction Policy, resolved once and handed to every candidate, to
+  // redact and to the Framing, so the policy is one fact (#249). Before the
+  // Fills, because it is a fact of the request and not of a layout, and the
+  // Step order in `docs/specs/gateway.md` says so. The Brand row is read here
+  // and not by `resolveRedaction`, which stays pure: the levels are its
+  // argument, not its errand.
+  const brandRow = await trace.step("records.brand", () =>
+    deps.records.brands.get(brand)
+  );
+  const declared = stages.templateRedaction?.(deps, input);
+  const resolved = resolveRedaction({
+    ...(input.redaction === undefined ? {} : { request: input.redaction }),
+    ...(declared === undefined ? {} : { template: declared }),
+    brand: brandRow?.redaction,
+  });
 
-  // The safe answer is the default one (ADR-0014, Decision 6). Read once and
-  // handed to every candidate and to redact, so the policy is one fact.
-  const redaction = {
-    blurUnknownFaces: input.redaction?.blurUnknownFaces ?? true,
-  };
+  const fills = await stages.fill(deps, input, trace);
+
+  // frame and redact are asked the policy, never where it came from: `from` is
+  // the gateway's account of the decision and rides on the Framing, so it can
+  // never reach the FramingRequest and therefore never the Request Hash.
+  const { from: _from, ...redaction } = resolved;
 
   // The contract refuses the request, not the gateway: a 17th Occlusion Zone
   // or a ladder naming a rung twice is a `400 invalid_request` from the same
@@ -239,7 +287,13 @@ export async function pipeline<I extends FramingInput>(
       variants: candidates,
     })
   );
-  trace.framing(framing);
+  // The Framing as both the Call row and the answer carry it: frame's own,
+  // plus the policy this output was made under and the level that decided it.
+  // Built once, so the row and the wire cannot disagree — and so a Replay
+  // reads the policy back off the Call rather than resolving it again against
+  // a Brand default that may have changed since.
+  const callFraming: CallFraming = { ...framing, redaction: resolved };
+  trace.framing(callFraming);
 
   // The Fill frame framed for, found by the name it answered with. Unreachable
   // when missing: frame names one of the Variants it was handed, so this is
@@ -266,6 +320,7 @@ export async function pipeline<I extends FramingInput>(
   trace.redactions(hidden.redactions);
 
   const painted = await stages.paint(
+    deps,
     input,
     fill,
     hidden.image,
@@ -282,7 +337,7 @@ export async function pipeline<I extends FramingInput>(
     mime: painted.mime,
     bytes: painted.bytes.byteLength,
     requestHash: hash,
-    framing,
+    framing: callFraming,
     faces: faceReports(annotation, identification, hidden.redactions, framing),
     numbers: numberReports(annotation, identification, framing),
     replayed: false,
@@ -321,7 +376,7 @@ async function replayOf(
     // one place the three shapes are named again — and the one place a row an
     // older shape wrote has to be survived rather than trusted. Anything that
     // is not the shape this reads is a miss, and the pipeline runs again.
-    const framing = call.framing as Framing | null;
+    const framing = call.framing as CallFraming | null;
     const identification = call.matches as Identification | null;
     const redactions = (call.redactions ?? []) as readonly RedactionRecord[];
     if (framing?.windowFraction === undefined) return null;
