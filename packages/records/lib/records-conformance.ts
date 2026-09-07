@@ -1789,6 +1789,52 @@ export function recordsConformance(
       },
     },
     {
+      name: "brands.setRedaction writes the policy back unread, and null is not false",
+      async run() {
+        const records = await open();
+        const id = brandFor("a redaction default");
+        const policy = { blurUnknownFaces: false };
+
+        // A Brand that has never set one has null, and not the default the
+        // gateway would resolve to: records stores what was set and nothing
+        // about what an absent setting means.
+        const created = await records.brands.ensure({ id, name: "Unset" });
+        strictEqual(created.redaction, null);
+
+        const set = await records.brands.setRedaction(id, policy);
+        deepStrictEqual(set?.redaction, policy);
+        deepStrictEqual((await records.brands.get(id))?.redaction, policy);
+        deepStrictEqual(
+          (await records.brands.list()).find((brand) => brand.id === id)
+            ?.redaction,
+          policy
+        );
+
+        // The Seed runs again on every deploy. A rename must not undo a policy
+        // set over the API, so `ensure` writes the name and nothing else.
+        const renamed = await records.brands.ensure({ id, name: "Renamed" });
+        strictEqual(renamed.name, "Renamed");
+        deepStrictEqual(renamed.redaction, policy);
+
+        const cleared = await records.brands.setRedaction(id, null);
+        strictEqual(cleared?.redaction, null);
+        strictEqual((await records.brands.get(id))?.redaction, null);
+      },
+    },
+    {
+      name: "brands.setRedaction of an id no Brand has is null, not a throw",
+      async run() {
+        const records = await open();
+
+        strictEqual(
+          await records.brands.setRedaction(brandFor("no such brand"), {
+            blurUnknownFaces: true,
+          }),
+          null
+        );
+      },
+    },
+    {
       name: "callers.byKey finds the Caller its key created, and the table holds no plaintext key",
       async run() {
         const records = await open();

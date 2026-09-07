@@ -63,10 +63,20 @@ export const annotations = pgTable("annotations", {
   annotatedAt: createdAt("annotated_at"),
 });
 
-/** A Brand. Its id is the slug compose keys a Look on. */
+/**
+ * A Brand. Its id is the slug compose keys a Look on.
+ *
+ * `redaction` is the Brand's rung of the Redaction Policy: the default a
+ * request and a Template both left absent. Nullable, and null is not `false` —
+ * a Brand that has set nothing falls through to meco's default rather than
+ * standing for it. jsonb and not a boolean column, because the policy is an
+ * object the gateway owns the shape of and a second field must not be a second
+ * migration; records stores and returns it unread, as it does `calls.framing`.
+ */
 export const brands = pgTable("brands", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  redaction: jsonb("redaction"),
   createdAt: createdAt("created_at"),
 });
 
