@@ -1,432 +1,167 @@
-// The front over a fake gateway: a Hono app behind an injected `fetch`, so no
-// test opens a socket. It answers `/mcp` the way the stateless SDK handler
-// does — one SSE frame carrying the result, or JSON when asked — refuses a
-// request with no key as the gateway's `401`, and echoes `Mcp-Session-Id`.
-import { Hono } from "hono";
-import { describe, expect, it } from "vitest";
-import { createFront } from "../index";
-
-const UPSTREAM = "http://gateway.internal";
-const KEY = "sk_test_the_key";
-
-/** What the fake gateway answers a message with: a tool result echoing the method. */
-const answerTo = (id: unknown, method: string) => ({
-  jsonrpc: "2.0",
-  id,
-  result: {
-    content: [{ type: "text", text: JSON.stringify({ echo: method }) }],
-  },
-});
-
-/** The same answer as a cold call gets it: the news first. */
-const NEWS =
-  "meco was starting when this call arrived, about 9 seconds; it is up now and this is the result.";
-const coldAnswerTo = (id: unknown, method: string) => {
-  const answer = answerTo(id, method);
-  return {
-    ...answer,
-    result: {
-      ...answer.result,
-      content: [{ type: "text", text: NEWS }, ...answer.result.content],
-    },
-  };
-};
-
 /**
- * The fake gateway. `up` says whether the container is listening right now;
- * while it is not, every request is held the way the platform holds one to
- * a container that is starting, and answered once it is. `hits` records
- * arrivals, `answered` completions. `fail` makes a POST reject after the hold,
- * as a connection the platform dropped would.
+ * meco's wiring of `@timschoch/vercel-mcp-cold-start`, and nothing else.
+ *
+ * How the proxy behaves — verbatim forwarding, the probe, the notices, the
+ * error paths — is the package's own test suite, in its own repository. What
+ * cannot be tested there is what only meco knows: that the Function refuses to
+ * start without `GATEWAY_URL`, that it addresses the MCP Door and not the
+ * container's root, and that a cold caller is told meco's measured boot time
+ * rather than the package's unmeasured ceiling.
+ *
+ * `createFront` reads `globalThis.fetch` when it is built, so the stub goes in
+ * before `../server` is imported, and the module registry is reset between
+ * cases because that import runs once.
  */
-function gateway(
-  options: {
-    up?: () => boolean;
-    answer?: "sse" | "json";
-    fail?: () => boolean;
-  } = {}
-) {
-  const hits: string[] = [];
-  const answered: string[] = [];
-  const requests: Request[] = [];
-  const app = new Hono();
-  app.use(async (c, next) => {
-    hits.push(`${c.req.method} ${c.req.path}`);
-    while (!(options.up?.() ?? true)) {
-      await new Promise((resolve) => setTimeout(resolve, 2));
-    }
-    await next();
-    answered.push(`${c.req.method} ${c.req.path}`);
-  });
-  app.all("/mcp", async (c) => {
-    requests.push(c.req.raw.clone());
-    if (c.req.method !== "POST") return c.body(null, 405);
-    const key =
-      c.req.header("x-auth-token") ??
-      c.req.header("authorization")?.replace(/^Bearer /, "");
-    if (key !== KEY) {
-      return c.json({ error: { code: "unauthorized" } }, 401);
-    }
-    const message = JSON.parse(await c.req.text()) as {
-      id: unknown;
-      method: string;
-    };
-    const result = answerTo(message.id, message.method);
-    const session = c.req.header("mcp-session-id");
-    const headers: Record<string, string> =
-      session === undefined ? {} : { "mcp-session-id": session };
-    if (options.answer === "json") return c.json(result, 200, headers);
-    return c.body(`event: message\ndata: ${JSON.stringify(result)}\n\n`, 200, {
-      ...headers,
-      "content-type": "text/event-stream",
-    });
-  });
-  const fetch: typeof globalThis.fetch = async (input, init) => {
-    const request = new Request(input, init);
-    const response = await app.fetch(request);
-    if (request.method === "POST" && options.fail?.()) {
-      throw new TypeError("fetch failed");
-    }
-    return response;
-  };
-  return { hits, answered, requests, fetch };
-}
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const message = (
-  method: string,
-  params: unknown = {}
-): { jsonrpc: string; id: number; method: string; params: unknown } => ({
+const GATEWAY = "http://gateway.internal";
+
+/** The one JSON-RPC message the front treats specially. */
+const TOOLS_CALL = JSON.stringify({
   jsonrpc: "2.0",
-  id: 7,
-  method,
-  params,
+  id: 1,
+  method: "tools/call",
+  params: { name: "list_brands", arguments: {} },
 });
 
-function post(
-  front: Hono,
-  body: unknown,
-  headers: Record<string, string> = { authorization: `Bearer ${KEY}` }
-): Promise<Response> {
-  return Promise.resolve(
-    front.request("http://front/mcp", {
+const callTo = (front: (request: Request) => Promise<Response>) =>
+  front(
+    new Request("https://meco.test/mcp", {
       method: "POST",
       headers: {
-        ...headers,
         "content-type": "application/json",
         accept: "application/json, text/event-stream",
+        authorization: "Bearer sk_test_the_key",
       },
-      body: JSON.stringify(body),
+      body: TOOLS_CALL,
     })
   );
+
+/** Every `data:` payload on an SSE body, in order. */
+async function frames(response: Response): Promise<unknown[]> {
+  const text = await response.text();
+  return text
+    .split("\n\n")
+    .flatMap((frame) => frame.split("\n"))
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => JSON.parse(line.slice(6)) as unknown);
 }
 
-/** The SSE frames of a response, one parsed `data:` message per frame. */
-async function* frames(response: Response): AsyncGenerator<unknown> {
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let end = buffer.indexOf("\n\n");
-    while (end !== -1) {
-      const data = buffer
-        .slice(0, end)
-        .split("\n")
-        .find((line) => line.startsWith("data:"))
-        ?.slice(5)
-        .trim();
-      buffer = buffer.slice(end + 2);
-      if (data !== undefined) yield JSON.parse(data);
-      end = buffer.indexOf("\n\n");
-    }
-  }
+/**
+ * A fake gateway behind the global `fetch`. `heldMs` is how long it holds a
+ * request, the way the platform holds one to a container that is starting.
+ */
+function gateway(heldMs: number) {
+  const seen: string[] = [];
+  const fetch = vi.fn(async (input: unknown) => {
+    const request =
+      input instanceof Request ? input : new Request(String(input));
+    seen.push(`${request.method} ${request.url}`);
+    await new Promise((resolve) => setTimeout(resolve, heldMs));
+    if (request.method === "GET") return new Response("", { status: 401 });
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { content: [{ type: "text", text: '{"items":[]}' }] },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  });
+  return { fetch, seen };
 }
 
-/** Cold-start timings a test can wait through. */
-const COLD = { seconds: 9, probeTimeoutMs: 50 };
+/** What `../server` exports, as Vercel's Node runtime reads it. */
+type Server = {
+  readonly GET?: unknown;
+  readonly POST?: (request: Request) => Promise<Response>;
+  readonly DELETE?: unknown;
+  readonly default?: unknown;
+};
+
+/** `../server` afresh, with the stub already in place. */
+async function serverExports(): Promise<Server> {
+  vi.resetModules();
+  return (await import("../server")) as Server;
+}
+
+/** The handler the calls below go through: the `POST` Vercel would pick. */
+async function load(): Promise<(request: Request) => Promise<Response>> {
+  const { POST } = await serverExports();
+  if (POST === undefined) throw new Error("../server exports no POST");
+  return POST;
+}
 
 describe("@meco/front", () => {
-  it("forwards a message verbatim and relays the answer as it came", async () => {
-    const upstream = gateway();
-    const front = createFront({ upstream: UPSTREAM, fetch: upstream.fetch });
-    const body = message("tools/list");
-
-    const res = await post(front, body);
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("text/event-stream");
-    expect(await res.text()).toBe(
-      `event: message\ndata: ${JSON.stringify(answerTo(7, "tools/list"))}\n\n`
-    );
-    // No probe on anything but a tools/call: one hop, nothing else.
-    expect(upstream.hits).toEqual(["POST /mcp"]);
-    const seen = upstream.requests[0]!;
-    expect(new URL(seen.url).href).toBe(`${UPSTREAM}/mcp`);
-    expect(seen.headers.get("authorization")).toBe(`Bearer ${KEY}`);
-    expect(seen.headers.get("accept")).toBe(
-      "application/json, text/event-stream"
-    );
-    expect(await seen.text()).toBe(JSON.stringify(body));
+  beforeEach(() => {
+    vi.stubEnv("GATEWAY_URL", GATEWAY);
   });
 
-  it("carries x-auth-token too, and a request with no key is the gateway's 401", async () => {
-    const upstream = gateway();
-    const front = createFront({ upstream: UPSTREAM, fetch: upstream.fetch });
-
-    const token = await post(front, message("initialize"), {
-      "x-auth-token": KEY,
-    });
-    expect(token.status).toBe(200);
-    expect(upstream.requests[0]!.headers.get("x-auth-token")).toBe(KEY);
-
-    const none = await post(front, message("initialize"), {});
-    expect(none.status).toBe(401);
-    expect(await none.json()).toEqual({ error: { code: "unauthorized" } });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
-  it("carries Mcp-Session-Id both ways", async () => {
-    const upstream = gateway();
-    const front = createFront({ upstream: UPSTREAM, fetch: upstream.fetch });
+  it("refuses to start when GATEWAY_URL is unset, naming the variable", async () => {
+    vi.stubEnv("GATEWAY_URL", "");
+    await expect(load()).rejects.toThrow(/GATEWAY_URL is unset/);
+  });
 
-    const res = await post(front, message("tools/list"), {
-      authorization: `Bearer ${KEY}`,
-      "mcp-session-id": "session-42",
-    });
+  it("offers the three MCP verbs and no default function", async () => {
+    // A default *function* is Vercel's `(req, res)` handler: it is handed
+    // Node's `IncomingMessage`, whose `url` is the path alone, and the front
+    // reads `request.url`, so `new URL("/mcp")` throws and every request is a
+    // `500`. Measured on the preview for #252 before this line existed. Only
+    // the method names, or a default object with `fetch`, get a web `Request`.
+    vi.stubGlobal("fetch", gateway(0).fetch);
+    const server = await serverExports();
 
-    expect(upstream.requests[0]!.headers.get("mcp-session-id")).toBe(
-      "session-42"
+    expect(typeof server.GET).toBe("function");
+    expect(typeof server.POST).toBe("function");
+    expect(typeof server.DELETE).toBe("function");
+    expect(typeof server.default).not.toBe("function");
+  });
+
+  it("addresses the MCP Door on the container, not its root", async () => {
+    const upstream = gateway(0);
+    vi.stubGlobal("fetch", upstream.fetch);
+
+    const front = await load();
+    await callTo(front);
+
+    expect(upstream.seen).toContain(`POST ${GATEWAY}/mcp`);
+    expect(upstream.seen.every((hit) => hit.endsWith("/mcp"))).toBe(true);
+  });
+
+  it("promises meco's own measured cold start, not the package's ceiling", async () => {
+    // Held past the package's 500 ms probe timeout, so the cold path opens.
+    const upstream = gateway(700);
+    vi.stubGlobal("fetch", upstream.fetch);
+
+    const front = await load();
+    const response = await callTo(front);
+
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+
+    const notices = (await frames(response)).filter(
+      (frame): frame is { params: { data: string } } =>
+        (frame as { method?: string }).method === "notifications/message"
     );
-    expect(res.headers.get("mcp-session-id")).toBe("session-42");
-  });
-
-  it("forwards GET and DELETE untouched, so the gateway's 405 is the answer", async () => {
-    const upstream = gateway();
-    const front = createFront({ upstream: UPSTREAM, fetch: upstream.fetch });
-
-    for (const method of ["GET", "DELETE"]) {
-      const res = await front.request("http://front/mcp", {
-        method,
-        headers: { authorization: `Bearer ${KEY}` },
-      });
-      expect(res.status).toBe(405);
-    }
-    expect(upstream.hits).toEqual(["GET /mcp", "DELETE /mcp"]);
-  });
-
-  it("forwards a warm tools/call at once, probes beside it, and adds nothing to the answer", async () => {
-    const upstream = gateway();
-    const front = createFront({ upstream: UPSTREAM, fetch: upstream.fetch });
-
-    const res = await post(
-      front,
-      message("tools/call", { name: "list_brands" })
+    expect(notices[0]?.params.data).toBe("meco is starting, about 7 seconds");
+    expect(notices.at(-1)?.params.data).toBe(
+      "meco is up, your request is now being processed"
     );
-
-    expect(upstream.hits).toEqual(["POST /mcp", "GET /mcp"]);
-    expect(res.status).toBe(200);
-    const received = [];
-    for await (const frame of frames(res)) received.push(frame);
-    expect(received).toEqual([answerTo(7, "tools/call")]);
   });
 
-  it("answers a cold tools/call before the gateway is up, then confirms, then relays", async () => {
-    let up = false;
-    const upstream = gateway({ up: () => up });
-    const front = createFront({
-      upstream: UPSTREAM,
-      fetch: upstream.fetch,
-      coldStart: COLD,
-    });
+  it("adds nothing to a warm answer", async () => {
+    const upstream = gateway(0);
+    vi.stubGlobal("fetch", upstream.fetch);
 
-    const res = await post(
-      front,
-      message("tools/call", { name: "render_image" })
-    );
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("text/event-stream");
+    const front = await load();
+    const response = await callTo(front);
 
-    const stream = frames(res);
-    expect((await stream.next()).value).toEqual({
-      jsonrpc: "2.0",
-      method: "notifications/message",
-      params: {
-        level: "info",
-        logger: "meco",
-        data: "meco is starting, about 9 seconds",
-      },
-    });
-    // The first notice went out while the gateway was still down: the call
-    // is on its way, and nothing has answered it.
-    expect(upstream.hits).toContain("POST /mcp");
-    expect(upstream.answered).toEqual([]);
-
-    up = true;
-    const rest = [];
-    for await (const frame of stream) rest.push(frame);
-    expect(rest).toEqual([
-      {
-        jsonrpc: "2.0",
-        method: "notifications/message",
-        params: {
-          level: "info",
-          logger: "meco",
-          data: "meco is up, your request is now being processed",
-        },
-      },
-      coldAnswerTo(7, "tools/call"),
-    ]);
-    expect(upstream.answered).toContain("POST /mcp");
-    const call = upstream.requests.find((r) => r.method === "POST")!;
-    expect(call.headers.get("authorization")).toBe(`Bearer ${KEY}`);
-  });
-
-  it("says the same as progress when the call carries a progressToken", async () => {
-    let up = false;
-    const upstream = gateway({ up: () => up });
-    const front = createFront({
-      upstream: UPSTREAM,
-      fetch: upstream.fetch,
-      coldStart: COLD,
-    });
-    setTimeout(() => {
-      up = true;
-    }, COLD.probeTimeoutMs * 3);
-
-    const res = await post(
-      front,
-      message("tools/call", {
-        name: "crop_image",
-        _meta: { progressToken: "p1" },
-      })
-    );
-    const received = [];
-    for await (const frame of frames(res)) received.push(frame);
-
-    expect(received.map((f) => (f as { method?: string }).method)).toEqual([
-      "notifications/message",
-      "notifications/progress",
-      "notifications/message",
-      "notifications/progress",
-      undefined,
-    ]);
-    expect(received[1]).toEqual({
-      jsonrpc: "2.0",
-      method: "notifications/progress",
-      params: {
-        progressToken: "p1",
-        progress: 0,
-        message: "meco is starting, about 9 seconds",
-      },
-    });
-  });
-
-  it("wraps a JSON answer as the stream's final frame on the cold path", async () => {
-    let up = false;
-    const upstream = gateway({ up: () => up, answer: "json" });
-    const front = createFront({
-      upstream: UPSTREAM,
-      fetch: upstream.fetch,
-      coldStart: COLD,
-    });
-
-    const res = await post(
-      front,
-      message("tools/call", { name: "list_brands" })
-    );
-    const stream = frames(res);
-    await stream.next();
-    up = true;
-    const rest = [];
-    for await (const frame of stream) rest.push(frame);
-
-    expect(rest.at(-1)).toEqual(coldAnswerTo(7, "tools/call"));
-  });
-
-  it("answers a JSON-RPC error with the call's id when the forwarded call is lost", async () => {
-    let up = false;
-    const upstream = gateway({ up: () => up, fail: () => true });
-    const front = createFront({
-      upstream: UPSTREAM,
-      fetch: upstream.fetch,
-      coldStart: COLD,
-    });
-
-    const res = await post(
-      front,
-      message("tools/call", { name: "list_brands" })
-    );
-    const stream = frames(res);
-    await stream.next();
-    up = true;
-    const rest = [];
-    for await (const frame of stream) rest.push(frame);
-
-    expect(rest).toEqual([
-      {
-        jsonrpc: "2.0",
-        id: 7,
-        error: {
-          code: -32000,
-          message:
-            "meco did not answer, send the call again: TypeError: fetch failed",
-        },
-      },
-    ]);
-  });
-
-  it("relays a call with no credential as it is, so the gateway's 401 is the answer even cold", async () => {
-    let up = false;
-    const upstream = gateway({ up: () => up });
-    const front = createFront({
-      upstream: UPSTREAM,
-      fetch: upstream.fetch,
-      coldStart: COLD,
-    });
-    setTimeout(() => {
-      up = true;
-    }, COLD.probeTimeoutMs * 3);
-
-    const res = await post(
-      front,
-      message("tools/call", { name: "list_brands" }),
-      {}
-    );
-
-    expect(res.status).toBe(401);
-    expect(await res.json()).toEqual({ error: { code: "unauthorized" } });
-    expect(upstream.hits).toEqual(["POST /mcp"]);
-  });
-
-  it("turns a refusal on the cold path into a JSON-RPC error, the status line being sent", async () => {
-    let up = false;
-    const upstream = gateway({ up: () => up });
-    const front = createFront({
-      upstream: UPSTREAM,
-      fetch: upstream.fetch,
-      coldStart: COLD,
-    });
-
-    const res = await post(
-      front,
-      message("tools/call", { name: "list_brands" }),
-      { "x-auth-token": "not-the-key" }
-    );
-    const stream = frames(res);
-    await stream.next();
-    up = true;
-    const rest = [];
-    for await (const frame of stream) rest.push(frame);
-
-    expect(rest.at(-1)).toEqual({
-      jsonrpc: "2.0",
-      id: 7,
-      error: {
-        code: -32000,
-        message: "meco answered 401",
-        data: JSON.stringify({ error: { code: "unauthorized" } }),
-      },
-    });
+    expect(response.headers.get("content-type")).toContain("application/json");
+    const body = (await response.json()) as { result: { content: unknown[] } };
+    expect(body.result.content).toHaveLength(1);
   });
 });

@@ -28,14 +28,37 @@ authorisation between the two services is the services' own job.
 ### The front
 
 `front` is a Node Function, not a container. `packages/front/server.ts`
-exports a Hono app; Vercel's Node-backends detection takes it as the
-entrypoint and bundles it with its one dependency, `hono`. `entrypoint:
-"server.ts"` pins that, because the detection order (`app`, `index`,
-`server`, `main`) would otherwise take `index.ts`, the package's factory,
-which exports no app. What it does is in `docs/specs/gateway.md`, "The
-Front": every MCP message goes to the container's `/mcp` over `GATEWAY_URL`
-as it came, and only a `tools/call` that finds the container scaled to zero
-is told so on the stream.
+exports a web handler, `(Request) => Promise<Response>`, under `GET`, `POST`
+and `DELETE` — the whole of MCP's Streamable HTTP surface — and **under no
+default**; Vercel's Node-backends detection takes it as the entrypoint and
+bundles it with its one dependency,
+[`@timschoch/vercel-mcp-cold-start`](https://www.npmjs.com/package/@timschoch/vercel-mcp-cold-start).
+`entrypoint: "server.ts"` pins that, because the detection order (`app`,
+`index`, `server`, `main`) is worth naming rather than relying on. What it
+does is in `docs/specs/gateway.md`, "The Front": every MCP message goes to
+the container's `/mcp` over `GATEWAY_URL` as it came, and only a `tools/call`
+that finds the container scaled to zero is told so on the stream.
+
+The proxy itself is not meco's any more. It knew no tool and depended on no
+meco package, so it was extracted and published; `server.ts` holds the wiring
+only meco can know — the container behind `GATEWAY_URL`, the `/mcp` path on
+it, the name `meco` in the notices, and `seconds: 7`, the measurement below.
+The package's own default is `30`, a ceiling for a server nobody has
+measured. Re-measure and change the number here when the gateway's boot
+changes; the package will not know.
+
+**The export shape picks the calling convention, and a wrong one is a `500`
+on every request.** Vercel's Node runtime hands a web `Request`, whose `url`
+is absolute, to a named `GET`/`POST`/`DELETE` or to a default _object_ with a
+`fetch` method. A default _function_ is the old `(req, res)` handler and gets
+Node's `IncomingMessage`, whose `url` is the path alone. The front reads
+`request.url` to carry the query string over, so under the Node shape
+`new URL("/mcp")` throws `ERR_INVALID_URL` before anything is forwarded.
+Measured on preview `meco-2wnvgnsc3` (#252): the file exported the three verbs
+_and_ a default function, the default won, and `GET /mcp` was
+`FUNCTION_INVOCATION_FAILED` in 1.14 s while `/health` on the container
+answered `200`. Do not add a default export back; `packages/front/tests/`
+fails if one appears.
 
 **Measured** (6 Sep 2026, #205), all from Zürich, which enters Vercel at
 `iad1` and pays about 0.75 s per round trip before anything runs (an unknown
@@ -80,7 +103,7 @@ configuration forces legacy deploy implementation`; it installed from the
   first byte to confirmation, was 2.4 s here and 4.8 s on the first build
   (notice at 2.19 s, confirmation at 6.95 s); the first `/health` after a
   deploy answered `200` after 7.25 s. **7 s** is what the notice promises
-  (`COLD_START.seconds` in `packages/front/lib/cold-start.ts`); re-measure
+  (`coldStart.seconds` in `packages/front/server.ts`); re-measure
   it when the gateway's boot changes.
 
 - **Why the probe is `GET /mcp` and not `/health`.** Eight alternating hits

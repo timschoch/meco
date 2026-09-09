@@ -85,9 +85,9 @@ importers:
 
   packages/front:
     dependencies:
-      hono:
-        specifier: ^4.10.7
-        version: 4.13.3
+      '@timschoch/vercel-mcp-cold-start':
+        specifier: ^0.5.0
+        version: 0.5.0
 
   packages/gateway:
     dependencies:
@@ -1074,6 +1074,10 @@ packages:
         optional: true
       react:
         optional: true
+
+  '@timschoch/vercel-mcp-cold-start@0.5.0':
+    resolution: {integrity: sha512-Uqn3xMOFhpxJ8zrff712nOFc6ZMymxz58b0yuINi4dJjpYo8NU6d6Oq2QJIstjl9uEs1KJlJ1ph58ywBkEPo4w==}
+    engines: {node: '>=22'}
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -2458,6 +2462,8 @@ snapshots:
   '@takumi-rs/helpers@2.13.6(react@19.2.8)':
     optionalDependencies:
       react: 19.2.8
+
+  '@timschoch/vercel-mcp-cold-start@0.5.0': {}
 
   '@types/chai@5.2.3':
     dependencies:
