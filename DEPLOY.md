@@ -28,9 +28,10 @@ authorisation between the two services is the services' own job.
 ### The front
 
 `front` is a Node Function, not a container. `packages/front/server.ts`
-exports a web handler, `(Request) => Promise<Response>`, under `GET`, `POST`,
-`DELETE` and as its default; Vercel's Node-backends detection takes it as the
-entrypoint and bundles it with its one dependency,
+exports a web handler, `(Request) => Promise<Response>`, under `GET`, `POST`
+and `DELETE` — the whole of MCP's Streamable HTTP surface — and **under no
+default**; Vercel's Node-backends detection takes it as the entrypoint and
+bundles it with its one dependency,
 [`@timschoch/vercel-mcp-cold-start`](https://www.npmjs.com/package/@timschoch/vercel-mcp-cold-start).
 `entrypoint: "server.ts"` pins that, because the detection order (`app`,
 `index`, `server`, `main`) is worth naming rather than relying on. What it
@@ -45,6 +46,19 @@ it, the name `meco` in the notices, and `seconds: 7`, the measurement below.
 The package's own default is `30`, a ceiling for a server nobody has
 measured. Re-measure and change the number here when the gateway's boot
 changes; the package will not know.
+
+**The export shape picks the calling convention, and a wrong one is a `500`
+on every request.** Vercel's Node runtime hands a web `Request`, whose `url`
+is absolute, to a named `GET`/`POST`/`DELETE` or to a default _object_ with a
+`fetch` method. A default _function_ is the old `(req, res)` handler and gets
+Node's `IncomingMessage`, whose `url` is the path alone. The front reads
+`request.url` to carry the query string over, so under the Node shape
+`new URL("/mcp")` throws `ERR_INVALID_URL` before anything is forwarded.
+Measured on preview `meco-2wnvgnsc3` (#252): the file exported the three verbs
+_and_ a default function, the default won, and `GET /mcp` was
+`FUNCTION_INVOCATION_FAILED` in 1.14 s while `/health` on the container
+answered `200`. Do not add a default export back; `packages/front/tests/`
+fails if one appears.
 
 **Measured** (6 Sep 2026, #205), all from Zürich, which enters Vercel at
 `iad1` and pays about 0.75 s per round trip before anything runs (an unknown

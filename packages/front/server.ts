@@ -32,5 +32,16 @@ const front = createFront({
   coldStart: { name: "meco", seconds: 7 },
 });
 
+/**
+ * Under the method names, and **never** as a bare default function. Vercel's
+ * Node runtime picks the calling convention from the export shape: a named
+ * `GET`/`POST`/`DELETE` or a `default` object with a `fetch` method is handed
+ * the web `Request`, whose `url` is absolute; a default *function* is the old
+ * `(req, res)` handler and is handed Node's `IncomingMessage`, whose `url` is
+ * the path alone. The front reads `request.url` to carry the query string
+ * over, so the Node shape fails it — `new URL("/mcp")` throws
+ * `ERR_INVALID_URL`, and every request to the Front is a `500`. This file
+ * exported both for a preview deployment, the default won, and that is what
+ * happened. The three MCP verbs are the whole Streamable HTTP surface.
+ */
 export { front as GET, front as POST, front as DELETE };
-export default front;

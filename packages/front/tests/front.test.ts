@@ -71,13 +71,25 @@ function gateway(heldMs: number) {
   return { fetch, seen };
 }
 
+/** What `../server` exports, as Vercel's Node runtime reads it. */
+type Server = {
+  readonly GET?: unknown;
+  readonly POST?: (request: Request) => Promise<Response>;
+  readonly DELETE?: unknown;
+  readonly default?: unknown;
+};
+
 /** `../server` afresh, with the stub already in place. */
-async function load(): Promise<(request: Request) => Promise<Response>> {
+async function serverExports(): Promise<Server> {
   vi.resetModules();
-  const module = (await import("../server")) as {
-    default: (request: Request) => Promise<Response>;
-  };
-  return module.default;
+  return (await import("../server")) as Server;
+}
+
+/** The handler the calls below go through: the `POST` Vercel would pick. */
+async function load(): Promise<(request: Request) => Promise<Response>> {
+  const { POST } = await serverExports();
+  if (POST === undefined) throw new Error("../server exports no POST");
+  return POST;
 }
 
 describe("@meco/front", () => {
@@ -93,6 +105,21 @@ describe("@meco/front", () => {
   it("refuses to start when GATEWAY_URL is unset, naming the variable", async () => {
     vi.stubEnv("GATEWAY_URL", "");
     await expect(load()).rejects.toThrow(/GATEWAY_URL is unset/);
+  });
+
+  it("offers the three MCP verbs and no default function", async () => {
+    // A default *function* is Vercel's `(req, res)` handler: it is handed
+    // Node's `IncomingMessage`, whose `url` is the path alone, and the front
+    // reads `request.url`, so `new URL("/mcp")` throws and every request is a
+    // `500`. Measured on the preview for #252 before this line existed. Only
+    // the method names, or a default object with `fetch`, get a web `Request`.
+    vi.stubGlobal("fetch", gateway(0).fetch);
+    const server = await serverExports();
+
+    expect(typeof server.GET).toBe("function");
+    expect(typeof server.POST).toBe("function");
+    expect(typeof server.DELETE).toBe("function");
+    expect(typeof server.default).not.toBe("function");
   });
 
   it("addresses the MCP Door on the container, not its root", async () => {
