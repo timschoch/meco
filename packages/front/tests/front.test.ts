@@ -1,12 +1,12 @@
 /**
  * meco's wiring of `@timschoch/vercel-mcp-cold-start`, and nothing else.
  *
- * How the proxy behaves — verbatim forwarding, the probe, the notices, the
- * error paths — is the package's own test suite, in its own repository. What
- * cannot be tested there is what only meco knows: that the Function refuses to
- * start without `GATEWAY_URL`, that it addresses the MCP Door and not the
- * container's root, and that a cold caller is told meco's measured boot time
- * rather than the package's unmeasured ceiling.
+ * How the proxy behaves — verbatim forwarding, the notices, the error paths —
+ * is the package's own test suite, in its own repository. What cannot be
+ * tested there is what only meco knows: that the Function refuses to start
+ * without `GATEWAY_URL`, that it addresses the MCP Door and not the
+ * container's root, and that a slow caller hears the name `meco` rather than
+ * the package's "the server".
  *
  * `createFront` reads `globalThis.fetch` when it is built, so the stub goes in
  * before `../server` is imported, and the module registry is reset between
@@ -133,8 +133,8 @@ describe("@meco/front", () => {
     expect(upstream.seen.every((hit) => hit.endsWith("/mcp"))).toBe(true);
   });
 
-  it("promises meco's own measured cold start, not the package's ceiling", async () => {
-    // Held past the package's 500 ms probe timeout, so the cold path opens.
+  it("calls itself meco in the notices, not the package's 'the server'", async () => {
+    // Held past the package's 500 ms first notice, so the stream opens.
     const upstream = gateway(700);
     vi.stubGlobal("fetch", upstream.fetch);
 
@@ -147,10 +147,8 @@ describe("@meco/front", () => {
       (frame): frame is { params: { data: string } } =>
         (frame as { method?: string }).method === "notifications/message"
     );
-    expect(notices[0]?.params.data).toBe("meco is starting, about 7 seconds");
-    expect(notices.at(-1)?.params.data).toBe(
-      "meco is up, your request is now being processed"
-    );
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.params.data).toBe("meco is processing your request");
   });
 
   it("adds nothing to a warm answer", async () => {
