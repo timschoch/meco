@@ -15,3 +15,11 @@
 **Rule.** Commit the green state before the first mutation, every time. `git restore <path>` is not "undo my last edit", it is "make this path match HEAD" — so it is only safe when HEAD is where you want to land. Nothing else may be uncommitted under that path.
 
 **Why it matters.** The loss is silent. The suite stays green because the refactors were behaviour-preserving, so nothing points at the gap; what is left is a commit whose message describes work that is not in it.
+
+## meco has no Slack: skip the post-merge summary
+
+**What happened.** After merging #253 the `git-shortcuts` skill's post-merge step drafted a Slack `#dev` one-liner and asked for a Slack handle. meco has no Slack workspace. The question cost the user a turn for nothing.
+
+**Rule.** In meco, after `m` or `--release`, skip the Slack summary step without asking. Do not draft the one-liner, do not ask for a handle, do not offer to save `SLACK_USER_ID`. Report the merge and stop.
+
+**Why it matters.** The skill is shared across repos and cannot know which ones have a Slack. A question the user can only answer with "no" is noise, and noise at the end of a chain hides the merge result it follows.
