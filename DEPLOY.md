@@ -36,16 +36,16 @@ bundles it with its one dependency,
 `entrypoint: "server.ts"` pins that, because the detection order (`app`,
 `index`, `server`, `main`) is worth naming rather than relying on. What it
 does is in `docs/specs/gateway.md`, "The Front": every MCP message goes to
-the container's `/mcp` over `GATEWAY_URL` as it came, and only a `tools/call`
-that finds the container scaled to zero is told so on the stream.
+the container's `/mcp` over `GATEWAY_URL` as it came, and a request the
+container has not answered within 500 ms is told on its own stream that it is
+being processed, again every 2 s until the answer arrives.
 
 The proxy itself is not meco's any more. It knew no tool and depended on no
 meco package, so it was extracted and published; `server.ts` holds the wiring
 only meco can know — the container behind `GATEWAY_URL`, the `/mcp` path on
-it, the name `meco` in the notices, and `seconds: 7`, the measurement below.
-The package's own default is `30`, a ceiling for a server nobody has
-measured. Re-measure and change the number here when the gateway's boot
-changes; the package will not know.
+it, and the name `meco` in the notices. The timings are the package's
+defaults (`NOTICES`); override them in `server.ts` if a measurement below
+ever says they are wrong.
 
 **The export shape picks the calling convention, and a wrong one is a `500`
 on every request.** Vercel's Node runtime hands a web `Request`, whose `url`
@@ -79,9 +79,8 @@ configuration forces legacy deploy implementation`; it installed from the
   | `tools/list`             | 873 ms        | 824 ms         | 676 ms     | 668 ms      |
   | `tools/call list_brands` | 836 ms        | 800 ms         | 780 ms     | 663 ms      |
 
-  The hop costs about 40–120 ms on a ~0.7 s baseline. The probe beside a
-  `tools/call` adds nothing the caller waits for: the call is already on its
-  way.
+  The hop costs about 40–120 ms on a ~0.7 s baseline. The notice timer adds
+  nothing the caller waits for: the call is already on its way.
 
 - **Cold.** After 95 s idle (a preview scales down after 30 s), one
   `tools/call list_brands` through the front, stamped at the client:
@@ -99,20 +98,12 @@ configuration forces legacy deploy implementation`; it installed from the
   by about 0.1 s a line; the first is exact). The ticket asked for the notice
   inside 1 s; from here it is not, and the budget below says where the time
   goes. The first byte is the network baseline, the Function's own cold
-  start and the 500 ms the probe is given, in that order. The container's cold start,
-  first byte to confirmation, was 2.4 s here and 4.8 s on the first build
-  (notice at 2.19 s, confirmation at 6.95 s); the first `/health` after a
-  deploy answered `200` after 7.25 s. **7 s** is what the notice promises
-  (`coldStart.seconds` in `packages/front/server.ts`); re-measure
-  it when the gateway's boot changes.
-
-- **Why the probe is `GET /mcp` and not `/health`.** Eight alternating hits
-  on `meco-3giklictc`: `GET /health` answered in 0.81–1.10 s while its 30 s
-  cache was fresh and in 3.67–4.22 s when it was stale (the store and
-  records probes run), where the `404` above took 0.75–0.85 s. A probe on
-  `/health` would overrun any timeout every 30 s and call a warm container
-  cold. `GET /mcp` with no key is a `401` from the Caller middleware, with no
-  store or database behind it.
+  start and the 500 ms before the first notice, in that order. The container's
+  cold start, first byte to answer, was 2.4 s here and 4.8 s on the first
+  build (notice at 2.19 s, answer at 6.95 s); the first `/health` after a
+  deploy answered `200` after 7.25 s. The notice text in the trace above is
+  the package's before 0.6.0; today it reads "meco is processing your
+  request" and repeats every 2 s, so a cold call hears it at least twice.
 
 - **On production**, deployment `dpl_CCD4vWzW7861UqueuRtVR7M8NkLK`, from Zürich.
   The front runs in `fra1`, beside the containers. Warm, the hop costs 40–50 ms

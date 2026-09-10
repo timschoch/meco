@@ -8,6 +8,6 @@
     "./server": "./server.ts"
   },
   "dependencies": {
-    "@timschoch/vercel-mcp-cold-start": "^0.5.0"
+    "@timschoch/vercel-mcp-cold-start": "^0.6.0"
   }
 }

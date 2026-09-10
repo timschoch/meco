@@ -3,10 +3,10 @@
  *
  * The proxy itself is `@timschoch/vercel-mcp-cold-start`, extracted from this
  * package and published: it knows no tool, forwards every JSON-RPC message
- * verbatim, and tells a `tools/call` that arrives on a scaled-to-zero
- * container that it is starting. Nothing about it is meco's, which is why it
- * left. What stays here is the wiring only meco can know: which container,
- * what the notices call it, and the boot time they promise.
+ * verbatim, and tells a request the container has not answered within half a
+ * second that it is being processed, again every two seconds until it is.
+ * Nothing about it is meco's, which is why it left. What stays here is the
+ * wiring only meco can know: which container, and what the notices call it.
  *
  * `GATEWAY_URL` is the service binding to the gateway container
  * (`vercel.json`), injected at runtime only, so a deployment without it fails
@@ -23,13 +23,15 @@ if (gateway === undefined || gateway === "") {
  * The MCP Door's own URL. The package joins nothing onto `upstream`, so the
  * path is named here rather than assumed there.
  *
- * `seconds` is meco's own last measured cold start (`DEPLOY.md`, "The Front"),
- * not the package's default of 30 — that is a ceiling for a server nobody has
- * measured, and meco has.
+ * `name` is what the notices call the container; a person reads it in their
+ * agent's log, so it is `meco` and not the package's "the server". The
+ * timings stay the package's `NOTICES`: the first notice at 500 ms is inside
+ * the ticket's one-second budget, and the gateway's measured cold start
+ * (`DEPLOY.md`, "The Front") is long enough for at least one repeat.
  */
 const front = createFront({
   upstream: new URL("/mcp", gateway).toString(),
-  coldStart: { name: "meco", seconds: 7 },
+  notices: { name: "meco" },
 });
 
 /**
