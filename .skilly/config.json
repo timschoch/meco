@@ -1,9 +1,13 @@
 {
+  "tier": "sandbox",
   "bundles": [
     "workflow",
     "tech-typescript",
     "tech-vercel",
     "tech-react",
     "tech-neon"
-  ]
+  ],
+  "review": {
+    "bots": []
+  }
 }
