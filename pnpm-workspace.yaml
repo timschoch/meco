@@ -3,6 +3,8 @@ packages:
 
 allowBuilds:
   esbuild: true
+  # The prepare script installs the hooks, so this postinstall has no job.
+  lefthook: false
   # Its postinstall downloads CUDA libraries on Linux. The CPU binaries ship in
   # the tarball; the image sets ONNXRUNTIME_NODE_INSTALL=skip for the same reason.
   onnxruntime-node: false
