@@ -2,6 +2,7 @@ packages:
   - packages/*
 
 allowBuilds:
+  lefthook: false
   esbuild: true
   # Its postinstall downloads CUDA libraries on Linux. The CPU binaries ship in
   # the tarball; the image sets ONNXRUNTIME_NODE_INSTALL=skip for the same reason.
