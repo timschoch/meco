@@ -27,7 +27,7 @@ Each pass:
   - Tell the user the failing checks, what each attempt changed, and the first 20 failing lines.
 - **Humans get the user's words, not yours.** A human reviewer is any `reviews[].author` that is neither the PR author nor flagged `isBot`. Surface their item to the user with a suggested reply, and wait for explicit confirmation before posting anything to GitHub. Bot items you act on and resolve yourself.
 - **Resolve what you fixed.** Once the fix is pushed: `bash scripts/resolve-thread.sh <threadId>`, using `threads[].id` from the snapshot.
-- **Merge is the user's call.** The sign-off rule (`.claude/rules/workflow-sign-off.md`): staged means done, committed means signed off. Merge mode starts only with `--merge`, or when the user says merge in this session. Without it, stop at green and report.
+- **Merge is the user's call.** The done rule (`.claude/rules/workflow-done.md`): committed means done, pushed means signed off. Merge mode starts only with `--merge`, or when the user says merge in this session. Without it, stop at green and report.
 - **Merge mode merges at green, never before.** Run `gh pr merge <pr> --squash --match-head-commit <headSha>`, `--merge` in place of `--squash` for `--merge=merge`. Then take one more snapshot: `MERGED` ends the loop.
   - `headSha` comes from the green snapshot: a push that lands after it blocks the merge.
   - Never `--auto`: on a repo without required checks it merges at once, before CI settles.
@@ -46,7 +46,7 @@ A login ending in `[bot]` also counts. Missing key or missing file means an empt
 
 ## CI
 
-Checks are whatever the PR reports. The repo's tier in `.skilly/config.json` decides the set (the `verify` skill explains tiers). `verify` is the one check every tier runs, so a red `verify` is always a statement about this branch.
+Checks are whatever the PR reports. The repo's CI decides the set. A red check is a statement about this branch.
 
 ## Commits
 

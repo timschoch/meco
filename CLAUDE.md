@@ -12,7 +12,7 @@ The five canonical triage roles, each label string equal to its name. See `docs/
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context: `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
 ## Packages
 
@@ -39,8 +39,8 @@ change in it, which is how one implementer lost its own work twice.
 ## Docs
 
 Vocabulary lands with the feature, not in a later sweep: a change that
-introduces a term adds it to `CONTEXT.md` in the same PR. Merged code and
-`CONTEXT.md` outrank a plan document — where a plan's shorthand and the shipped
+introduces a term adds it to `GLOSSARY.md` in the same PR. Merged code and
+`GLOSSARY.md` outrank a plan document — where a plan's shorthand and the shipped
 types disagree, the types win and the ADR records why.
 
 ## Deployment configuration
@@ -147,15 +147,15 @@ every step below, in order. Skipping a step is a defect.
 Steps 1–7 stay in **one unbroken context window**. Do not `/compact` or
 `/clear` before step 7.
 
-1. **Orient.** Read `CONTEXT.md`, `docs/adr/`, and the architecture ADR. Read
+1. **Orient.** Read `GLOSSARY.md`, `docs/adr/`, and the architecture ADR. Read
    the **entry points** of every module yours touches — never their internals.
    That is what the seam is for.
 2. **`/grill-with-docs`.** Interview until the concept is sharp. You have no
    human: **the orchestrator answers**. Message it and wait. Facts are yours to
    establish; decisions are the orchestrator's. Leaves the trail in
-   `CONTEXT.md` and ADRs.
+   `GLOSSARY.md` and ADRs.
 3. **`/domain-modeling`.** Every new term for your module lands in
-   `CONTEXT.md` with its avoid-list, in the same PR as the code. A term that
+   `GLOSSARY.md` with its avoid-list, in the same PR as the code. A term that
    already exists is not redefined.
 4. **`/codebase-design`.** Settle the shape before any code: what the interface
    is, where the seam goes, how deep it is. Write the interface down first.

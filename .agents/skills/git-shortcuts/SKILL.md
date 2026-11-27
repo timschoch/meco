@@ -26,28 +26,31 @@ git ls-remote --exit-code --heads origin staging > /dev/null 2>&1 && echo LEGACY
 
 `LEGACY` → tell the user, then read `LEGACY-STAGING.md` next to this file and follow it instead. Never silently target the trunk in such a repo.
 
-**Base branch: never hardcode it.** Prefer the repo's own helper when it has one:
+**Base branch: never hardcode it.** A ticket cut from an epic records its base in the `branch.<name>.base` git key. Whatever creates the branch sets it: `git config branch.<name>.base epic/<epic>`. No key → the trunk.
 
 ```bash
 branch=$(git symbolic-ref --short HEAD)
-trunk=$(git symbolic-ref --short refs/remotes/origin/HEAD 2> /dev/null | sed 's|^origin/||')
-trunk=${trunk:-main}
+trunk=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+base=$(git config "branch.${branch}.base")
 
-if [ -f .agents/hooks/lib/branch-name.sh ]; then
-  . .agents/hooks/lib/branch-name.sh
-  base=$(branch_base "$branch")
-else
-  base=$(git config "branch.${branch}.laicaBase" 2> /dev/null)
-  case "$base" in
-    epic/*) git rev-parse --verify --quiet "refs/remotes/origin/$base" > /dev/null || base=$trunk ;;
-    *) base=$trunk ;;
-  esac
-fi
+case "$base" in
+  epic/*)
+    git fetch --quiet origin "$base" 2> /dev/null
+    git rev-parse --verify --quiet "refs/remotes/origin/$base" > /dev/null || {
+      echo "base: $base not on origin, using $trunk" >&2
+      base=$trunk
+    }
+    ;;
+  *)
+    echo "base: no epic base recorded for $branch, using $trunk" >&2
+    base=$trunk
+    ;;
+esac
 ```
 
-`$trunk` is the repo's default branch — `main` everywhere so far, but read, not assumed. `$base` is what `pr` targets: the trunk, or the epic the ticket was cut from.
+`$trunk` is the repo's default branch: read, not assumed. `$base` is what `pr` targets: the trunk, or the epic the ticket was cut from.
 
-A wrong base produces a *smaller* diff, and a small diff is what a review reports as clean — so an `epic/*` base that cannot be verified on `origin` falls back to the trunk. Never the other way round.
+A wrong base produces a *smaller* diff, and a small diff is what a review reports as clean — so an `epic/*` base that cannot be verified on `origin` falls back to the trunk, with a warning on stderr. Never the other way round.
 
 ## Shorthand map
 
@@ -78,12 +81,12 @@ Read `../babysit-pr/SKILL.md` next to this skill in full and follow it in merge 
 - Bad: `perf(server): negotiate per-message deflate on the websocket`
 - Good: `perf(server): cut websocket frame size by 70% with gzipping`
 
-**Body.** Open with the problem in the user's own words, then the solution in a few lines. Never an implementation inventory.
+**Body.** `../pr/SKILL.md` next to this skill exists → read it in full and write the body from its template; the two lines below do not apply. Missing → open with the problem in the user's own words, then the solution in a few lines. Never an implementation inventory.
 
 - Bad: "Removed implicit workspace carryover from every new thread entry point …"
 - Good: "My new worktree default was ignored when starting new threads on existing worktrees."
 
-Diff over ~200 lines → add a short "How to review" pointer naming where to start. End the body with the attribution lines the session provides.
+Either way: diff over ~200 lines → add a short "How to review" pointer naming where to start. End the body with the attribution lines the session provides.
 
 **Never a draft PR.** Review bots only run on a real one.
 

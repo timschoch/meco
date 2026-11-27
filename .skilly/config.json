@@ -9,5 +9,9 @@
   ],
   "review": {
     "bots": []
-  }
+  },
+  "skills": [
+    "neon-postgres-branches",
+    "resolving-merge-conflicts"
+  ]
 }
